@@ -1,9 +1,45 @@
 import general_motion_retargeting.utils.lafan_vendor.utils as utils
 from general_motion_retargeting.utils.xsens_vendor.BVHParser import BVHParser, Anim
 import numpy as np
-from general_motion_retargeting.utils.xsens_vendor.bvh_edit.CurveEditor import (
-    OffsetManager,
-)
+
+try:
+    from general_motion_retargeting.utils.xsens_vendor.bvh_edit.CurveEditor import (
+        OffsetManager,
+    )
+except ModuleNotFoundError as exc:
+    if exc.name != "PyQt6":
+        raise
+
+    class OffsetManager:
+        """Lightweight offset reader for non-GUI BVH parsing."""
+
+        def __init__(self, default_path="offsets.json"):
+            self.default_path = default_path
+
+        def load_offsets(self, path=None):
+            import json
+            import os
+
+            path = path or self.default_path
+            if not os.path.exists(path):
+                print(f"Path {path} does not exist. Initializing zero offsets.")
+                return {}
+
+            try:
+                with open(path, "r") as f:
+                    return json.load(f)
+            except (json.JSONDecodeError, OSError) as err:
+                print(f"Failed to load {path}: {err}. Initializing zero offsets.")
+                return {}
+
+        def parse_to_window_format(self, joint_names, offsets_dict):
+            channel_names = ["X", "Y", "Z"]
+            offsets = {}
+            for j, joint in enumerate(joint_names):
+                joint_data = offsets_dict.get(joint, {})
+                for c, channel in enumerate(channel_names):
+                    offsets[(j, c)] = joint_data.get(channel, 0.0)
+            return offsets
 
 
 def bvh_parse(args):

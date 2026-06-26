@@ -1,6 +1,7 @@
 import numpy as np
 import smplx
 import torch
+from pathlib import Path
 from scipy.spatial.transform import Rotation as R
 from smplx.joint_names import JOINT_NAMES
 from scipy.interpolate import interp1d
@@ -11,13 +12,55 @@ def load_smpl_file(smpl_file):
     smpl_data = np.load(smpl_file, allow_pickle=True)
     return smpl_data
 
+
+def _get_betas_and_num_betas(smplx_data):
+    betas = np.asarray(smplx_data["betas"])
+    if betas.ndim == 2 and betas.shape[0] == 1:
+        betas = betas.reshape(-1)
+    if betas.ndim != 1:
+        raise ValueError(f"Expected betas with shape (B,) or (1, B), got {betas.shape}")
+    return betas, int(betas.shape[0])
+
+
+def _scalar_to_str(value):
+    value = np.asarray(value).item()
+    if isinstance(value, bytes):
+        value = value.decode("utf-8")
+    return str(value).lower()
+
+
+def _has_smplx_model_file(smplx_body_model_path, gender):
+    model_dir = Path(smplx_body_model_path) / "smplx"
+    stem = f"SMPLX_{gender.upper()}"
+    return any((model_dir / f"{stem}{suffix}").exists() for suffix in [".npz", ".pkl"])
+
+
+def _resolve_smplx_gender(smplx_body_model_path, requested_gender):
+    requested_gender = requested_gender.lower()
+    if _has_smplx_model_file(smplx_body_model_path, requested_gender):
+        return requested_gender
+    if requested_gender != "neutral" and _has_smplx_model_file(smplx_body_model_path, "neutral"):
+        print(
+            f"Warning: SMPL-X {requested_gender} body model not found in "
+            f"{Path(smplx_body_model_path) / 'smplx'}, falling back to neutral."
+        )
+        return "neutral"
+    return requested_gender
+
+
 def load_smplx_file(smplx_file, smplx_body_model_path):
     smplx_data = np.load(smplx_file, allow_pickle=True)
+    betas, num_betas = _get_betas_and_num_betas(smplx_data)
+    gender = _resolve_smplx_gender(
+        smplx_body_model_path,
+        _scalar_to_str(smplx_data["gender"]),
+    )
     body_model = smplx.create(
         smplx_body_model_path,
         "smplx",
-        gender=str(smplx_data["gender"]),
+        gender=gender,
         use_pca=False,
+        num_betas=num_betas,
     )
     # print(smplx_data["pose_body"].shape)
     # print(smplx_data["betas"].shape)
@@ -26,7 +69,7 @@ def load_smplx_file(smplx_file, smplx_body_model_path):
     
     num_frames = smplx_data["pose_body"].shape[0]
     smplx_output = body_model(
-        betas=torch.tensor(smplx_data["betas"]).float().view(1, -1), # (16,)
+        betas=torch.tensor(betas).float().view(1, -1), # (B,)
         global_orient=torch.tensor(smplx_data["root_orient"]).float(), # (N, 3)
         body_pose=torch.tensor(smplx_data["pose_body"]).float(), # (N, 63)
         transl=torch.tensor(smplx_data["trans"]).float(), # (N, 3)
@@ -39,10 +82,7 @@ def load_smplx_file(smplx_file, smplx_body_model_path):
         return_full_pose=True,
     )
     
-    if len(smplx_data["betas"].shape)==1:
-        human_height = 1.66 + 0.1 * smplx_data["betas"][0]
-    else:
-        human_height = 1.66 + 0.1 * smplx_data["betas"][0, 0]
+    human_height = 1.66 + 0.1 * betas[0]
     
     return smplx_data, body_model, smplx_output, human_height
 
@@ -55,7 +95,7 @@ def load_gvhmr_pred_file(gvhmr_pred_file, smplx_body_model_path):
     # print(smpl_params_global['global_orient'].shape)
     # print(smpl_params_global['transl'].shape)
     
-    betas = np.pad(smpl_params_global['betas'][0], (0,6))
+    betas = smpl_params_global['betas'][0].numpy()
     
     # correct rotations
     # rotation_matrix = np.array([[1, 0, 0], [0, 0, -1], [0, 1, 0]])
@@ -72,11 +112,13 @@ def load_gvhmr_pred_file(gvhmr_pred_file, smplx_body_model_path):
         "mocap_frame_rate": torch.tensor(30),
     }
 
+    gender = _resolve_smplx_gender(smplx_body_model_path, "neutral")
     body_model = smplx.create(
         smplx_body_model_path,
         "smplx",
-        gender="neutral",
+        gender=gender,
         use_pca=False,
+        num_betas=betas.shape[0],
     )
     
     num_frames = smpl_params_global['body_pose'].shape[0]

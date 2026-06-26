@@ -36,7 +36,7 @@ if __name__ == "__main__":
     
     parser.add_argument(
         "--robot",
-        choices=["unitree_g1", "unitree_g1_with_hands", "booster_t1", "stanford_toddy", "fourier_n1", "engineai_pm01", "pal_talos"],
+        choices=["unitree_g1", "unitree_g1_with_hands", "booster_t1", "stanford_toddy", "fourier_n1", "engineai_pm01", "pal_talos", "ne01"],
         default="unitree_g1",
     )
     
@@ -45,6 +45,13 @@ if __name__ == "__main__":
         "--record_video",
         action="store_true",
         default=False,
+    )
+
+    parser.add_argument(
+        "--headless",
+        action="store_true",
+        default=False,
+        help="Run retargeting without opening the MuJoCo viewer.",
     )
 
     parser.add_argument(
@@ -80,7 +87,7 @@ if __name__ == "__main__":
         qpos_list = []
 
     
-    # Load SMPLX trajectory
+    # Load BVH trajectory
     lafan1_data_frames, actual_human_height = load_bvh_file(args.bvh_file, format=args.format)
     
     
@@ -93,14 +100,19 @@ if __name__ == "__main__":
 
     motion_fps = args.motion_fps
     
-    robot_motion_viewer = RobotMotionViewer(robot_type=args.robot,
-                                            motion_fps=motion_fps,
-                                            transparent_robot=0,
-                                            record_video=args.record_video,
-                                            video_path=args.video_path,
-                                            # video_width=2080,
-                                            # video_height=1170
-                                            )
+    robot_motion_viewer = None
+    if not args.headless:
+        try:
+            robot_motion_viewer = RobotMotionViewer(robot_type=args.robot,
+                                                    motion_fps=motion_fps,
+                                                    transparent_robot=0,
+                                                    record_video=args.record_video,
+                                                    video_path=args.video_path,
+                                                    # video_width=2080,
+                                                    # video_height=1170
+                                                    )
+        except Exception as e:
+            print(f"Warning: cannot create viewer ({e}), running headless.")
     
     # FPS measurement variables
     fps_counter = 0
@@ -136,18 +148,21 @@ if __name__ == "__main__":
 
         # retarget
         qpos = retargeter.retarget(smplx_data)
+        if args.save_path is not None:
+            qpos_list.append(qpos.copy())
         
 
         # visualize
-        robot_motion_viewer.step(
-            root_pos=qpos[:3],
-            root_rot=qpos[3:7],
-            dof_pos=qpos[7:],
-            human_motion_data=retargeter.scaled_human_data,
-            rate_limit=args.rate_limit,
-            follow_camera=True,
-            # human_pos_offset=np.array([0.0, 0.0, 0.0])
-        )
+        if robot_motion_viewer is not None:
+            robot_motion_viewer.step(
+                root_pos=qpos[:3],
+                root_rot=qpos[3:7],
+                dof_pos=qpos[7:],
+                human_motion_data=retargeter.scaled_human_data,
+                rate_limit=args.rate_limit,
+                follow_camera=True,
+                # human_pos_offset=np.array([0.0, 0.0, 0.0])
+            )
 
         if args.loop:
             i = (i + 1) % len(lafan1_data_frames)
@@ -156,10 +171,6 @@ if __name__ == "__main__":
             if i >= len(lafan1_data_frames):
                 break
    
-        
-        if args.save_path is not None:
-            qpos_list.append(qpos)
-    
     if args.save_path is not None:
         import pickle
         root_pos = np.array([qpos[:3] for qpos in qpos_list])
@@ -184,5 +195,6 @@ if __name__ == "__main__":
     # Close progress bar
     pbar.close()
     
-    robot_motion_viewer.close()
+    if robot_motion_viewer is not None:
+        robot_motion_viewer.close()
        

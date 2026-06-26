@@ -1,0 +1,673 @@
+import argparse
+import csv
+import json
+import pickle
+from collections import Counter
+from dataclasses import asdict, dataclass
+from pathlib import Path
+
+import numpy as np
+import torch
+from scipy.spatial.transform import Rotation as R
+from tqdm import tqdm
+
+from general_motion_retargeting.kinematics_model import KinematicsModel
+from general_motion_retargeting.params import ROBOT_XML_DICT
+
+
+BODY_ROLE_HINTS = {
+    "unitree_g1": {
+        "left_foot": "left_ankle_roll_link",
+        "right_foot": "right_ankle_roll_link",
+        "left_knee": "left_knee_link",
+        "right_knee": "right_knee_link",
+        "left_hand": "left_wrist_yaw_link",
+        "right_hand": "right_wrist_yaw_link",
+    },
+    "unitree_g1_with_hands": {
+        "left_foot": "left_ankle_roll_link",
+        "right_foot": "right_ankle_roll_link",
+        "left_knee": "left_knee_link",
+        "right_knee": "right_knee_link",
+        "left_hand": "left_wrist_roll_link",
+        "right_hand": "right_wrist_roll_link",
+    },
+    "ne01": {
+        "left_foot": "ANKLE_ROLL_L_LINK",
+        "right_foot": "ANKLE_ROLL_R_LINK",
+        "left_knee": "KNEE_PITCH_L_LINK",
+        "right_knee": "KNEE_PITCH_R_LINK",
+        "left_hand": "HAND_YAW_L_LINK",
+        "right_hand": "HAND_YAW_R_LINK",
+    },
+}
+
+
+SIDE_MARKERS = {
+    "left": ["left", "_l_", "_l", "l_", " l ", "-l", "l-"],
+    "right": ["right", "_r_", "_r", "r_", " r ", "-r", "r-"],
+}
+
+
+ROLE_SCORES = {
+    "foot": {
+        "toe": 100,
+        "foot": 90,
+        "ankle_roll": 80,
+        "ankle": 70,
+    },
+    "knee": {
+        "knee": 100,
+        "shin": 60,
+        "calf": 50,
+        "leg": 20,
+    },
+    "hand": {
+        "wrist": 100,
+        "hand": 90,
+        "elbow_end": 75,
+        "palm": 70,
+        "gripper": 60,
+    },
+}
+
+
+@dataclass(frozen=True)
+class FilterThresholds:
+    min_frames: int = 30
+    foot_contact_height: float = 0.05
+    foot_contact_vz: float = 0.15
+    foot_slide_speed_tag: float = 0.05
+    foot_slide_speed_reject: float = 0.08
+    foot_slide_frames: int = 5
+    foot_slide_drift_tag: float = 0.025
+    foot_slide_drift_reject: float = 0.04
+    foot_penetration_warn: float = -0.02
+    foot_penetration_reject: float = -0.05
+    foot_penetration_warn_frames: int = 3
+    double_air_height: float = 0.08
+    double_air_tag_frames: int = 6
+    double_air_reject_frames: int = 10
+    root_tilt_tag_deg: float = 45.0
+    root_tilt_tag_frames: int = 8
+    root_tilt_reject_deg: float = 60.0
+    root_tilt_reject_frames: int = 15
+    root_height_span_tag: float = 0.18
+    root_height_span_reject: float = 0.30
+    elevated_root_margin: float = 0.18
+    elevated_root_ratio_reject: float = 0.20
+    knee_near_ground_height: float = 0.10
+    hand_near_ground_height: float = 0.12
+    low_body_ratio_reject: float = 0.20
+    root_speed_tag: float = 2.0
+    root_speed_reject: float = 3.0
+    joint_speed_tag: float = 10.0
+    joint_speed_reject: float = 18.0
+    joint_speed_tag_frames: int = 3
+    joint_speed_reject_frames: int = 3
+    joint_acc_tag: float = 250.0
+    joint_acc_reject: float = 600.0
+    joint_acc_tag_frames: int = 3
+    joint_acc_reject_frames: int = 3
+    joint_limit_margin_deg: float = 5.0
+    joint_limit_ratio_tag: float = 0.10
+    joint_limit_joint_count_tag: int = 3
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Filter GMR robot-motion pickle files into pass/tag/reject buckets."
+    )
+    parser.add_argument(
+        "--robot",
+        required=True,
+        choices=sorted(ROBOT_XML_DICT.keys()),
+        help="Robot type used to generate the robot-motion pkl files.",
+    )
+    parser.add_argument(
+        "--input",
+        required=True,
+        help="Path to one .pkl file or to a folder that contains .pkl files.",
+    )
+    parser.add_argument(
+        "--output_dir",
+        default=None,
+        help="Directory for reports. Defaults to filter_reports/<input_name>_<robot>/",
+    )
+    parser.add_argument(
+        "--device",
+        default="cpu",
+        help="Torch device for fallback forward kinematics. Use cpu by default.",
+    )
+    parser.add_argument(
+        "--max_files",
+        default=None,
+        type=int,
+        help="Only process the first N files. Useful for quick validation.",
+    )
+    return parser.parse_args()
+
+
+def collect_motion_files(input_path):
+    input_path = Path(input_path)
+    if input_path.is_file():
+        if input_path.suffix != ".pkl":
+            raise ValueError(f"Expected a .pkl file, got: {input_path}")
+        return [input_path], input_path.parent
+    if not input_path.is_dir():
+        raise FileNotFoundError(f"Input path not found: {input_path}")
+    motion_files = sorted(input_path.rglob("*.pkl"))
+    return motion_files, input_path
+
+
+def load_motion_file(motion_path):
+    with open(motion_path, "rb") as f:
+        motion_data = pickle.load(f)
+
+    required_keys = {"fps", "root_pos", "root_rot", "dof_pos"}
+    missing_keys = sorted(required_keys - set(motion_data.keys()))
+    if missing_keys:
+        raise KeyError(f"Missing keys in {motion_path}: {missing_keys}")
+
+    fps = float(np.asarray(motion_data["fps"]).item())
+    root_pos = np.asarray(motion_data["root_pos"], dtype=np.float64)
+    root_rot = np.asarray(motion_data["root_rot"], dtype=np.float64)
+    dof_pos = np.asarray(motion_data["dof_pos"], dtype=np.float64)
+    local_body_pos = motion_data.get("local_body_pos")
+    if local_body_pos is not None:
+        local_body_pos = np.asarray(local_body_pos, dtype=np.float64)
+    link_body_list = motion_data.get("link_body_list")
+
+    return {
+        "fps": fps,
+        "root_pos": root_pos,
+        "root_rot": root_rot,
+        "dof_pos": dof_pos,
+        "local_body_pos": local_body_pos,
+        "link_body_list": link_body_list,
+    }
+
+
+def normalize_quaternions(quat_xyzw):
+    quat_xyzw = quat_xyzw.copy()
+    norms = np.linalg.norm(quat_xyzw, axis=1, keepdims=True)
+    quat_xyzw /= np.clip(norms, 1e-8, None)
+    return quat_xyzw
+
+
+def contiguous_segments(mask):
+    segments = []
+    start = None
+    for idx, is_true in enumerate(mask):
+        if is_true and start is None:
+            start = idx
+        elif not is_true and start is not None:
+            segments.append((start, idx))
+            start = None
+    if start is not None:
+        segments.append((start, len(mask)))
+    return segments
+
+
+def max_true_run(mask):
+    max_run = 0
+    curr_run = 0
+    for is_true in mask:
+        if is_true:
+            curr_run += 1
+            max_run = max(max_run, curr_run)
+        else:
+            curr_run = 0
+    return max_run
+
+
+def side_matches(name, side):
+    lowered = name.lower()
+    return any(marker in lowered for marker in SIDE_MARKERS[side])
+
+
+def score_body_name(name, role, side):
+    lowered = name.lower()
+    if not side_matches(lowered, side):
+        return -1
+    score = 0
+    for token, value in ROLE_SCORES[role].items():
+        if token in lowered:
+            score += value
+    return score
+
+
+def infer_body_name(body_names, role, side):
+    best_name = None
+    best_score = -1
+    for body_name in body_names:
+        score = score_body_name(body_name, role, side)
+        if score > best_score:
+            best_name = body_name
+            best_score = score
+    if best_score <= 0:
+        return None
+    return best_name
+
+
+def resolve_body_map(robot, body_names):
+    body_map = {}
+    exact_hints = BODY_ROLE_HINTS.get(robot, {})
+    for role_name, exact_name in exact_hints.items():
+        if exact_name in body_names:
+            body_map[role_name] = exact_name
+
+    fallback_roles = {
+        "left_foot": ("foot", "left"),
+        "right_foot": ("foot", "right"),
+        "left_knee": ("knee", "left"),
+        "right_knee": ("knee", "right"),
+        "left_hand": ("hand", "left"),
+        "right_hand": ("hand", "right"),
+    }
+
+    for role_name, (role, side) in fallback_roles.items():
+        if role_name not in body_map:
+            body_map[role_name] = infer_body_name(body_names, role, side)
+
+    return body_map
+
+
+def compute_global_body_pos(motion_data, kinematics_model, device):
+    root_pos = motion_data["root_pos"]
+    root_rot = normalize_quaternions(motion_data["root_rot"])
+    dof_pos = motion_data["dof_pos"]
+    local_body_pos = motion_data["local_body_pos"]
+    link_body_list = motion_data["link_body_list"]
+
+    if local_body_pos is not None and link_body_list is not None:
+        root_rot_mat = R.from_quat(root_rot).as_matrix()
+        global_body_pos = np.einsum("tij,tnj->tni", root_rot_mat, local_body_pos)
+        global_body_pos = global_body_pos + root_pos[:, None, :]
+        return global_body_pos, list(link_body_list)
+
+    with torch.no_grad():
+        body_pos, _ = kinematics_model.forward_kinematics(
+            torch.as_tensor(root_pos, dtype=torch.float32, device=device),
+            torch.as_tensor(root_rot, dtype=torch.float32, device=device),
+            torch.as_tensor(dof_pos, dtype=torch.float32, device=device),
+        )
+    return body_pos.cpu().numpy(), list(kinematics_model.body_names)
+
+
+def compute_velocity(arr, fps):
+    if len(arr) <= 1:
+        return np.zeros_like(arr)
+    vel = np.zeros_like(arr)
+    vel[1:] = np.diff(arr, axis=0) * fps
+    return vel
+
+
+def summarize_contact_slip(foot_pos, fps, thresholds):
+    foot_vel = compute_velocity(foot_pos, fps)
+    foot_xy_speed = np.linalg.norm(foot_vel[:, :2], axis=1)
+    foot_vz = np.abs(foot_vel[:, 2])
+    contact_mask = (foot_pos[:, 2] < thresholds.foot_contact_height) & (foot_vz < thresholds.foot_contact_vz)
+
+    reject_slide_mask = contact_mask & (foot_xy_speed > thresholds.foot_slide_speed_reject)
+    tag_slide_mask = contact_mask & (foot_xy_speed > thresholds.foot_slide_speed_tag)
+
+    reject_drift = 0.0
+    tag_drift = 0.0
+    for start, end in contiguous_segments(contact_mask):
+        if end - start < 2:
+            continue
+        drift = np.linalg.norm(foot_pos[end - 1, :2] - foot_pos[start, :2])
+        reject_drift = max(reject_drift, drift)
+        tag_drift = max(tag_drift, drift)
+
+    return {
+        "contact_mask": contact_mask,
+        "foot_xy_speed": foot_xy_speed,
+        "reject_slide_run": max_true_run(reject_slide_mask),
+        "tag_slide_run": max_true_run(tag_slide_mask),
+        "max_contact_drift": reject_drift,
+        "contact_ratio": float(contact_mask.mean()),
+        "min_height": float(foot_pos[:, 2].min()),
+        "warn_penetration_frames": int(np.sum(foot_pos[:, 2] < thresholds.foot_penetration_warn)),
+        "severe_penetration_frames": int(np.sum(foot_pos[:, 2] < thresholds.foot_penetration_reject)),
+    }
+
+
+def to_python(value):
+    if isinstance(value, (np.floating, np.integer)):
+        return value.item()
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    return value
+
+
+def analyze_motion(motion_path, motion_data, robot, kinematics_model, thresholds, device):
+    root_pos = motion_data["root_pos"]
+    root_rot = normalize_quaternions(motion_data["root_rot"])
+    dof_pos = motion_data["dof_pos"]
+    fps = motion_data["fps"]
+
+    reject_reasons = []
+    tag_reasons = []
+    metrics = {}
+
+    num_frames = int(root_pos.shape[0])
+    metrics["num_frames"] = num_frames
+    metrics["fps"] = fps
+
+    if num_frames < thresholds.min_frames:
+        reject_reasons.append(f"too_short:{num_frames}_frames")
+
+    if not np.isfinite(root_pos).all() or not np.isfinite(root_rot).all() or not np.isfinite(dof_pos).all():
+        reject_reasons.append("nan_or_inf")
+
+    if reject_reasons:
+        return {
+            "file": str(motion_path),
+            "status": "reject",
+            "reject_reasons": reject_reasons,
+            "tag_reasons": tag_reasons,
+            "metrics": metrics,
+            "body_map": {},
+        }
+
+    body_pos, body_names = compute_global_body_pos(motion_data, kinematics_model, device)
+    body_index = {name: idx for idx, name in enumerate(body_names)}
+    body_map = resolve_body_map(robot, body_names)
+
+    required_roles = ["left_foot", "right_foot"]
+    missing_roles = [role for role in required_roles if body_map.get(role) is None]
+    if missing_roles:
+        reject_reasons.append("missing_required_bodies:" + ",".join(missing_roles))
+        return {
+            "file": str(motion_path),
+            "status": "reject",
+            "reject_reasons": reject_reasons,
+            "tag_reasons": tag_reasons,
+            "metrics": metrics,
+            "body_map": body_map,
+        }
+
+    left_foot = body_pos[:, body_index[body_map["left_foot"]], :]
+    right_foot = body_pos[:, body_index[body_map["right_foot"]], :]
+    left_summary = summarize_contact_slip(left_foot, fps, thresholds)
+    right_summary = summarize_contact_slip(right_foot, fps, thresholds)
+
+    metrics["left_contact_ratio"] = left_summary["contact_ratio"]
+    metrics["right_contact_ratio"] = right_summary["contact_ratio"]
+    metrics["left_min_height"] = left_summary["min_height"]
+    metrics["right_min_height"] = right_summary["min_height"]
+    metrics["left_max_contact_drift"] = left_summary["max_contact_drift"]
+    metrics["right_max_contact_drift"] = right_summary["max_contact_drift"]
+    metrics["left_reject_slide_run"] = left_summary["reject_slide_run"]
+    metrics["right_reject_slide_run"] = right_summary["reject_slide_run"]
+
+    if (
+        left_summary["severe_penetration_frames"] > 0
+        or right_summary["severe_penetration_frames"] > 0
+    ):
+        reject_reasons.append("foot_penetration_severe")
+    elif (
+        left_summary["warn_penetration_frames"] > thresholds.foot_penetration_warn_frames
+        or right_summary["warn_penetration_frames"] > thresholds.foot_penetration_warn_frames
+    ):
+        reject_reasons.append("foot_penetration_persistent")
+
+    if (
+        left_summary["reject_slide_run"] >= thresholds.foot_slide_frames
+        or right_summary["reject_slide_run"] >= thresholds.foot_slide_frames
+        or left_summary["max_contact_drift"] > thresholds.foot_slide_drift_reject
+        or right_summary["max_contact_drift"] > thresholds.foot_slide_drift_reject
+    ):
+        reject_reasons.append("foot_sliding")
+    elif (
+        left_summary["tag_slide_run"] >= thresholds.foot_slide_frames
+        or right_summary["tag_slide_run"] >= thresholds.foot_slide_frames
+        or left_summary["max_contact_drift"] > thresholds.foot_slide_drift_tag
+        or right_summary["max_contact_drift"] > thresholds.foot_slide_drift_tag
+    ):
+        tag_reasons.append("mild_foot_sliding")
+
+    double_air_mask = (left_foot[:, 2] > thresholds.double_air_height) & (right_foot[:, 2] > thresholds.double_air_height)
+    double_air_max_run = max_true_run(double_air_mask)
+    metrics["double_air_max_run"] = int(double_air_max_run)
+    metrics["double_air_ratio"] = float(double_air_mask.mean())
+    if double_air_max_run > thresholds.double_air_reject_frames:
+        reject_reasons.append("long_airborne")
+    elif double_air_max_run >= thresholds.double_air_tag_frames:
+        tag_reasons.append("jump_like")
+
+    root_up = R.from_quat(root_rot).apply(np.tile(np.array([[0.0, 0.0, 1.0]]), (num_frames, 1)))
+    tilt_deg = np.degrees(np.arccos(np.clip(root_up[:, 2], -1.0, 1.0)))
+    metrics["max_root_tilt_deg"] = float(np.max(tilt_deg))
+    if np.sum(tilt_deg > thresholds.root_tilt_reject_deg) >= thresholds.root_tilt_reject_frames:
+        reject_reasons.append("fall_or_lie_like")
+    elif np.sum(tilt_deg > thresholds.root_tilt_tag_deg) >= thresholds.root_tilt_tag_frames:
+        tag_reasons.append("large_root_tilt")
+
+    root_height = root_pos[:, 2]
+    root_height_span = float(np.percentile(root_height, 95) - np.percentile(root_height, 5))
+    elevated_ratio = float(np.mean(root_height > (np.median(root_height) + thresholds.elevated_root_margin)))
+    metrics["root_height_span"] = root_height_span
+    metrics["elevated_root_ratio"] = elevated_ratio
+    if root_height_span > thresholds.root_height_span_reject and elevated_ratio > thresholds.elevated_root_ratio_reject:
+        reject_reasons.append("high_elevation_or_climb_like")
+    elif root_height_span > thresholds.root_height_span_tag:
+        tag_reasons.append("large_root_height_change")
+
+    if body_map.get("left_knee") and body_map.get("right_knee"):
+        left_knee = body_pos[:, body_index[body_map["left_knee"]], 2]
+        right_knee = body_pos[:, body_index[body_map["right_knee"]], 2]
+        knee_low_ratio = float(np.mean((left_knee < thresholds.knee_near_ground_height) | (right_knee < thresholds.knee_near_ground_height)))
+        metrics["knee_low_ratio"] = knee_low_ratio
+        if knee_low_ratio > thresholds.low_body_ratio_reject:
+            reject_reasons.append("kneeling_like")
+
+    if body_map.get("left_hand") and body_map.get("right_hand"):
+        left_hand = body_pos[:, body_index[body_map["left_hand"]], 2]
+        right_hand = body_pos[:, body_index[body_map["right_hand"]], 2]
+        hand_low_ratio = float(np.mean((left_hand < thresholds.hand_near_ground_height) | (right_hand < thresholds.hand_near_ground_height)))
+        metrics["hand_low_ratio"] = hand_low_ratio
+        if hand_low_ratio > thresholds.low_body_ratio_reject:
+            reject_reasons.append("crawling_or_hand_support_like")
+
+    root_speed = np.linalg.norm(compute_velocity(root_pos, fps), axis=1)
+    joint_speed = np.abs(compute_velocity(dof_pos, fps))
+    joint_acc = np.abs(compute_velocity(joint_speed, fps))
+    joint_speed_frame_max = np.max(joint_speed, axis=1)
+    joint_acc_frame_max = np.max(joint_acc, axis=1)
+    metrics["max_root_speed"] = float(np.max(root_speed))
+    metrics["max_joint_speed"] = float(np.max(joint_speed))
+    metrics["max_joint_acc"] = float(np.max(joint_acc))
+    metrics["joint_speed_reject_frame_count"] = int(np.sum(joint_speed_frame_max > thresholds.joint_speed_reject))
+    metrics["joint_speed_tag_frame_count"] = int(np.sum(joint_speed_frame_max > thresholds.joint_speed_tag))
+    metrics["joint_acc_reject_frame_count"] = int(np.sum(joint_acc_frame_max > thresholds.joint_acc_reject))
+    metrics["joint_acc_tag_frame_count"] = int(np.sum(joint_acc_frame_max > thresholds.joint_acc_tag))
+
+    if np.max(root_speed) > thresholds.root_speed_reject:
+        reject_reasons.append("root_speed_spike")
+    elif np.max(root_speed) > thresholds.root_speed_tag:
+        tag_reasons.append("high_root_speed")
+
+    if metrics["joint_speed_reject_frame_count"] >= thresholds.joint_speed_reject_frames:
+        reject_reasons.append("joint_speed_spike")
+    elif metrics["joint_speed_tag_frame_count"] >= thresholds.joint_speed_tag_frames:
+        tag_reasons.append("high_joint_speed")
+
+    if metrics["joint_acc_reject_frame_count"] >= thresholds.joint_acc_reject_frames:
+        reject_reasons.append("joint_acc_spike")
+    elif metrics["joint_acc_tag_frame_count"] >= thresholds.joint_acc_tag_frames:
+        tag_reasons.append("high_joint_acc")
+
+    dof_lower_limits, dof_upper_limits = kinematics_model.get_dof_limits()
+    dof_lower_limits = dof_lower_limits.cpu().numpy()
+    dof_upper_limits = dof_upper_limits.cpu().numpy()
+    limit_margin = np.deg2rad(thresholds.joint_limit_margin_deg)
+    near_lower = dof_pos < (dof_lower_limits[None, :] + limit_margin)
+    near_upper = dof_pos > (dof_upper_limits[None, :] - limit_margin)
+    near_limit_ratio = np.mean(near_lower | near_upper, axis=0)
+    near_limit_joint_count = int(np.sum(near_limit_ratio > thresholds.joint_limit_ratio_tag))
+    metrics["near_limit_joint_count"] = near_limit_joint_count
+    metrics["near_limit_joint_ratio_max"] = float(np.max(near_limit_ratio))
+    if near_limit_joint_count >= thresholds.joint_limit_joint_count_tag:
+        tag_reasons.append("joint_near_limits")
+
+    status = "pass"
+    if reject_reasons:
+        status = "reject"
+    elif tag_reasons:
+        status = "tag"
+
+    return {
+        "file": str(motion_path),
+        "status": status,
+        "reject_reasons": sorted(set(reject_reasons)),
+        "tag_reasons": sorted(set(tag_reasons)),
+        "metrics": {k: to_python(v) for k, v in metrics.items()},
+        "body_map": body_map,
+    }
+
+
+def make_output_dir(input_path, robot, output_dir):
+    if output_dir is not None:
+        out_dir = Path(output_dir)
+    else:
+        stem = Path(input_path).stem if Path(input_path).is_file() else Path(input_path).name
+        out_dir = Path("filter_reports") / f"{stem}_{robot}"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    return out_dir
+
+
+def write_text_list(path, rows):
+    with open(path, "w", encoding="utf-8") as f:
+        for row in rows:
+            f.write(row + "\n")
+
+
+def write_reports(output_dir, details, thresholds, input_root):
+    details_sorted = sorted(details, key=lambda item: (item["status"], item["file"]))
+    rel_details = []
+    for item in details_sorted:
+        rel_item = dict(item)
+        rel_item["relative_file"] = str(Path(item["file"]).relative_to(input_root))
+        rel_details.append(rel_item)
+
+    summary_counter = Counter(item["status"] for item in rel_details)
+    reject_reason_counter = Counter(
+        reason
+        for item in rel_details
+        for reason in item["reject_reasons"]
+    )
+    tag_reason_counter = Counter(
+        reason
+        for item in rel_details
+        for reason in item["tag_reasons"]
+    )
+
+    summary = {
+        "total_files": len(rel_details),
+        "status_counts": dict(summary_counter),
+        "reject_reason_counts": dict(reject_reason_counter),
+        "tag_reason_counts": dict(tag_reason_counter),
+        "thresholds": asdict(thresholds),
+    }
+
+    with open(output_dir / "summary.json", "w", encoding="utf-8") as f:
+        json.dump(summary, f, indent=2, ensure_ascii=False)
+
+    with open(output_dir / "details.json", "w", encoding="utf-8") as f:
+        json.dump(rel_details, f, indent=2, ensure_ascii=False)
+
+    metric_fieldnames = sorted(
+        {
+            metric_name
+            for item in rel_details
+            for metric_name in item["metrics"].keys()
+        }
+    )
+    fieldnames = [
+        "relative_file",
+        "status",
+        "reject_reasons",
+        "tag_reasons",
+    ] + metric_fieldnames
+    with open(output_dir / "report.csv", "w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for item in rel_details:
+            row = {
+                "relative_file": item["relative_file"],
+                "status": item["status"],
+                "reject_reasons": ",".join(item["reject_reasons"]),
+                "tag_reasons": ",".join(item["tag_reasons"]),
+            }
+            row.update(item["metrics"])
+            writer.writerow(row)
+
+    pass_list = [item["relative_file"] for item in rel_details if item["status"] == "pass"]
+    tag_list = [
+        f"{item['relative_file']}\t{','.join(item['tag_reasons'])}"
+        for item in rel_details
+        if item["status"] == "tag"
+    ]
+    reject_list = [
+        f"{item['relative_file']}\t{','.join(item['reject_reasons'])}"
+        for item in rel_details
+        if item["status"] == "reject"
+    ]
+    write_text_list(output_dir / "pass.txt", pass_list)
+    write_text_list(output_dir / "tag.txt", tag_list)
+    write_text_list(output_dir / "reject.txt", reject_list)
+
+
+def main():
+    args = parse_args()
+    thresholds = FilterThresholds()
+    motion_files, input_root = collect_motion_files(args.input)
+    if args.max_files is not None:
+        motion_files = motion_files[: args.max_files]
+    if not motion_files:
+        raise FileNotFoundError(f"No .pkl files found under: {args.input}")
+
+    output_dir = make_output_dir(args.input, args.robot, args.output_dir)
+    xml_path = ROBOT_XML_DICT[args.robot]
+    kinematics_model = KinematicsModel(str(xml_path), device=args.device)
+
+    details = []
+    for motion_path in tqdm(motion_files, desc="Filtering robot motions"):
+        try:
+            motion_data = load_motion_file(motion_path)
+            result = analyze_motion(
+                motion_path=motion_path,
+                motion_data=motion_data,
+                robot=args.robot,
+                kinematics_model=kinematics_model,
+                thresholds=thresholds,
+                device=args.device,
+            )
+        except Exception as e:
+            result = {
+                "file": str(motion_path),
+                "status": "reject",
+                "reject_reasons": [f"exception:{type(e).__name__}"],
+                "tag_reasons": [],
+                "metrics": {},
+                "body_map": {},
+            }
+        details.append(result)
+
+    write_reports(output_dir, details, thresholds, input_root)
+
+    summary_counts = Counter(item["status"] for item in details)
+    print(f"Saved filter reports to: {output_dir}")
+    print(
+        "Status counts: "
+        f"pass={summary_counts.get('pass', 0)}, "
+        f"tag={summary_counts.get('tag', 0)}, "
+        f"reject={summary_counts.get('reject', 0)}"
+    )
+
+
+if __name__ == "__main__":
+    main()

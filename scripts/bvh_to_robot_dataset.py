@@ -1,21 +1,17 @@
 import argparse
-import pathlib
 import os
-import mujoco as mj
 import numpy as np
 from tqdm import tqdm
 import torch
 import pickle
 
-from general_motion_retargeting.utils.lafan1 import load_lafan1_file
+from general_motion_retargeting.utils.lafan1 import load_bvh_file
 from general_motion_retargeting.kinematics_model import KinematicsModel
 from general_motion_retargeting import GeneralMotionRetargeting as GMR
 from rich import print
 
 
 if __name__ == "__main__":
-    HERE = pathlib.Path(__file__).parent
-
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--src_folder",
@@ -41,12 +37,6 @@ if __name__ == "__main__":
         action="store_true",
     )
     
-    parser.add_argument(
-        "--target_fps",
-        default=30,
-        type=int,
-    )
-
     args = parser.parse_args()
     
     src_folder = args.src_folder
@@ -73,7 +63,7 @@ if __name__ == "__main__":
             
             # Load LAFAN1 trajectory
             try:
-                lafan1_data_frames, actual_human_height = load_lafan1_file(bvh_file_path)
+                lafan1_data_frames, actual_human_height = load_bvh_file(bvh_file_path, format="lafan1")
                 src_fps = 30  # LAFAN1 data is typically 30 FPS
             except Exception as e:
                 print(f"Error loading {bvh_file_path}: {e}")
@@ -82,14 +72,10 @@ if __name__ == "__main__":
             
             # Initialize the retargeting system
             retarget = GMR(
-                src_human="bvh",
+                src_human="bvh_lafan1",
                 tgt_robot=args.robot,
                 actual_human_height=actual_human_height,
             )
-            model = mj.MjModel.from_xml_path(retarget.xml_file)
-            data = mj.MjData(model)
-
-            
 
             # retarget to get all qpos
             qpos_list = []

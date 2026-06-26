@@ -112,3 +112,10 @@ batch_twist1_to_csv.py
 yaml_to_flat_csv.py
 
 compute_rotation.py
+
+origin_data/
+
+docs/
+!docs/
+docs/*
+!docs/robot_motion_filtering.md
