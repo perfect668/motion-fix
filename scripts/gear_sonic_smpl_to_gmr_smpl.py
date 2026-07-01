@@ -1,3 +1,24 @@
+"""Convert gear-sonic SMPL files to GMR SMPL npz files.
+
+Purpose:
+    Read gear-sonic .pkl/.joblib/.npz SMPL motions and normalize them into the
+    SMPL format expected by scripts/smpl_to_smplx.py.
+
+Typical usage:
+    conda run -n gear_sonic_train python scripts/gear_sonic_smpl_to_gmr_smpl.py \
+        --src_folder data/sonic_smpl_data/selected_10_12h/motions \
+        --tgt_folder data/smpl_data/selected_10_12h \
+        --coord_transform sonic_yup_to_gmr_zup --overwrite
+
+Output format:
+    .npz files with poses, betas, trans, mocap_framerate, gender, source_file,
+    source_pose_key, source_trans_key, and coord_transform.
+
+Notes:
+    The default coord transform converts Sonic Y-up root orientation and
+    translation to GMR Z-up: [x, y, z] -> [x, -z, y].
+"""
+
 import argparse
 import pickle
 from pathlib import Path

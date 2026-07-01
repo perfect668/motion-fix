@@ -115,7 +115,6 @@ compute_rotation.py
 
 origin_data/
 
-docs/
-!docs/
 docs/*
 !docs/robot_motion_filtering.md
+!docs/smpl_retargeting_pipeline.md

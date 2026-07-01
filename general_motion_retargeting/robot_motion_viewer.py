@@ -65,6 +65,7 @@ class RobotMotionViewer:
         mj.mj_step(self.model, self.data)
         
         self.motion_fps = motion_fps
+        self.speed_factor = 1.0
         self.rate_limiter = RateLimiter(frequency=self.motion_fps, warn=False)
         self.camera_follow = camera_follow
         self.record_video = record_video
@@ -146,6 +147,11 @@ class RobotMotionViewer:
         self.viewer.sync()
         if rate_limit is True:
             self.rate_limiter.sleep()
+
+    def set_speed(self, factor):
+        """Set playback speed. factor=1.0 is real-time, 2.0 is 2x, 0.5 is half speed."""
+        self.speed_factor = max(0.25, min(4.0, factor))
+        self.rate_limiter = RateLimiter(frequency=self.motion_fps * self.speed_factor, warn=False)
 
         if self.record_video:
             # Use renderer for proper offscreen rendering

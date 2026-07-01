@@ -1,3 +1,30 @@
+"""Retarget one SMPL-X motion to one robot for debugging or quick export.
+
+Purpose:
+    This is the single-file companion to smplx_to_robot_dataset.py. Use it to
+    inspect one SMPL-X file, debug coordinate/IK issues, optionally open the
+    RobotMotionViewer, and optionally save one robot-motion .pkl.
+
+Typical usage:
+    conda run --no-capture-output -n gmr python scripts/smplx_to_robot.py \
+        --smplx_file data/smplx_data/selected_10_12h/example.npz \
+        --robot unitree_g1_24dof \
+        --save_path /tmp/example_g1_24dof.pkl \
+        --max_frames 300
+
+Headless quick export:
+    conda run --no-capture-output -n gmr python scripts/smplx_to_robot.py \
+        --smplx_file data/smplx_data/selected_10_12h/example.npz \
+        --robot ne01 \
+        --save_path /tmp/example_ne01.pkl \
+        --headless
+
+Notes:
+    Dataset production should use smplx_to_robot_dataset.py because it saves
+    local_body_pos and link_body_list for downstream filtering. This script is
+    mainly for visual inspection and targeted debugging.
+"""
+
 import argparse
 import pathlib
 import os

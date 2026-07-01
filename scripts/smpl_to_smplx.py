@@ -1,3 +1,21 @@
+"""Convert GMR SMPL npz motions to the SMPL-X npz format used by GMR retargeting.
+
+Purpose:
+    Take SMPL files with poses/trans/betas and produce SMPL-X-style files with
+    root_orient and pose_body fields. This is the bridge between
+    gear_sonic_smpl_to_gmr_smpl.py and smplx_to_robot_dataset.py.
+
+Typical usage:
+    conda run -n gmr python scripts/smpl_to_smplx.py \
+        --src_folder data/smpl_data/selected_10_12h \
+        --tgt_folder data/smplx_data/selected_10_12h \
+        --gender neutral
+
+Output:
+    One .npz per input motion, with root_orient, pose_body, trans, betas,
+    mocap_frame_rate, and gender.
+"""
+
 import os
 import argparse
 import numpy as np

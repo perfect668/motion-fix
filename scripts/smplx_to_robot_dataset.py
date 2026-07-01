@@ -1,3 +1,26 @@
+"""Batch retarget SMPL-X motions to a GMR robot-motion dataset.
+
+Purpose:
+    Convert a folder of SMPL-X .npz files into robot-motion .pkl files for a
+    target robot, such as unitree_g1 or unitree_g1_24dof.
+
+Typical usage:
+    conda run --no-capture-output -n gmr python -u scripts/smplx_to_robot_dataset.py \
+        --src_folder data/smplx_data/selected_10_12h \
+        --tgt_folder data/retarget_data/g1_24dof/sonic_smpl_selected_10_12h \
+        --robot unitree_g1_24dof \
+        --num_cpus 8 \
+        --device cpu
+
+Outputs:
+    One .pkl per source motion. Each robot-motion pkl contains fps, root_pos,
+    root_rot, dof_pos, local_body_pos, and link_body_list.
+
+Config paths:
+    --body_model_folder defaults to assets/body_models.
+    --hard_motions_folder defaults to assets/hard_motions.
+"""
+
 import argparse
 import json
 import pathlib
@@ -19,11 +42,17 @@ from general_motion_retargeting.kinematics_model import KinematicsModel
 from general_motion_retargeting import IK_CONFIG_ROOT
 import gc
 import time
-import psutil
 import tracemalloc
+
+try:
+    import psutil
+except ImportError:
+    psutil = None
 
 
 def check_memory(threshold_gb=30):  # adjust based on your available memory
+    if psutil is None:
+        return False
     mem = psutil.virtual_memory()
     used_memory_gb = (mem.total - mem.available) / (1024 ** 3)
     available_memory_gb = mem.available / (1024 ** 3)
@@ -36,9 +65,9 @@ def check_memory(threshold_gb=30):  # adjust based on your available memory
 HERE = pathlib.Path(__file__).parent
 
 
-def process_file(smplx_file_path, tgt_file_path, tgt_robot, SMPLX_FOLDER, tgt_folder, total_files, verbose=False):
+def process_file(smplx_file_path, tgt_file_path, tgt_robot, smplx_folder, tgt_folder, total_files, device, verbose=False):
     def log_memory(message):
-        if verbose:
+        if verbose and psutil is not None:
             process = psutil.Process(os.getpid())
             memory_usage = process.memory_info().rss / (1024 ** 3)  # Convert to GB
             print(f"[MEMORY] {message}: {memory_usage:.2f} GB")
@@ -60,7 +89,7 @@ def process_file(smplx_file_path, tgt_file_path, tgt_robot, SMPLX_FOLDER, tgt_fo
             return
 
     try:
-        smplx_data, body_model, smplx_output, actual_human_height = load_smplx_file(smplx_file_path, SMPLX_FOLDER)
+        smplx_data, body_model, smplx_output, actual_human_height = load_smplx_file(smplx_file_path, smplx_folder)
         mocap_frame_rate = smplx_data["mocap_frame_rate"]
         log_memory("After loading SMPL-X data")
     except Exception as e:
@@ -75,23 +104,30 @@ def process_file(smplx_file_path, tgt_file_path, tgt_robot, SMPLX_FOLDER, tgt_fo
         print(f"Error processing {smplx_file_path}: {e}")
         return
     
-    # retarget
-    retargeter = GMR(
-        src_human="smplx",
-        tgt_robot=tgt_robot,
-        actual_human_height=actual_human_height,
-    )
-    qpos_list = []
-    for smplx_frame_data in smplx_frame_data_list:
-        qpos = retargeter.retarget(smplx_frame_data)
-        qpos_list.append(qpos.copy())
+    try:
+        # retarget
+        retargeter = GMR(
+            src_human="smplx",
+            tgt_robot=tgt_robot,
+            actual_human_height=actual_human_height,
+        )
+        qpos_list = []
+        for smplx_frame_data in smplx_frame_data_list:
+            qpos = retargeter.retarget(smplx_frame_data)
+            qpos_list.append(qpos.copy())
 
-    qpos_list = np.array(qpos_list)
+        qpos_list = np.array(qpos_list)
+    except Exception as e:
+        print(f"Error retargeting {smplx_file_path}: {type(e).__name__}: {e}")
+        return
 
     log_memory("After retargeting")
     
-    device = "cuda:0"
-    kinematics_model = KinematicsModel(retargeter.xml_file, device=device)
+    try:
+        kinematics_model = KinematicsModel(retargeter.xml_file, device=device)
+    except Exception as e:
+        print(f"Error loading kinematics model for {smplx_file_path}: {type(e).__name__}: {e}")
+        return
 
     try:
         root_pos = qpos_list[:, :3]
@@ -107,9 +143,13 @@ def process_file(smplx_file_path, tgt_file_path, tgt_robot, SMPLX_FOLDER, tgt_fo
     fk_root_rot = torch.zeros((num_frames, 4), device=device)
     fk_root_rot[:, -1] = 1.0
 
-    local_body_pos, _ = kinematics_model.forward_kinematics(
-        fk_root_pos, fk_root_rot, torch.from_numpy(dof_pos).to(device=device, dtype=torch.float)
-    )
+    try:
+        local_body_pos, _ = kinematics_model.forward_kinematics(
+            fk_root_pos, fk_root_rot, torch.from_numpy(dof_pos).to(device=device, dtype=torch.float)
+        )
+    except Exception as e:
+        print(f"Error running local FK for {smplx_file_path}: {type(e).__name__}: {e}")
+        return
 
     log_memory("After forward kinematics")
 
@@ -117,13 +157,17 @@ def process_file(smplx_file_path, tgt_file_path, tgt_robot, SMPLX_FOLDER, tgt_fo
     
     HEIGHT_ADJUST = True
     if HEIGHT_ADJUST:
-        # height adjust to ensure the lowerset part is on the ground
-        body_pos, _ = kinematics_model.forward_kinematics(torch.from_numpy(root_pos).to(device=device, dtype=torch.float), 
-                                                        torch.from_numpy(root_rot).to(device=device, dtype=torch.float), 
-                                                        torch.from_numpy(dof_pos).to(device=device, dtype=torch.float)) # TxNx3
-        ground_offset = 0.0
-        lowerst_height = torch.min(body_pos[..., 2]).item()
-        root_pos[:, 2] = root_pos[:, 2] - lowerst_height + ground_offset # make sure motion on the ground
+        try:
+            # height adjust to ensure the lowerset part is on the ground
+            body_pos, _ = kinematics_model.forward_kinematics(torch.from_numpy(root_pos).to(device=device, dtype=torch.float),
+                                                            torch.from_numpy(root_rot).to(device=device, dtype=torch.float),
+                                                            torch.from_numpy(dof_pos).to(device=device, dtype=torch.float)) # TxNx3
+            ground_offset = 0.0
+            lowerst_height = torch.min(body_pos[..., 2]).item()
+            root_pos[:, 2] = root_pos[:, 2] - lowerst_height + ground_offset # make sure motion on the ground
+        except Exception as e:
+            print(f"Error running height-adjust FK for {smplx_file_path}: {type(e).__name__}: {e}")
+            return
         
     ROOT_ORIGIN_OFFSET = True
     if ROOT_ORIGIN_OFFSET:
@@ -163,7 +207,8 @@ def process_file(smplx_file_path, tgt_file_path, tgt_robot, SMPLX_FOLDER, tgt_fo
         tracemalloc.stop()
         
     # clean cache
-    torch.cuda.empty_cache()
+    if str(device).startswith("cuda"):
+        torch.cuda.empty_cache()
     gc.collect()
     
 
@@ -180,35 +225,67 @@ def main():
     
     parser.add_argument("--override", default=False, action="store_true")
     parser.add_argument("--num_cpus", default=4, type=int)
+    parser.add_argument(
+        "--device",
+        default="auto",
+        help="Device for forward kinematics: auto, cpu, cuda, cuda:0, etc.",
+    )
+    parser.add_argument(
+        "--body_model_folder",
+        type=str,
+        default=None,
+        help="Path to SMPL-X body models. Defaults to assets/body_models.",
+    )
+    parser.add_argument(
+        "--hard_motions_folder",
+        type=str,
+        default=None,
+        help="Path to hard motion exclusion txt files. Defaults to assets/hard_motions.",
+    )
+    parser.add_argument(
+        "--disable_hard_motion_filter",
+        action="store_true",
+        help="Do not exclude motions listed in assets/hard_motions/*.txt.",
+    )
     args = parser.parse_args()
     
     # print the total number of cpus and gpus
     print(f"Total CPUs: {mp.cpu_count()}")
     print(f"Using {args.num_cpus} CPUs.")
+    if args.device == "auto":
+        device = "cuda:0" if torch.cuda.is_available() else "cpu"
+    elif args.device == "cuda":
+        device = "cuda:0"
+    else:
+        device = args.device
+    print(f"Using FK device: {device}")
     
     src_folder = args.src_folder
     tgt_folder = args.tgt_folder
 
-    SMPLX_FOLDER = HERE / ".." / "assets" / "body_models"
-    hard_motions_folder = HERE / ".." / "assets" / "hard_motions"
+    smplx_folder = pathlib.Path(args.body_model_folder) if args.body_model_folder else HERE / ".." / "assets" / "body_models"
+    hard_motions_folder = pathlib.Path(args.hard_motions_folder) if args.hard_motions_folder else HERE / ".." / "assets" / "hard_motions"
 
     verbose = False
 
-    hard_motions_paths = [hard_motions_folder / "0.txt", 
-                          hard_motions_folder / "1.txt"]
     hard_motions = []
-    for hard_motions_path in hard_motions_paths:
-        with open(hard_motions_path, "r") as f:
-            for line in f:
-                if "Motion:" in line:
-                    motion_path = line.split(":")[1].strip()
-                else:
-                    continue
-                motion_path = motion_path.split(",")[0].strip().split(".")[0]
-                hard_motions.append(motion_path)
+    if not args.disable_hard_motion_filter:
+        hard_motions_paths = [hard_motions_folder / "0.txt",
+                              hard_motions_folder / "1.txt"]
+        for hard_motions_path in hard_motions_paths:
+            if not hard_motions_path.exists():
+                continue
+            with open(hard_motions_path, "r") as f:
+                for line in f:
+                    if "Motion:" in line:
+                        motion_path = line.split(":")[1].strip()
+                    else:
+                        continue
+                    motion_path = motion_path.split(",")[0].strip().split(".")[0]
+                    hard_motions.append(motion_path)
                 
                 
-    args_list = []
+    all_args_list = []
     for dirpath, _, filenames in os.walk(src_folder):
         for filename in natsorted(filenames):
             if filename.endswith("_stagei.npz"):
@@ -216,30 +293,33 @@ def main():
             if filename.endswith((".pkl", ".npz")):
                 smplx_file_path = os.path.join(dirpath, filename)
                 tgt_file_path = smplx_file_path.replace(src_folder, tgt_folder).replace(".npz", ".pkl")
-                if not os.path.exists(tgt_file_path) or args.override:
-                    args_list.append((smplx_file_path, tgt_file_path, args.robot, SMPLX_FOLDER, tgt_folder))
-    print("full args_list:", len(args_list))
+                all_args_list.append((smplx_file_path, tgt_file_path, args.robot, smplx_folder, tgt_folder))
+    print("full args_list:", len(all_args_list))
     
     # remove hard and infeasible motions
     exclude_file_content = ["BMLrub", "EKUT", "crawl", "_lie", "upstairs", "downstairs"]
     
-    new_args_list = []
-    for arguments in args_list:
+    expected_args_list = []
+    pending_args_list = []
+    for arguments in all_args_list:
         motion_name = arguments[0].split("/")[-1].split('.')[0]
         if motion_name in hard_motions:
             continue
         if any(content in motion_name for content in exclude_file_content):
             continue
-        new_args_list.append(arguments)
-    args_list = new_args_list
+        expected_args_list.append(arguments)
+        if not os.path.exists(arguments[1]) or args.override:
+            pending_args_list.append(arguments)
+    args_list = pending_args_list
     
     
-    print("new args_list:", len(args_list))
+    print("expected args_list:", len(expected_args_list))
+    print("pending args_list:", len(args_list))
     
-    total_files = len(args_list)
+    total_files = len(expected_args_list)
     print(f"Total number of files to process: {total_files}")
     with mp.Pool(args.num_cpus) as pool:
-        pool.starmap(process_file, [args + (total_files, verbose) for args in args_list])
+        pool.starmap(process_file, [args + (total_files, device, verbose) for args in args_list])
 
     print("Done. Saved to ", tgt_folder)
 

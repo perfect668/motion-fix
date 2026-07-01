@@ -1,3 +1,23 @@
+"""Visualize a folder of GMR robot-motion .pkl files.
+
+Purpose:
+    Replay and browse a robot-motion dataset, including filter output symlink
+    folders such as filter_report/pass_motions or
+    filter_report/relaxed_keep_motions.
+
+Typical usage:
+    conda run --no-capture-output -n gmr python scripts/vis_robot_motion_dataset.py \
+        --robot unitree_g1_24dof \
+        --robot_motion_folder data/retarget_data/g1_24dof/sonic_smpl_selected_10_12h/filter_report/relaxed_keep_motions
+
+Keys:
+    space  pause/resume
+    [      previous motion
+    ]      next motion
+    =      speed up
+    -      slow down
+"""
+
 from general_motion_retargeting import RobotMotionViewer, load_robot_motion
 import argparse
 import os
@@ -7,15 +27,25 @@ paused = False
 motion_num = 0
 motion_id = 0
 current_motion_id = -1
+speed_factor = 1.0
+env = None
 
 def keyboard_callback(keycode):
-    global paused, motion_id, motion_num
+    global paused, motion_id, motion_num, speed_factor
     if chr(keycode) == ' ':
         paused = not paused
-    if chr(keycode) == '[':
+    elif chr(keycode) == '[':
         motion_id = (motion_id - 1) % motion_num
-    if chr(keycode) == ']':
+    elif chr(keycode) == ']':
         motion_id = (motion_id + 1) % motion_num
+    elif chr(keycode) == '=':
+        speed_factor = min(4.0, speed_factor * 2)
+        env.set_speed(speed_factor)
+        print(f"Speed: {speed_factor:.2f}x")
+    elif chr(keycode) == '-':
+        speed_factor = max(0.25, speed_factor / 2)
+        env.set_speed(speed_factor)
+        print(f"Speed: {speed_factor:.2f}x")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -73,6 +103,8 @@ if __name__ == "__main__":
             motion_root_pos = motion_data["motion_root_pos"]
             motion_root_rot = motion_data["motion_root_rot"]
             motion_dof_pos = motion_data["motion_dof_pos"]
+            env.motion_fps = motion_fps  # fix: update base fps for rate_limiter
+            env.set_speed(speed_factor)
             print(f"Switched to motion {motion_id}: {motion_file}, fps: {motion_fps}, num_frames: {len(motion_root_pos)}")
         
         
