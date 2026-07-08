@@ -73,8 +73,8 @@ BODY_ROLE_HINTS = {
         "right_hand": "right_wrist_yaw_link",
     },
     "ne01": {
-        "left_foot": "ANKLE_ROLL_L_LINK",
-        "right_foot": "ANKLE_ROLL_R_LINK",
+        "left_foot": "left_toe_link",
+        "right_foot": "right_toe_link",
         "left_knee": "KNEE_PITCH_L_LINK",
         "right_knee": "KNEE_PITCH_R_LINK",
         "left_hand": "HAND_YAW_L_LINK",
@@ -95,6 +95,7 @@ DEFAULT_RELAXED_SEVERE_REASONS = {
     "arm_ik_limit_residual",
     "arm_side_anomaly",
     "crawling_or_hand_support_like",
+    "external_support_dependency",
     "fall_or_lie_like",
     "foot_penetration_persistent",
     "foot_penetration_severe",
@@ -113,6 +114,56 @@ RELAXED_SEVERE_REASON_PREFIXES = (
     "missing_required_bodies:",
     "too_short:",
 )
+
+
+EXTERNAL_SUPPORT_REASON = "external_support_dependency"
+EXTERNAL_SUPPORT_PHRASES = (
+    "against_wall",
+    "brace_against",
+    "bracing_against",
+    "lean_against",
+    "lean_on",
+    "leaning_on",
+    "leaning_wall",
+    "jump_off_wall",
+    "nailing_wall",
+    "off_wall",
+    "prop_against",
+    "propped_against",
+    "rest_on",
+    "resting_on",
+    "supported_by",
+    "wall_lean",
+)
+EXTERNAL_SUPPORT_ACTION_TOKENS = {
+    "brace",
+    "bracing",
+    "hang",
+    "hanging",
+    "lean",
+    "leaning",
+    "prop",
+    "propped",
+    "propping",
+    "rest",
+    "resting",
+    "support",
+    "supported",
+    "supporting",
+}
+EXTERNAL_SUPPORT_OBJECT_TOKENS = {
+    "bar",
+    "chair",
+    "counter",
+    "door",
+    "fence",
+    "ladder",
+    "pole",
+    "rail",
+    "railing",
+    "table",
+    "wall",
+}
 
 
 SCAN_EXCLUDED_DIR_NAMES = {
@@ -159,6 +210,22 @@ ROLE_SCORES = {
         "gripper": 60,
     },
 }
+
+
+def normalize_motion_text(value):
+    stem = Path(str(value)).stem.lower()
+    return "".join(ch if ch.isalnum() else "_" for ch in stem)
+
+
+def has_external_support_dependency(value):
+    text = normalize_motion_text(value)
+    if any(phrase in text for phrase in EXTERNAL_SUPPORT_PHRASES):
+        return True
+
+    tokens = {token for token in text.split("_") if token}
+    return bool(tokens & EXTERNAL_SUPPORT_ACTION_TOKENS) and bool(
+        tokens & EXTERNAL_SUPPORT_OBJECT_TOKENS
+    )
 
 
 @dataclass(frozen=True)
@@ -264,6 +331,16 @@ def parse_args():
         "--relaxed_severe_reasons",
         default=",".join(sorted(DEFAULT_RELAXED_SEVERE_REASONS)),
         help="Comma-separated reject reasons that remain hard rejects in relaxed reports.",
+    )
+    parser.add_argument(
+        "--relaxed_dynamic_actions",
+        action="store_true",
+        help=(
+            "Relax training-set filtering for high-dynamic actions. Strict reports "
+            "still record all issues, but relaxed reports do not hard-reject "
+            "long airborne, high elevation, root speed, or joint speed/acceleration "
+            "spikes unless they also hit another severe reason."
+        ),
     )
     return parser.parse_args()
 
@@ -604,6 +681,9 @@ def analyze_motion(motion_path, motion_data, robot, kinematics_model, dof_map, t
 
     if not np.isfinite(root_pos).all() or not np.isfinite(root_rot).all() or not np.isfinite(dof_pos).all():
         reject_reasons.append("nan_or_inf")
+
+    if has_external_support_dependency(motion_path):
+        reject_reasons.append(EXTERNAL_SUPPORT_REASON)
 
     if reject_reasons:
         return {
@@ -1117,6 +1197,16 @@ def write_reports(
 def main():
     args = parse_args()
     thresholds = FilterThresholds()
+    severe_reasons = parse_reason_set(args.relaxed_severe_reasons)
+    if args.relaxed_dynamic_actions:
+        severe_reasons -= {
+            "arm_side_anomaly",
+            "high_elevation_or_climb_like",
+            "joint_acc_spike",
+            "joint_speed_spike",
+            "long_airborne",
+            "root_speed_spike",
+        }
     motion_files, input_root = collect_motion_files(args.input)
     if args.max_files is not None:
         motion_files = motion_files[: args.max_files]
@@ -1127,7 +1217,6 @@ def main():
     xml_path = ROBOT_XML_DICT[args.robot]
     kinematics_model = KinematicsModel(str(xml_path), device=args.device)
     dof_map = parse_robot_dof_map(args.robot)
-    severe_reasons = parse_reason_set(args.relaxed_severe_reasons)
 
     details = []
     for motion_path in tqdm(motion_files, desc="Filtering robot motions"):

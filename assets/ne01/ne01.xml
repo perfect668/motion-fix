@@ -2,7 +2,9 @@
   <compiler angle="radian" meshdir="meshes"/>
 
   <visual>
-    <global offwidth="1280" offheight="720"/>
+    <headlight diffuse="0.6 0.6 0.6" ambient="0.1 0.1 0.1" specular="0.9 0.9 0.9"/>
+    <rgba haze="0.15 0.25 0.35 1"/>
+    <global azimuth="-140" elevation="-20" offwidth="2080" offheight="1170"/>
   </visual>
 
   <option timestep="0.005" gravity="0 0 -9.81"/>
@@ -13,8 +15,9 @@
   </default>
 
   <asset>
-    <texture type="2d" name="groundplane" builtin="checker" mark="edge" rgb1="0.2 0.3 0.4" rgb2="0.1 0.2 0.3" markrgb="0.8 0.8 0.8" width="300" height="300"/>
-    <material name="groundplane" texture="groundplane" texuniform="true" texrepeat="5 5" reflectance="0.2"/>
+    <texture type="skybox" builtin="gradient" rgb1="1 1 1" rgb2="1 1 1" width="800" height="800"/>
+    <texture type="2d" name="groundplane" builtin="checker" mark="edge" rgb1="1 1 1" rgb2="1 1 1" markrgb="0 0 0" width="300" height="300"/>
+    <material name="groundplane" texture="groundplane" texuniform="true" texrepeat="5 5" reflectance="0"/>
     <mesh name="base_link" file="base_link.STL"/>
     <mesh name="WAIST_YAW" file="WAIST_YAW.STL"/>
     <mesh name="TORSO_LINK" file="TORSO_LINK.STL"/>
@@ -43,8 +46,8 @@
   </asset>
 
   <worldbody>
-    <light directional="true" diffuse="0.8 0.8 0.8" specular="0.3 0.3 0.3" pos="0 0 5" dir="0 0 -1"/>
-    <geom name="floor" type="plane" size="10 10 0.1" material="groundplane"/>
+    <geom name="floor" size="0 0 0.01" type="plane" material="groundplane" contype="1" conaffinity="0" priority="1" friction="0.6" condim="3"/>
+    <light diffuse=".5 .5 .5" pos="-3 -3 5" dir="3 3 -5" castshadow="true"/>
 
     <body name="base_link" pos="0 0 0.75">
       <inertial pos="-0.001477 -3.65e-06 0.01217" mass="2.7219" diaginertia="0.007081 0.006484 0.005309"/>
@@ -145,7 +148,15 @@
                   <inertial pos="0.037484 5.54e-07 -0.023480" mass="0.43467" diaginertia="0.001496 0.001403 0.000227"/>
                   <joint name="ANKLE_ROLL_R_JOINT" pos="0 0 0" axis="1 0 0" range="-0.2618 0.2618"/>
                   <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.3 0.3 0.3 1" mesh="ANKLE_ROLL_R"/>
-                  <geom size="0.107 0.04 0.015" pos="0.039 0 -0.025" type="box" rgba="0.3 0.3 0.3 1"/>
+                  <geom name="right_foot_rear_left_collision" type="sphere" size="0.005" pos="-0.05 0.025 -0.035" rgba="0.3 0.3 0.3 1" priority="1" condim="3"/>
+                  <geom name="right_foot_rear_right_collision" type="sphere" size="0.005" pos="-0.05 -0.025 -0.035" rgba="0.3 0.3 0.3 1" priority="1" condim="3"/>
+                  <geom name="right_foot_front_left_collision" type="sphere" size="0.005" pos="0.12 0.03 -0.035" rgba="0.3 0.3 0.3 1" priority="1" condim="3"/>
+                  <geom name="right_foot_front_right_collision" type="sphere" size="0.005" pos="0.12 -0.03 -0.035" rgba="0.3 0.3 0.3 1" priority="1" condim="3"/>
+                  <body name="right_toe_link" pos="0.08 0 -0.01"/>
+                  <body name="right_foot_front_left_link" pos="0.12 0.03 -0.0355"/>
+                  <body name="right_foot_front_right_link" pos="0.12 -0.03 -0.0355"/>
+                  <body name="right_foot_rear_left_link" pos="-0.05 0.025 -0.0355"/>
+                  <body name="right_foot_rear_right_link" pos="-0.05 -0.025 -0.0355"/>
                 </body>
               </body>
             </body>
@@ -178,7 +189,15 @@
                   <inertial pos="0.037484 5.54e-07 -0.023480" mass="0.43467" diaginertia="0.001496 0.001403 0.000227"/>
                   <joint name="ANKLE_ROLL_L_JOINT" pos="0 0 0" axis="1 0 0" range="-0.2618 0.2618"/>
                   <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.3 0.3 0.3 1" mesh="ANKLE_ROLL_L"/>
-                  <geom size="0.107 0.04 0.015" pos="0.039 0 -0.025" type="box" rgba="0.3 0.3 0.3 1"/>
+                  <geom name="left_foot_rear_left_collision" type="sphere" size="0.005" pos="-0.05 0.025 -0.035" rgba="0.3 0.3 0.3 1" priority="1" condim="3"/>
+                  <geom name="left_foot_rear_right_collision" type="sphere" size="0.005" pos="-0.05 -0.025 -0.035" rgba="0.3 0.3 0.3 1" priority="1" condim="3"/>
+                  <geom name="left_foot_front_left_collision" type="sphere" size="0.005" pos="0.12 0.03 -0.035" rgba="0.3 0.3 0.3 1" priority="1" condim="3"/>
+                  <geom name="left_foot_front_right_collision" type="sphere" size="0.005" pos="0.12 -0.03 -0.035" rgba="0.3 0.3 0.3 1" priority="1" condim="3"/>
+                  <body name="left_toe_link" pos="0.08 0 -0.01"/>
+                  <body name="left_foot_front_left_link" pos="0.12 0.03 -0.0355"/>
+                  <body name="left_foot_front_right_link" pos="0.12 -0.03 -0.0355"/>
+                  <body name="left_foot_rear_left_link" pos="-0.05 0.025 -0.0355"/>
+                  <body name="left_foot_rear_right_link" pos="-0.05 -0.025 -0.0355"/>
                 </body>
               </body>
             </body>

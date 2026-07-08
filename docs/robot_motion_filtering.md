@@ -8,6 +8,7 @@
 - 长时间双脚离地，接近跳跃、攀爬、悬挂类动作。
 - 机器人根部姿态异常，例如趴地、摔倒、长期大角度倾斜。
 - 膝盖、手臂经常贴近地面，接近跪地、爬行、手撑地动作。
+- 非足端 body 依赖外部物体支撑，离开墙、桌、椅、扶手等环境后无法自平衡的动作。
 - 速度、加速度或关节极限占比异常，通常意味着重定向质量较差。
 
 当前仓库里的统一入口是 [scripts/filter_robot_motion.py](/home/user/robot_software/drl/retarget/GMR/scripts/filter_robot_motion.py)。它会先生成严格的 `pass / tag / reject` 三类结果，然后再生成面向训练集使用的 relaxed 结果，把部分非严重 reject 降级为 tag，从而得到 `relaxed_keep` 数据。
@@ -35,7 +36,18 @@
 - 任意字段存在 `NaN` 或 `Inf`，直接 `reject`
 - 无法定位左右足端 body，直接 `reject`
 
-### 2. 足端接触与打滑
+### 2. 外部支撑依赖
+
+如果动作语义表明除足端外还有 body 与外部环境发生支撑性力交互，直接 `reject` 为 `external_support_dependency`。典型例子：
+
+- `wall_leaning_idle_270_R_001__A285`
+- `idle_to_wall_leaning_*`
+- `drinking_wall_leaning_mug_*`
+- `lean_on`、`lean_against`、`resting_on`、`supported_by` 等依赖墙、桌、椅、门、扶手、杆、梯子的动作
+
+该规则优先使用 motion family / filename 语义。原因是当前 `robot-motion pkl` 不包含外部物体几何，单靠机器人轨迹很难可靠判断“背后是否有墙”。这类动作和 jump/run/dance 不同：高动态动作可以是自包含的，而外部支撑动作在无对应环境时静态平衡条件本身不成立。
+
+### 3. 足端接触与打滑
 
 接触帧定义：
 
@@ -53,7 +65,7 @@
 - 任意足端高度 `< -0.06 m`，`reject`
 - 任意足端高度 `< -0.03 m` 持续超过 `10` 帧，`reject`
 
-### 3. 悬空、跳跃、攀爬类
+### 4. 悬空、跳跃、攀爬类
 
 双脚同时离地定义：
 
@@ -72,7 +84,7 @@
 
 如果根部高度变化超过 `0.25 m`，但没有达到拒绝阈值，则 `tag`
 
-### 4. 倒地、趴地、跪地、爬行
+### 5. 倒地、趴地、跪地、爬行
 
 根部倾角判定：
 
@@ -95,7 +107,7 @@
 
 这些阈值已适度放宽以提升通过率。如果目标数据集包含跪地、翻滚、撑地站起等动作，可进一步调整。
 
-### 5. 手臂侧向与 IK 质量
+### 6. 手臂侧向与 IK 质量
 
 默认启用 `arm quality` 检查，可通过 `--disable_arm_quality` 关闭。
 
@@ -114,7 +126,7 @@
 
 如果手臂侧向异常，同时最大手臂极限占比 `>= 0.50`，判为 `arm_ik_limit_residual`；否则判为 `arm_side_anomaly`。两者在 strict 和 relaxed 结果中默认都属于严重 reject 原因。
 
-### 6. 速度、加速度、关节极限
+### 7. 速度、加速度、关节极限
 
 根部速度：
 
@@ -184,6 +196,7 @@ Relaxed 逻辑：
 arm_ik_limit_residual
 arm_side_anomaly
 crawling_or_hand_support_like
+external_support_dependency
 fall_or_lie_like
 foot_penetration_persistent
 foot_penetration_severe
@@ -205,6 +218,8 @@ too_short:
 ```
 
 可用 `--relaxed_severe_reasons` 覆盖严重原因集合；可用 `--no_relaxed_report` 只生成 strict 报告。
+
+使用 `--relaxed_dynamic_actions` 时，`long_airborne`、`high_elevation_or_climb_like`、root/joint speed spike 等动态相关 reject 会在 relaxed 报告中降为 tag，但 `external_support_dependency` 仍然保持 relaxed reject。
 
 ## 使用方式
 

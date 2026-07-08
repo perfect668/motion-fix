@@ -19,6 +19,7 @@ class GeneralMotionRetargeting:
         damping: float=5e-1, # change from 1e-1 to 1e-2.
         verbose: bool=True,
         use_velocity_limit: bool=False,
+        velocity_limit: float=3*np.pi,
     ) -> None:
 
         # load the robot model
@@ -28,7 +29,8 @@ class GeneralMotionRetargeting:
         self.model = mj.MjModel.from_xml_path(self.xml_file)
         
         # Print DoF names in order
-        print("[GMR] Robot Degrees of Freedom (DoF) names and their order:")
+        if verbose:
+            print("[GMR] Robot Degrees of Freedom (DoF) names and their order:")
         self.robot_dof_names = {}
         for i in range(self.model.nv):  # 'nv' is the number of DoFs
             dof_name = mj.mj_id2name(self.model, mj.mjtObj.mjOBJ_JOINT, self.model.dof_jntid[i])
@@ -37,7 +39,8 @@ class GeneralMotionRetargeting:
                 print(f"DoF {i}: {dof_name}")
             
             
-        print("[GMR] Robot Body names and their IDs:")
+        if verbose:
+            print("[GMR] Robot Body names and their IDs:")
         self.robot_body_names = {}
         for i in range(self.model.nbody):  # 'nbody' is the number of bodies
             body_name = mj.mj_id2name(self.model, mj.mjtObj.mjOBJ_BODY, i)
@@ -45,7 +48,8 @@ class GeneralMotionRetargeting:
             if verbose:
                 print(f"Body ID {i}: {body_name}")
         
-        print("[GMR] Robot Motor (Actuator) names and their IDs:")
+        if verbose:
+            print("[GMR] Robot Motor (Actuator) names and their IDs:")
         self.robot_motor_names = {}
         for i in range(self.model.nu):  # 'nu' is the number of actuators (motors)
             motor_name = mj.mj_id2name(self.model, mj.mjtObj.mjOBJ_ACTUATOR, i)
@@ -79,6 +83,10 @@ class GeneralMotionRetargeting:
         self.use_ik_match_table2 = ik_config["use_ik_match_table2"]
         self.human_scale_table = ik_config["human_scale_table"]
         self.ground = ik_config["ground_height"] * np.array([0, 0, 1])
+        self.initial_frame_retarget_passes = max(
+            1, int(ik_config.get("initial_frame_retarget_passes", 1))
+        )
+        self.retarget_call_count = 0
 
         self.max_iter = 10
 
@@ -97,12 +105,25 @@ class GeneralMotionRetargeting:
 
         self.ik_limits = [mink.ConfigurationLimit(self.model)]
         if use_velocity_limit:
-            VELOCITY_LIMITS = {k: 3*np.pi for k in self.robot_motor_names.keys()}
-            self.ik_limits.append(mink.VelocityLimit(self.model, VELOCITY_LIMITS)) 
+            velocity_limits = self.build_actuated_joint_velocity_limits(velocity_limit)
+            self.ik_limits.append(mink.VelocityLimit(self.model, velocity_limits))
             
         self.setup_retarget_configuration()
         
         self.ground_offset = 0.0
+
+    def build_actuated_joint_velocity_limits(self, max_velocity):
+        velocity_limits = {}
+        for actuator_id in range(self.model.nu):
+            joint_id = int(self.model.actuator_trnid[actuator_id, 0])
+            if joint_id < 0:
+                continue
+            joint_type = self.model.jnt_type[joint_id]
+            if joint_type == mj.mjtJoint.mjJNT_FREE:
+                continue
+            joint_name = mj.mj_id2name(self.model, mj.mjtObj.mjOBJ_JOINT, joint_id)
+            velocity_limits[joint_name] = max_velocity
+        return velocity_limits
 
     def setup_retarget_configuration(self):
         self.configuration = mink.Configuration(self.model)
@@ -174,49 +195,44 @@ class GeneralMotionRetargeting:
         # Update the task targets
         self.update_targets(human_data, offset_to_ground)
 
-        if self.use_ik_match_table1:
-            # Solve the IK problem
-            curr_error = self.error1()
-            dt = self.configuration.model.opt.timestep
-            vel1 = mink.solve_ik(
-                self.configuration, self.tasks1, dt, self.solver, self.damping, self.ik_limits
-            )
-            self.configuration.integrate_inplace(vel1, dt)
-            next_error = self.error1()
-            num_iter = 0
-            while curr_error - next_error > 0.001 and num_iter < self.max_iter:
-                curr_error = next_error
-                dt = self.configuration.model.opt.timestep
-                vel1 = mink.solve_ik(
-                    self.configuration, self.tasks1, dt, self.solver, self.damping, self.ik_limits
-                )
-                self.configuration.integrate_inplace(vel1, dt)
-                next_error = self.error1()
-                num_iter += 1
+        retarget_passes = (
+            self.initial_frame_retarget_passes
+            if self.retarget_call_count == 0
+            else 1
+        )
+        for _ in range(retarget_passes):
+            if self.use_ik_match_table1:
+                self._solve_task_group(self.tasks1, self.error1)
 
-        if self.use_ik_match_table2:
-            curr_error = self.error2()
-            dt = self.configuration.model.opt.timestep
-            vel2 = mink.solve_ik(
-                self.configuration, self.tasks2, dt, self.solver, self.damping, self.ik_limits
-            )
-            self.configuration.integrate_inplace(vel2, dt)
-            next_error = self.error2()
-            num_iter = 0
-            while curr_error - next_error > 0.001 and num_iter < self.max_iter:
-                curr_error = next_error
-                # Solve the IK problem with the second task
-                dt = self.configuration.model.opt.timestep
-                vel2 = mink.solve_ik(
-                    self.configuration, self.tasks2, dt, self.solver, self.damping, self.ik_limits
-                )
-                self.configuration.integrate_inplace(vel2, dt)
-                
-                next_error = self.error2()
-                num_iter += 1
-                
-            
+            if self.use_ik_match_table2:
+                self._solve_task_group(self.tasks2, self.error2)
+
+        self.retarget_call_count += 1
         return self.configuration.data.qpos.copy()
+
+    def _solve_task_group(self, tasks, error_fn):
+        curr_error = error_fn()
+        self._solve_ik_once(tasks)
+        next_error = error_fn()
+
+        num_iter = 0
+        while curr_error - next_error > 0.001 and num_iter < self.max_iter:
+            curr_error = next_error
+            self._solve_ik_once(tasks)
+            next_error = error_fn()
+            num_iter += 1
+
+    def _solve_ik_once(self, tasks):
+        dt = self.configuration.model.opt.timestep
+        velocity = mink.solve_ik(
+            self.configuration,
+            tasks,
+            dt,
+            self.solver,
+            self.damping,
+            limits=self.ik_limits,
+        )
+        self.configuration.integrate_inplace(velocity, dt)
 
 
     def error1(self):

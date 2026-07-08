@@ -48,6 +48,10 @@ class RobotMotionViewer:
                 camera_follow=True,
                 motion_fps=30,
                 transparent_robot=0,
+                camera_azimuth=-140,
+                camera_elevation=-20,
+                camera_distance=None,
+                camera_lookat=(0.0, 0.0, 0.8),
                 # video recording
                 record_video=False,
                 video_path=None,
@@ -62,6 +66,10 @@ class RobotMotionViewer:
         self.data = mj.MjData(self.model)
         self.robot_base = ROBOT_BASE_DICT[robot_type]
         self.viewer_cam_distance = VIEWER_CAM_DISTANCE_DICT[robot_type]
+        self.camera_azimuth = camera_azimuth
+        self.camera_elevation = camera_elevation
+        self.camera_distance = self.viewer_cam_distance if camera_distance is None else camera_distance
+        self.camera_lookat = np.asarray(camera_lookat, dtype=float)
         mj.mj_step(self.model, self.data)
         
         self.motion_fps = motion_fps
@@ -80,6 +88,7 @@ class RobotMotionViewer:
             )      
 
         self.viewer.opt.flags[mj.mjtVisFlag.mjVIS_TRANSPARENT] = transparent_robot
+        self._set_camera(self.camera_lookat)
         
         if self.record_video:
             assert video_path is not None, "Please provide video path for recording"
@@ -93,6 +102,12 @@ class RobotMotionViewer:
             
             # Initialize renderer for video recording
             self.renderer = mj.Renderer(self.model, height=video_height, width=video_width)
+
+    def _set_camera(self, lookat):
+        self.viewer.cam.lookat[:] = lookat
+        self.viewer.cam.distance = self.camera_distance
+        self.viewer.cam.elevation = self.camera_elevation
+        self.viewer.cam.azimuth = self.camera_azimuth
         
     def step(self, 
             # robot data
@@ -106,7 +121,7 @@ class RobotMotionViewer:
             human_pos_offset=np.array([0.0, 0.0, 0]),
             # rate limit
             rate_limit=True, 
-            follow_camera=True,
+            follow_camera=None,
             ):
         """
         by default visualize robot motion.
@@ -124,11 +139,11 @@ class RobotMotionViewer:
         
         mj.mj_forward(self.model, self.data)
         
+        if follow_camera is None:
+            follow_camera = self.camera_follow
+
         if follow_camera:
-            self.viewer.cam.lookat = self.data.xpos[self.model.body(self.robot_base).id]
-            self.viewer.cam.distance = self.viewer_cam_distance
-            self.viewer.cam.elevation = -10  # 正面视角，轻微向下看
-            # self.viewer.cam.azimuth = 180    # 正面朝向机器人
+            self._set_camera(self.data.xpos[self.model.body(self.robot_base).id])
         
         if human_motion_data is not None:
             # Clean custom geometry

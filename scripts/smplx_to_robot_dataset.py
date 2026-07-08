@@ -65,7 +65,18 @@ def check_memory(threshold_gb=30):  # adjust based on your available memory
 HERE = pathlib.Path(__file__).parent
 
 
-def process_file(smplx_file_path, tgt_file_path, tgt_robot, smplx_folder, tgt_folder, total_files, device, verbose=False):
+def process_file(
+    smplx_file_path,
+    tgt_file_path,
+    tgt_robot,
+    smplx_folder,
+    tgt_folder,
+    total_files,
+    device,
+    verbose=False,
+    use_velocity_limit=False,
+    velocity_limit=3 * np.pi,
+):
     def log_memory(message):
         if verbose and psutil is not None:
             process = psutil.Process(os.getpid())
@@ -110,6 +121,9 @@ def process_file(smplx_file_path, tgt_file_path, tgt_robot, smplx_folder, tgt_fo
             src_human="smplx",
             tgt_robot=tgt_robot,
             actual_human_height=actual_human_height,
+            verbose=verbose,
+            use_velocity_limit=use_velocity_limit,
+            velocity_limit=velocity_limit,
         )
         qpos_list = []
         for smplx_frame_data in smplx_frame_data_list:
@@ -213,6 +227,34 @@ def process_file(smplx_file_path, tgt_file_path, tgt_robot, smplx_folder, tgt_fo
     
 
 
+def run_process_pool(
+    args_list,
+    total_files,
+    device,
+    verbose,
+    num_cpus,
+    use_velocity_limit=False,
+    velocity_limit=3 * np.pi,
+):
+    process_args = [
+        args + (total_files, device, verbose, use_velocity_limit, velocity_limit)
+        for args in args_list
+    ]
+    if num_cpus <= 1:
+        for args in process_args:
+            process_file(*args)
+        return
+
+    if str(device).startswith("cuda"):
+        print("Using multiprocessing start method: spawn for CUDA FK.")
+        context = mp.get_context("spawn")
+    else:
+        context = mp.get_context()
+
+    with context.Pool(num_cpus) as pool:
+        pool.starmap(process_file, process_args)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--robot", default="unitree_g1")
@@ -246,6 +288,22 @@ def main():
         "--disable_hard_motion_filter",
         action="store_true",
         help="Do not exclude motions listed in assets/hard_motions/*.txt.",
+    )
+    parser.add_argument(
+        "--disable_name_exclude_filter",
+        action="store_true",
+        help="Do not exclude motions by built-in filename keywords such as crawl or _lie.",
+    )
+    parser.add_argument(
+        "--use_velocity_limit",
+        action="store_true",
+        help="Enable GMR IK joint velocity limits during retargeting.",
+    )
+    parser.add_argument(
+        "--velocity_limit",
+        type=float,
+        default=3 * np.pi,
+        help="Joint velocity limit in rad/s for GMR IK when --use_velocity_limit is set.",
     )
     args = parser.parse_args()
     
@@ -297,7 +355,9 @@ def main():
     print("full args_list:", len(all_args_list))
     
     # remove hard and infeasible motions
-    exclude_file_content = ["BMLrub", "EKUT", "crawl", "_lie", "upstairs", "downstairs"]
+    exclude_file_content = []
+    if not args.disable_name_exclude_filter:
+        exclude_file_content = ["BMLrub", "EKUT", "crawl", "_lie", "upstairs", "downstairs"]
     
     expected_args_list = []
     pending_args_list = []
@@ -318,8 +378,15 @@ def main():
     
     total_files = len(expected_args_list)
     print(f"Total number of files to process: {total_files}")
-    with mp.Pool(args.num_cpus) as pool:
-        pool.starmap(process_file, [args + (total_files, device, verbose) for args in args_list])
+    run_process_pool(
+        args_list,
+        total_files,
+        device,
+        verbose,
+        args.num_cpus,
+        use_velocity_limit=args.use_velocity_limit,
+        velocity_limit=args.velocity_limit,
+    )
 
     print("Done. Saved to ", tgt_folder)
 

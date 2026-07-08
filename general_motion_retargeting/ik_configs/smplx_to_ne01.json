@@ -3,6 +3,7 @@
     "human_root_name": "pelvis",
     "ground_height": 0.0,
     "human_height_assumption": 1.8,
+    "initial_frame_retarget_passes": 5,
     "use_ik_match_table1": true,
     "use_ik_match_table2": true,
     "human_scale_table": {
@@ -12,8 +13,8 @@
         "right_hip": 0.85,
         "left_knee": 0.85,
         "right_knee": 0.85,
-        "left_foot": 0.85,
-        "right_foot": 0.85,
+        "left_foot": 0.92,
+        "right_foot": 0.92,
         "left_shoulder": 0.75,
         "right_shoulder": 0.75,
         "left_elbow": 0.75,
@@ -43,11 +44,11 @@
             [0.0, 0.0, 0.0],
             [0.5, -0.5, -0.5, -0.5]
         ],
-        "ANKLE_ROLL_L_LINK": [
+        "left_toe_link": [
             "left_foot",
-            100,
+            120,
             10,
-            [0.0, 0.0, 0.0],
+            [0.0, 0.02, 0.0],
             [0.5, -0.5, -0.5, -0.5]
         ],
         "HIP_ROLL_R_LINK": [
@@ -64,11 +65,11 @@
             [0.0, 0.0, 0.0],
             [0.5, -0.5, -0.5, -0.5]
         ],
-        "ANKLE_ROLL_R_LINK": [
+        "right_toe_link": [
             "right_foot",
-            100,
+            120,
             10,
-            [0.0, 0.0, 0.0],
+            [0.0, -0.02, 0.0],
             [0.5, -0.5, -0.5, -0.5]
         ],
         "WAIST_YAW": [
@@ -81,42 +82,42 @@
         "SHOULDER_YAW_L_LINK": [
             "left_shoulder",
             0,
-            10,
+            2,
             [0.0, 0.0, 0.0],
             [0.70710678, 0.0, -0.70710678, 0.0]
         ],
         "ELBOW_PITCH_L_LINK": [
             "left_elbow",
             0,
-            10,
+            2,
             [0.0, 0.0, 0.0],
             [-0.70710678, 0.0, 0.70710678, 0.0]
         ],
         "HAND_YAW_L_LINK": [
             "left_wrist",
             0,
-            10,
+            2,
             [0.0, 0.0, 0.0],
             [-0.70710678, 0.0, 0.70710678, 0.0]
         ],
         "SHOULDER_YAW_R_LINK": [
             "right_shoulder",
             0,
-            10,
+            2,
             [0.0, 0.0, 0.0],
             [0.0, 0.70710678, 0.0, 0.70710678]
         ],
         "ELBOW_PITCH_R_LINK": [
             "right_elbow",
             0,
-            10,
+            2,
             [0.0, 0.0, 0.0],
             [0.0, -0.70710678, 0.0, -0.70710678]
         ],
         "HAND_YAW_R_LINK": [
             "right_wrist",
             0,
-            10,
+            2,
             [0.0, 0.0, 0.0],
             [0.0, -0.70710678, 0.0, -0.70710678]
         ]
@@ -143,9 +144,9 @@
             [0.0, 0.0, 0.0],
             [0.5, -0.5, -0.5, -0.5]
         ],
-        "ANKLE_ROLL_L_LINK": [
+        "left_toe_link": [
             "left_foot",
-            100,
+            120,
             50,
             [0.0, 0.0, 0.0],
             [-0.5, 0.5, 0.5, 0.5]
@@ -164,9 +165,9 @@
             [0.0, 0.0, 0.0],
             [0.5, -0.5, -0.5, -0.5]
         ],
-        "ANKLE_ROLL_R_LINK": [
+        "right_toe_link": [
             "right_foot",
-            100,
+            120,
             50,
             [0.0, 0.0, 0.0],
             [-0.5, 0.5, 0.5, 0.5]
@@ -180,43 +181,43 @@
         ],
         "SHOULDER_YAW_L_LINK": [
             "left_shoulder",
-            20,
-            5,
+            8,
+            1,
             [0.0, 0.0, 0.0],
             [0.70710678, 0.0, -0.70710678, 0.0]
         ],
         "ELBOW_PITCH_L_LINK": [
             "left_elbow",
-            20,
-            5,
+            8,
+            1,
             [0.0, 0.0, 0.0],
             [-0.70710678, 0.0, 0.70710678, 0.0]
         ],
         "HAND_YAW_L_LINK": [
             "left_wrist",
-            30,
-            5,
+            8,
+            1,
             [0.0, 0.0, 0.0],
             [-0.70710678, 0.0, 0.70710678, 0.0]
         ],
         "SHOULDER_YAW_R_LINK": [
             "right_shoulder",
-            20,
-            5,
+            8,
+            1,
             [0.0, 0.0, 0.0],
             [0.0, 0.70710678, 0.0, 0.70710678]
         ],
         "ELBOW_PITCH_R_LINK": [
             "right_elbow",
-            20,
-            5,
+            8,
+            1,
             [0.0, 0.0, 0.0],
             [0.0, -0.70710678, 0.0, -0.70710678]
         ],
         "HAND_YAW_R_LINK": [
             "right_wrist",
-            30,
-            5,
+            8,
+            1,
             [0.0, 0.0, 0.0],
             [0.0, -0.70710678, 0.0, -0.70710678]
         ]
