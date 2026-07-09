@@ -108,6 +108,9 @@ class RobotMotionViewer:
         self.viewer.cam.distance = self.camera_distance
         self.viewer.cam.elevation = self.camera_elevation
         self.viewer.cam.azimuth = self.camera_azimuth
+
+    def _follow_camera_position(self, lookat):
+        self.viewer.cam.lookat[:] = lookat
         
     def step(self, 
             # robot data
@@ -143,7 +146,7 @@ class RobotMotionViewer:
             follow_camera = self.camera_follow
 
         if follow_camera:
-            self._set_camera(self.data.xpos[self.model.body(self.robot_base).id])
+            self._follow_camera_position(self.data.xpos[self.model.body(self.robot_base).id])
         
         if human_motion_data is not None:
             # Clean custom geometry

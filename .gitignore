@@ -118,5 +118,6 @@ origin_data/
 docs/*
 !docs/robot_motion_filtering.md
 !docs/smpl_retargeting_pipeline.md
+!docs/g1_ne01_gmr_alignment_tuning.md
 
 test/

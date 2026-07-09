@@ -7,7 +7,7 @@
     <global azimuth="-140" elevation="-20" offwidth="2080" offheight="1170"/>
   </visual>
 
-  <option timestep="0.005" gravity="0 0 -9.81"/>
+  <option timestep="0.002" gravity="0 0 -9.81"/>
 
   <default>
     <joint damping="0.5" armature="0.01" frictionloss="0.1"/>
@@ -152,11 +152,7 @@
                   <geom name="right_foot_rear_right_collision" type="sphere" size="0.005" pos="-0.05 -0.025 -0.035" rgba="0.3 0.3 0.3 1" priority="1" condim="3"/>
                   <geom name="right_foot_front_left_collision" type="sphere" size="0.005" pos="0.12 0.03 -0.035" rgba="0.3 0.3 0.3 1" priority="1" condim="3"/>
                   <geom name="right_foot_front_right_collision" type="sphere" size="0.005" pos="0.12 -0.03 -0.035" rgba="0.3 0.3 0.3 1" priority="1" condim="3"/>
-                  <body name="right_toe_link" pos="0.08 0 -0.01"/>
-                  <body name="right_foot_front_left_link" pos="0.12 0.03 -0.0355"/>
-                  <body name="right_foot_front_right_link" pos="0.12 -0.03 -0.0355"/>
-                  <body name="right_foot_rear_left_link" pos="-0.05 0.025 -0.0355"/>
-                  <body name="right_foot_rear_right_link" pos="-0.05 -0.025 -0.0355"/>
+                  <body name="right_toe_link" pos="0.1 0 -0.02"/>
                 </body>
               </body>
             </body>
@@ -193,11 +189,7 @@
                   <geom name="left_foot_rear_right_collision" type="sphere" size="0.005" pos="-0.05 -0.025 -0.035" rgba="0.3 0.3 0.3 1" priority="1" condim="3"/>
                   <geom name="left_foot_front_left_collision" type="sphere" size="0.005" pos="0.12 0.03 -0.035" rgba="0.3 0.3 0.3 1" priority="1" condim="3"/>
                   <geom name="left_foot_front_right_collision" type="sphere" size="0.005" pos="0.12 -0.03 -0.035" rgba="0.3 0.3 0.3 1" priority="1" condim="3"/>
-                  <body name="left_toe_link" pos="0.08 0 -0.01"/>
-                  <body name="left_foot_front_left_link" pos="0.12 0.03 -0.0355"/>
-                  <body name="left_foot_front_right_link" pos="0.12 -0.03 -0.0355"/>
-                  <body name="left_foot_rear_left_link" pos="-0.05 0.025 -0.0355"/>
-                  <body name="left_foot_rear_right_link" pos="-0.05 -0.025 -0.0355"/>
+                  <body name="left_toe_link" pos="0.1 0 -0.02"/>
                 </body>
               </body>
             </body>

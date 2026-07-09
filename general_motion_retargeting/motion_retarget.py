@@ -83,6 +83,12 @@ class GeneralMotionRetargeting:
         self.use_ik_match_table2 = ik_config["use_ik_match_table2"]
         self.human_scale_table = ik_config["human_scale_table"]
         self.ground = ik_config["ground_height"] * np.array([0, 0, 1])
+        self.robot_root_to_human_root_offset = np.asarray(
+            ik_config.get("robot_root_to_human_root_offset", [0.0, 0.0, 0.0]),
+            dtype=float,
+        )
+        if self.robot_root_to_human_root_offset.shape != (3,):
+            raise ValueError("robot_root_to_human_root_offset must be a 3D vector")
         self.initial_frame_retarget_passes = max(
             1, int(ik_config.get("initial_frame_retarget_passes", 1))
         )
@@ -133,6 +139,10 @@ class GeneralMotionRetargeting:
         
         for frame_name, entry in self.ik_match_table1.items():
             body_name, pos_weight, rot_weight, pos_offset, rot_offset = entry
+            self.pos_offsets1[body_name] = np.array(pos_offset) - self.ground
+            self.rot_offsets1[body_name] = R.from_quat(
+                rot_offset, scalar_first=True
+            )
             if pos_weight != 0 or rot_weight != 0:
                 task = mink.FrameTask(
                     frame_name=frame_name,
@@ -141,16 +151,16 @@ class GeneralMotionRetargeting:
                     orientation_cost=rot_weight,
                     lm_damping=1,
                 )
-                self.human_body_to_task1[body_name] = task
-                self.pos_offsets1[body_name] = np.array(pos_offset) - self.ground
-                self.rot_offsets1[body_name] = R.from_quat(
-                    rot_offset, scalar_first=True
-                )
                 self.tasks1.append(task)
+                self.human_body_to_task1[body_name] = task
                 self.task_errors1[task] = []
         
         for frame_name, entry in self.ik_match_table2.items():
             body_name, pos_weight, rot_weight, pos_offset, rot_offset = entry
+            self.pos_offsets2[body_name] = np.array(pos_offset) - self.ground
+            self.rot_offsets2[body_name] = R.from_quat(
+                rot_offset, scalar_first=True
+            )
             if pos_weight != 0 or rot_weight != 0:
                 task = mink.FrameTask(
                     frame_name=frame_name,
@@ -159,12 +169,8 @@ class GeneralMotionRetargeting:
                     orientation_cost=rot_weight,
                     lm_damping=1,
                 )
-                self.human_body_to_task2[body_name] = task
-                self.pos_offsets2[body_name] = np.array(pos_offset) - self.ground
-                self.rot_offsets2[body_name] = R.from_quat(
-                    rot_offset, scalar_first=True
-                )
                 self.tasks2.append(task)
+                self.human_body_to_task2[body_name] = task
                 self.task_errors2[task] = []
 
   
@@ -173,6 +179,7 @@ class GeneralMotionRetargeting:
         human_data = self.to_numpy(human_data)
         human_data = self.scale_human_data(human_data, self.human_root_name, self.human_scale_table)
         human_data = self.offset_human_data(human_data, self.pos_offsets1, self.rot_offsets1)
+        human_data = self.apply_robot_root_to_human_root_offset(human_data)
         human_data = self.apply_ground_offset(human_data)
         if offset_to_ground:
             human_data = self.offset_human_data_to_ground(human_data)
@@ -298,7 +305,19 @@ class GeneralMotionRetargeting:
             offset_human_data[body_name][0] = pos + global_pos_offset
            
         return offset_human_data
-            
+
+    def apply_robot_root_to_human_root_offset(self, human_data):
+        """Shift only the root target when the robot freejoint is not its semantic pelvis."""
+        if np.allclose(self.robot_root_to_human_root_offset, 0.0):
+            return human_data
+
+        pos, quat = human_data[self.human_root_name]
+        root_rot = R.from_quat(quat, scalar_first=True)
+        human_data[self.human_root_name][0] = pos - root_rot.apply(
+            self.robot_root_to_human_root_offset
+        )
+        return human_data
+
     def offset_human_data_to_ground(self, human_data):
         """find the lowest point of the human data and offset the human data to the ground"""
         offset_human_data = {}

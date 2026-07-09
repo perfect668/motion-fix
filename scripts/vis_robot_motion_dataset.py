@@ -87,7 +87,6 @@ if __name__ == "__main__":
     
     env = RobotMotionViewer(robot_type=robot_type,
                             motion_fps=motion_fps,
-                            camera_follow=False,
                             record_video=args.record_video, video_path=args.video_path, 
                             keyboard_callback=keyboard_callback)
     
