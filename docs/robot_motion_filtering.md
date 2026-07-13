@@ -201,6 +201,8 @@ fall_or_lie_like
 foot_penetration_persistent
 foot_penetration_severe
 high_elevation_or_climb_like
+joint_position_jump
+joint_second_diff_spike
 joint_speed_spike
 kneeling_like
 long_airborne
@@ -219,7 +221,11 @@ too_short:
 
 可用 `--relaxed_severe_reasons` 覆盖严重原因集合；可用 `--no_relaxed_report` 只生成 strict 报告。
 
-使用 `--relaxed_dynamic_actions` 时，`long_airborne`、`high_elevation_or_climb_like`、root/joint speed spike 等动态相关 reject 会在 relaxed 报告中降为 tag，但 `external_support_dependency` 仍然保持 relaxed reject。
+`relaxed_report.csv` 包含 `filter_schema_version` 和 `filter_policy`。对应的
+`relaxed_summary.json` 还保存实际 thresholds 和 severe reasons，使下游数据选择脚本
+可以验证报告契约，而不需要重新实现质量规则。
+
+使用 `--relaxed_dynamic_actions` 时，`long_airborne`、`high_elevation_or_climb_like`、root/joint speed spike 等动态相关 reject 会在 relaxed 报告中降为 tag，但 `external_support_dependency`、`arm_side_anomaly` 和关节跳变仍然保持 relaxed reject。
 
 ## 使用方式
 

@@ -37,10 +37,32 @@ import json
 import math
 import os
 import random
-import re
 import shutil
 from collections import Counter, defaultdict
 from pathlib import Path
+
+try:
+    from .motion_semantics import (
+        CATEGORY_DESCRIPTIONS,
+        actor_id_from_path,
+        categorize_motion,
+        has_external_support_dependency,
+        is_mirror_path,
+        motion_family_from_path,
+        normalized_family,
+    )
+    from .sonic_smpl import apply_coord_transform, load_sonic_motion
+except ImportError:
+    from motion_semantics import (
+        CATEGORY_DESCRIPTIONS,
+        actor_id_from_path,
+        categorize_motion,
+        has_external_support_dependency,
+        is_mirror_path,
+        motion_family_from_path,
+        normalized_family,
+    )
+    from sonic_smpl import apply_coord_transform, load_sonic_motion
 
 
 DEFAULT_SRC = Path(
@@ -80,24 +102,6 @@ DIVERSE_TARGET_RATIOS = {
     "other": 0.02,
 }
 
-CATEGORY_DESCRIPTIONS = {
-    "object_manipulation_carry": "carry, hold, pick/place, tool and prop interactions",
-    "locomotion_walk": "walking clips, side steps, walking loops, starts and stops",
-    "locomotion_jog_run": "jogging and running clips, loops, starts and stops",
-    "jump": "jumps, high jumps, reach jumps and jump turns",
-    "dance": "dance and dancing routines",
-    "ground_low_posture": "sit, kneel, crawl, lie and on-ground motions",
-    "turn_transition": "turns, stance changes and step-rotate transitions",
-    "idle_stance": "idle, stance, relaxed and looking-around standing clips",
-    "upper_body_gesture": "standing gestures, reaching, clapping, saluting, itching and similar upper-body actions",
-    "obstacle_contact_avoidance": "obstacle avoidance, bumps, collisions and body checks",
-    "injury_impaired_gait": "injured or impaired gait variants",
-    "exercise_sport": "exercise, sport-like and training motions",
-    "daily_social_expression": "daily-life gestures, emotions and social expressions",
-    "kick_throw_stoop": "kick, throw, stoop and similar short full-body actions",
-    "other": "uncategorized filename patterns kept in a small quota for coverage",
-}
-
 EXCLUDE_KEYWORDS = (
     "jump",
     "high_jump",
@@ -116,56 +120,6 @@ EXCLUDE_KEYWORDS = (
     "screaming",
     "body_check",
 )
-
-EXTERNAL_SUPPORT_KEYWORDS = (
-    "against_wall",
-    "brace_against",
-    "bracing_against",
-    "lean_against",
-    "lean_on",
-    "leaning_on",
-    "leaning_wall",
-    "jump_off_wall",
-    "nailing_wall",
-    "off_wall",
-    "prop_against",
-    "propped_against",
-    "rest_on",
-    "resting_on",
-    "supported_by",
-    "wall_lean",
-)
-
-EXTERNAL_SUPPORT_ACTION_TOKENS = {
-    "brace",
-    "bracing",
-    "hang",
-    "hanging",
-    "lean",
-    "leaning",
-    "prop",
-    "propped",
-    "propping",
-    "rest",
-    "resting",
-    "support",
-    "supported",
-    "supporting",
-}
-
-EXTERNAL_SUPPORT_OBJECT_TOKENS = {
-    "bar",
-    "chair",
-    "counter",
-    "door",
-    "fence",
-    "ladder",
-    "pole",
-    "rail",
-    "railing",
-    "table",
-    "wall",
-}
 
 UPPER_BODY_KEYWORDS = (
     "clap",
@@ -213,6 +167,16 @@ def parse_args():
     parser.add_argument("--src_folder", type=Path, default=DEFAULT_SRC)
     parser.add_argument("--metadata_csv", type=Path, default=DEFAULT_METADATA)
     parser.add_argument("--out_folder", type=Path, default=DEFAULT_OUT)
+    parser.add_argument(
+        "--exclude_manifest",
+        type=Path,
+        action="append",
+        default=[],
+        help=(
+            "Manifest CSV(s) whose source_path/source_file entries should be excluded. "
+            "Can be passed multiple times for incremental supplement selection."
+        ),
+    )
     parser.add_argument("--target_hours", type=float, default=None)
     parser.add_argument("--min_hours", type=float, default=None)
     parser.add_argument("--max_hours", type=float, default=None)
@@ -260,45 +224,41 @@ def apply_mode_defaults(args):
 
 
 def motion_name(path):
-    return path.stem.split("__")[0]
+    return motion_family_from_path(path)
 
 
-def actor_id(path):
-    match = re.search(r"__(A[0-9]+)", path.stem)
-    return match.group(1) if match else "unknown"
+def normalize_source_path(value):
+    if not value:
+        return None
+    return str(Path(value).expanduser().resolve(strict=False))
 
 
-def is_mirror(path):
-    return path.stem.endswith("_M")
+def load_excluded_sources(manifest_paths):
+    excluded_paths = set()
+    excluded_files = set()
+    for manifest_path in manifest_paths:
+        if not manifest_path.exists():
+            raise FileNotFoundError(f"Exclude manifest not found: {manifest_path}")
+        with manifest_path.open(newline="", encoding="utf-8") as f:
+            for row in csv.DictReader(f):
+                source_path = normalize_source_path(row.get("source_path", ""))
+                if source_path:
+                    excluded_paths.add(source_path)
+                source_file = row.get("source_file", "")
+                if source_file:
+                    excluded_files.add(Path(source_file).name)
+    return {"paths": excluded_paths, "files": excluded_files}
 
 
-def normalized_family(name):
-    tokens = name.lower().split("_")
-    while tokens and (tokens[-1].isdigit() or re.fullmatch(r"v[0-9]+", tokens[-1])):
-        tokens.pop()
-    while tokens and tokens[-1] in {"r", "l", "left", "right"}:
-        tokens.pop()
-    return "_".join(tokens) if tokens else name.lower()
+def is_excluded_source(path, excluded_sources):
+    return (
+        normalize_source_path(path) in excluded_sources["paths"]
+        or Path(path).name in excluded_sources["files"]
+    )
 
 
 def has_any(text, keywords):
     return any(keyword in text for keyword in keywords)
-
-
-def normalize_motion_text(value):
-    text = str(value).lower()
-    return "".join(ch if ch.isalnum() else "_" for ch in text)
-
-
-def has_external_support_dependency(value):
-    text = normalize_motion_text(value)
-    if any(phrase in text for phrase in EXTERNAL_SUPPORT_KEYWORDS):
-        return True
-
-    tokens = {token for token in text.split("_") if token}
-    return bool(tokens & EXTERNAL_SUPPORT_ACTION_TOKENS) and bool(
-        tokens & EXTERNAL_SUPPORT_OBJECT_TOKENS
-    )
 
 
 def categorize(name):
@@ -322,185 +282,40 @@ def categorize(name):
     return None, "not_in_selected_action_families"
 
 
-def categorize_diverse(name):
-    text = name.lower()
-
-    if has_any(text, ("bump", "obstacle", "body_check", "avoid_")):
-        return "obstacle_contact_avoidance"
-    if has_any(text, ("jump", "hop")):
-        return "jump"
-    if has_any(text, ("dance", "dancing", "mohak")):
-        return "dance"
-    if has_any(text, ("kneel", "sit", "crawl", "lie", "on_ground", "balled_up")):
-        return "ground_low_posture"
-    if has_any(text, ("injured", "inj_")):
-        return "injury_impaired_gait"
-    if has_any(
-        text,
-        (
-            "one_hand",
-            "two_hands",
-            "pick_up",
-            "put_down",
-            "hold",
-            "carry",
-            "crate",
-            "box",
-            "bucket",
-            "big_",
-            "small_",
-            "medium_",
-            "heavy",
-            "light",
-            "tool",
-            "axe",
-            "saw",
-            "broom",
-            "mop",
-            "watering",
-            "painting",
-            "operating",
-            "item",
-            "trash",
-            "apple",
-            "binoculars",
-        ),
-    ):
-        return "object_manipulation_carry"
-    if has_any(text, ("walk", "sideway_walk", "loop_forward_walk", "loop_backward_walk")):
-        return "locomotion_walk"
-    if has_any(text, ("jog", "run", "sprint")):
-        return "locomotion_jog_run"
-    if has_any(text, ("turn", "step_rotate", "stance_change", "change_right", "change_left")):
-        return "turn_transition"
-    if has_any(text, ("idle", "stance", "relax", "looking_around")):
-        return "idle_stance"
-    if has_any(text, ("exercise", "burpee", "ab_bicycle", "push_up", "sport", "training")):
-        return "exercise_sport"
-    if has_any(
-        text,
-        (
-            "clap",
-            "salute",
-            "reach",
-            "reaching",
-            "checking_time",
-            "thinking",
-            "confusion",
-            "welcoming",
-            "pocket_searching",
-            "itching",
-            "chefs_kiss",
-            "omg",
-            "don_t_know",
-            "no_see",
-            "no_hear",
-            "fixing_something",
-            "brush",
-            "dust",
-            "body_search",
-            "body_stretch",
-            "rubbing",
-            "wiping",
-            "show_bicep",
-            "praying",
-            "listening",
-            "clearing_ear",
-            "yawn",
-            "sneeze",
-            "bow",
-            "beckon",
-            "greeting",
-            "bye",
-            "wave",
-        ),
-    ):
-        return "upper_body_gesture"
-    if has_any(text, ("kick", "throw", "stoop")):
-        return "kick_throw_stoop"
-    if has_any(
-        text,
-        (
-            "triumph",
-            "victory",
-            "crowd",
-            "screaming",
-            "lamenting",
-            "puke",
-            "eureka",
-            "angry",
-            "alone",
-            "bravo",
-            "calm_down",
-            "as_you_wish",
-            "maybe",
-            "tasty",
-            "just_realised",
-            "hurry",
-            "eating",
-            "drinking",
-            "smoke",
-            "stinky",
-            "sweat",
-            "freezing_cold",
-            "horse_riding",
-            "lasso",
-        ),
-    ):
-        return "daily_social_expression"
-    return "other"
-
-
 def load_metadata(path):
     try:
-        import joblib
-    except ImportError as exc:
-        raise RuntimeError("This selector needs joblib. Run it with the gear_sonic_train conda env.") from exc
-    try:
-        import numpy as np
-    except ImportError as exc:
-        raise RuntimeError("This selector needs numpy. Run it with the gear_sonic_train conda env.") from exc
+        motion = load_sonic_motion(path)
+    except Exception as exc:
+        return None, f"{type(exc).__name__}:{exc}"
 
-    data = joblib.load(path)
-    if not isinstance(data, dict):
-        return None, "not_dict"
-    for key in ("pose_aa", "transl", "fps"):
-        if key not in data:
-            return None, f"missing_{key}"
-
-    pose = np.asarray(data["pose_aa"])
-    trans = np.asarray(data["transl"])
-    fps = float(data["fps"])
-
-    if pose.ndim != 2 or pose.shape[1] != 72:
-        return None, f"bad_pose_shape_{pose.shape}"
-    if trans.ndim != 2 or trans.shape[1] != 3:
-        return None, f"bad_trans_shape_{trans.shape}"
-    if pose.shape[0] != trans.shape[0]:
-        return None, "pose_trans_frame_mismatch"
-    if fps <= 0 or fps > 240:
-        return None, f"bad_fps_{fps}"
-    if not np.isfinite(pose).all() or not np.isfinite(trans).all():
-        return None, "non_finite_values"
-
-    # Sonic transl is Y-up. Convert to GMR Z-up only for geometric checks.
-    trans_gmr = np.stack([trans[:, 0], -trans[:, 2], trans[:, 1]], axis=1)
+    _, trans_gmr = apply_coord_transform(
+        motion.poses,
+        motion.trans,
+        "sonic_yup_to_gmr_zup",
+    )
     if len(trans_gmr) > 1:
-        root_speed = np.linalg.norm(np.diff(trans_gmr, axis=0), axis=1) * fps
+        import numpy as np
+
+        root_speed = np.linalg.norm(np.diff(trans_gmr, axis=0), axis=1) * motion.fps
         max_root_speed = float(root_speed.max())
     else:
         max_root_speed = 0.0
 
     return {
-        "frames": int(pose.shape[0]),
-        "fps": fps,
-        "duration_sec": float(pose.shape[0] / fps),
+        "frames": int(motion.poses.shape[0]),
+        "fps": motion.fps,
+        "duration_sec": float(motion.poses.shape[0] / motion.fps),
         "max_root_speed": max_root_speed,
         "vertical_span": float(trans_gmr[:, 2].max() - trans_gmr[:, 2].min()),
+        "pose_key": motion.pose_key,
+        "trans_key": motion.trans_key,
+        "fps_key": motion.fps_key,
+        "normalization_adjustments": ",".join(motion.adjustments),
     }, None
 
 
 def write_principles(path, args, summary):
+    exclude_lines = "\n".join(f"- {manifest}" for manifest in args.exclude_manifest) or "- none"
     text = f"""# Sonic SMPL Selection Principles
 
 Source:
@@ -513,6 +328,12 @@ Output:
 
 ```text
 {args.out_folder}
+```
+
+Exclude manifests:
+
+```text
+{exclude_lines}
 ```
 
 Target duration: {args.target_hours:.1f} hours, accepted range {args.min_hours:.1f}-{args.max_hours:.1f} hours.
@@ -581,8 +402,12 @@ def run_conservative(args):
     rng = random.Random(args.seed)
     candidates = defaultdict(list)
     excluded_by_name = defaultdict(int)
+    excluded_sources = load_excluded_sources(args.exclude_manifest)
 
     for path in sorted(args.src_folder.glob("*.pkl")):
+        if is_excluded_source(path, excluded_sources):
+            excluded_by_name["exclude_manifest_duplicate"] += 1
+            continue
         name = motion_name(path)
         category, reason = categorize(name)
         if category is None:
@@ -611,7 +436,7 @@ def run_conservative(args):
                 break
             if sum(category_sec.values()) >= target_total_sec:
                 break
-            actor = actor_id(path)
+            actor = actor_id_from_path(path)
             metadata, reject_reason = load_metadata(path)
             if reject_reason:
                 rejection_counts[reject_reason] += 1
@@ -648,7 +473,7 @@ def run_conservative(args):
                 "source_file": path.name,
                 "motion_family": name,
                 "actor": actor,
-                "is_mirror": str(is_mirror(path)),
+                "is_mirror": str(is_mirror_path(path)),
                 "category": category,
                 "fps": f"{metadata['fps']:.6g}",
                 "num_frames": str(metadata["frames"]),
@@ -737,6 +562,7 @@ def load_diverse_candidates_from_manifest(args):
 
     rows = []
     rejection_counts = Counter()
+    excluded_sources = load_excluded_sources(args.exclude_manifest)
     with args.metadata_csv.open() as f:
         for row in csv.DictReader(f):
             if row.get("status") != "ok":
@@ -744,6 +570,9 @@ def load_diverse_candidates_from_manifest(args):
                 continue
 
             source_path = Path(row["source_path"])
+            if is_excluded_source(source_path, excluded_sources):
+                rejection_counts["exclude_manifest_duplicate"] += 1
+                continue
             if not source_path.exists():
                 rejection_counts["missing_source_file"] += 1
                 continue
@@ -764,9 +593,9 @@ def load_diverse_candidates_from_manifest(args):
                 rejection_counts["external_support_dependency"] += 1
                 continue
 
-            category = row.get("category") or categorize_diverse(family)
+            category = row.get("category") or categorize_motion(family)
             if category not in DIVERSE_TARGET_RATIOS:
-                category = categorize_diverse(family)
+                category = categorize_motion(family)
 
             rows.append(
                 {
@@ -774,8 +603,8 @@ def load_diverse_candidates_from_manifest(args):
                     "source_file": source_path.name,
                     "motion_family": family,
                     "normalized_family": row.get("normalized_family") or normalized_family(family),
-                    "actor": row.get("actor") or actor_id(source_path),
-                    "is_mirror": row.get("is_mirror") or str(is_mirror(source_path)),
+                    "actor": row.get("actor") or actor_id_from_path(source_path),
+                    "is_mirror": row.get("is_mirror") or str(is_mirror_path(source_path)),
                     "category": category,
                     "fps": row.get("fps", ""),
                     "num_frames": row.get("num_frames", ""),
@@ -951,6 +780,7 @@ def write_diverse_manifest(out_folder, selected):
 def write_diverse_principles(out_folder, args, summary):
     ratio_lines = "\n".join(f"{key:28s} {value * 100:5.1f}%" for key, value in DIVERSE_TARGET_RATIOS.items())
     category_lines = "\n".join(f"- `{key}`: {value}" for key, value in CATEGORY_DESCRIPTIONS.items())
+    exclude_lines = "\n".join(f"- {manifest}" for manifest in args.exclude_manifest) or "- none"
     text = f"""# Diverse Sonic SMPL Selection Principles
 
 Source:
@@ -969,6 +799,12 @@ Output:
 
 ```text
 {args.out_folder}
+```
+
+Exclude manifests:
+
+```text
+{exclude_lines}
 ```
 
 Target duration: {args.target_hours:.2f} hours, accepted range {args.min_hours:.2f}-{args.max_hours:.2f} hours.

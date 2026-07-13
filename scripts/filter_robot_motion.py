@@ -43,9 +43,15 @@ import torch
 from scipy.spatial.transform import Rotation as R
 from tqdm import tqdm
 
+try:
+    from data_process.motion_semantics import has_external_support_dependency
+except ImportError:
+    from scripts.data_process.motion_semantics import has_external_support_dependency
 from general_motion_retargeting.kinematics_model import KinematicsModel
 from general_motion_retargeting.params import ROBOT_XML_DICT
 
+
+FILTER_SCHEMA_VERSION = "1"
 
 BODY_ROLE_HINTS = {
     "unitree_g1": {
@@ -100,6 +106,8 @@ DEFAULT_RELAXED_SEVERE_REASONS = {
     "foot_penetration_persistent",
     "foot_penetration_severe",
     "high_elevation_or_climb_like",
+    "joint_position_jump",
+    "joint_second_diff_spike",
     "joint_speed_spike",
     "kneeling_like",
     "long_airborne",
@@ -117,53 +125,6 @@ RELAXED_SEVERE_REASON_PREFIXES = (
 
 
 EXTERNAL_SUPPORT_REASON = "external_support_dependency"
-EXTERNAL_SUPPORT_PHRASES = (
-    "against_wall",
-    "brace_against",
-    "bracing_against",
-    "lean_against",
-    "lean_on",
-    "leaning_on",
-    "leaning_wall",
-    "jump_off_wall",
-    "nailing_wall",
-    "off_wall",
-    "prop_against",
-    "propped_against",
-    "rest_on",
-    "resting_on",
-    "supported_by",
-    "wall_lean",
-)
-EXTERNAL_SUPPORT_ACTION_TOKENS = {
-    "brace",
-    "bracing",
-    "hang",
-    "hanging",
-    "lean",
-    "leaning",
-    "prop",
-    "propped",
-    "propping",
-    "rest",
-    "resting",
-    "support",
-    "supported",
-    "supporting",
-}
-EXTERNAL_SUPPORT_OBJECT_TOKENS = {
-    "bar",
-    "chair",
-    "counter",
-    "door",
-    "fence",
-    "ladder",
-    "pole",
-    "rail",
-    "railing",
-    "table",
-    "wall",
-}
 
 
 SCAN_EXCLUDED_DIR_NAMES = {
@@ -212,22 +173,6 @@ ROLE_SCORES = {
 }
 
 
-def normalize_motion_text(value):
-    stem = Path(str(value)).stem.lower()
-    return "".join(ch if ch.isalnum() else "_" for ch in stem)
-
-
-def has_external_support_dependency(value):
-    text = normalize_motion_text(value)
-    if any(phrase in text for phrase in EXTERNAL_SUPPORT_PHRASES):
-        return True
-
-    tokens = {token for token in text.split("_") if token}
-    return bool(tokens & EXTERNAL_SUPPORT_ACTION_TOKENS) and bool(
-        tokens & EXTERNAL_SUPPORT_OBJECT_TOKENS
-    )
-
-
 @dataclass(frozen=True)
 class FilterThresholds:
     min_frames: int = 30
@@ -266,6 +211,10 @@ class FilterThresholds:
     joint_acc_reject: float = 800.0
     joint_acc_tag_frames: int = 10
     joint_acc_reject_frames: int = 10
+    joint_delta_reject: float = 0.75
+    joint_delta_reject_frames: int = 1
+    joint_second_diff_reject: float = 0.75
+    joint_second_diff_reject_frames: int = 1
     joint_limit_margin_deg: float = 5.0
     joint_limit_ratio_tag: float = 0.10
     joint_limit_joint_count_tag: int = 3
@@ -338,8 +287,9 @@ def parse_args():
         help=(
             "Relax training-set filtering for high-dynamic actions. Strict reports "
             "still record all issues, but relaxed reports do not hard-reject "
-            "long airborne, high elevation, root speed, or joint speed/acceleration "
-            "spikes unless they also hit another severe reason."
+            "long airborne, high elevation, root speed, or joint speed spikes "
+            "unless they also hit another severe reason. Arm-side anomalies and "
+            "joint jumps remain severe."
         ),
     )
     return parser.parse_args()
@@ -349,6 +299,22 @@ def parse_reason_set(value):
     if not value:
         return set()
     return {item.strip() for item in value.split(",") if item.strip()}
+
+
+def resolve_filter_policy(relaxed_severe_reasons, relaxed_dynamic_actions):
+    severe_reasons = parse_reason_set(relaxed_severe_reasons)
+    default_reasons = set(DEFAULT_RELAXED_SEVERE_REASONS)
+    custom = severe_reasons != default_reasons
+    if relaxed_dynamic_actions:
+        severe_reasons -= {
+            "high_elevation_or_climb_like",
+            "joint_acc_spike",
+            "joint_speed_spike",
+            "long_airborne",
+            "root_speed_spike",
+        }
+        return ("dynamic_custom" if custom else "dynamic"), severe_reasons
+    return ("custom" if custom else "default"), severe_reasons
 
 
 def collect_motion_files(input_path):
@@ -620,6 +586,66 @@ def arm_limit_metrics(dof_pos, dof_map, thresholds):
     return metrics
 
 
+def joint_name_by_index(dof_map, index):
+    for name, info in dof_map.items():
+        if info["index"] == index:
+            return name
+    return ""
+
+
+def analyze_joint_jumps(dof_pos, dof_map, thresholds):
+    metrics = {
+        "max_joint_delta": 0.0,
+        "joint_delta_reject_frame_count": 0,
+        "max_joint_delta_frame": -1,
+        "max_joint_delta_joint_index": -1,
+        "max_joint_delta_joint_name": "",
+        "max_joint_second_diff": 0.0,
+        "joint_second_diff_reject_frame_count": 0,
+        "max_joint_second_diff_frame": -1,
+        "max_joint_second_diff_joint_index": -1,
+        "max_joint_second_diff_joint_name": "",
+    }
+
+    if dof_pos.shape[0] >= 2 and dof_pos.shape[1] > 0:
+        joint_delta = np.abs(np.diff(dof_pos, axis=0))
+        joint_delta_frame_max = np.max(joint_delta, axis=1)
+        max_flat_index = int(np.argmax(joint_delta))
+        delta_frame, delta_joint = np.unravel_index(max_flat_index, joint_delta.shape)
+        metrics.update(
+            {
+                "max_joint_delta": float(joint_delta[delta_frame, delta_joint]),
+                "joint_delta_reject_frame_count": int(
+                    np.sum(joint_delta_frame_max > thresholds.joint_delta_reject)
+                ),
+                # Delta row i represents transition i -> i + 1; report the arrival frame.
+                "max_joint_delta_frame": int(delta_frame + 1),
+                "max_joint_delta_joint_index": int(delta_joint),
+                "max_joint_delta_joint_name": joint_name_by_index(dof_map, int(delta_joint)),
+            }
+        )
+
+    if dof_pos.shape[0] >= 3 and dof_pos.shape[1] > 0:
+        joint_second_diff = np.abs(dof_pos[2:] - 2.0 * dof_pos[1:-1] + dof_pos[:-2])
+        joint_second_diff_frame_max = np.max(joint_second_diff, axis=1)
+        max_flat_index = int(np.argmax(joint_second_diff))
+        second_frame, second_joint = np.unravel_index(max_flat_index, joint_second_diff.shape)
+        metrics.update(
+            {
+                "max_joint_second_diff": float(joint_second_diff[second_frame, second_joint]),
+                "joint_second_diff_reject_frame_count": int(
+                    np.sum(joint_second_diff_frame_max > thresholds.joint_second_diff_reject)
+                ),
+                # Second-diff row i is centered on frame i + 1.
+                "max_joint_second_diff_frame": int(second_frame + 1),
+                "max_joint_second_diff_joint_index": int(second_joint),
+                "max_joint_second_diff_joint_name": joint_name_by_index(dof_map, int(second_joint)),
+            }
+        )
+
+    return metrics
+
+
 def analyze_arm_quality(motion_data, body_names, body_map, dof_map, kinematics_model, thresholds, device):
     metrics = {}
     reject_reasons = []
@@ -827,6 +853,8 @@ def analyze_motion(motion_path, motion_data, robot, kinematics_model, dof_map, t
     metrics["joint_speed_tag_frame_count"] = int(np.sum(joint_speed_frame_max > thresholds.joint_speed_tag))
     metrics["joint_acc_reject_frame_count"] = int(np.sum(joint_acc_frame_max > thresholds.joint_acc_reject))
     metrics["joint_acc_tag_frame_count"] = int(np.sum(joint_acc_frame_max > thresholds.joint_acc_tag))
+    joint_jump_metrics = analyze_joint_jumps(dof_pos, dof_map, thresholds)
+    metrics.update(joint_jump_metrics)
 
     if np.max(root_speed) > thresholds.root_speed_reject:
         reject_reasons.append("root_speed_spike")
@@ -842,6 +870,12 @@ def analyze_motion(motion_path, motion_data, robot, kinematics_model, dof_map, t
         reject_reasons.append("joint_acc_spike")
     elif metrics["joint_acc_tag_frame_count"] >= thresholds.joint_acc_tag_frames:
         tag_reasons.append("high_joint_acc")
+
+    if metrics["joint_delta_reject_frame_count"] >= thresholds.joint_delta_reject_frames:
+        reject_reasons.append("joint_position_jump")
+
+    if metrics["joint_second_diff_reject_frame_count"] >= thresholds.joint_second_diff_reject_frames:
+        reject_reasons.append("joint_second_diff_spike")
 
     dof_lower_limits, dof_upper_limits = kinematics_model.get_dof_limits()
     dof_lower_limits = dof_lower_limits.cpu().numpy()
@@ -959,12 +993,22 @@ def relaxed_label_for(item, severe_reasons):
     return "pass", ""
 
 
-def write_relaxed_reports(output_dir, rel_details, input_root, severe_reasons, write_symlink_dirs):
+def write_relaxed_reports(
+    output_dir,
+    rel_details,
+    input_root,
+    severe_reasons,
+    filter_policy,
+    thresholds,
+    write_symlink_dirs,
+):
     relaxed_rows = []
     for item in rel_details:
         label, reasons = relaxed_label_for(item, severe_reasons)
         metrics = item["metrics"]
         row = {
+            "filter_schema_version": FILTER_SCHEMA_VERSION,
+            "filter_policy": filter_policy,
             "relative_file": item["relative_file"],
             "relaxed_status": label,
             "relaxed_reasons": reasons,
@@ -1055,6 +1099,9 @@ def write_relaxed_reports(output_dir, rel_details, input_root, severe_reasons, w
             }
         )
     relaxed_summary = {
+        "filter_schema_version": FILTER_SCHEMA_VERSION,
+        "filter_policy": filter_policy,
+        "thresholds": asdict(thresholds),
         "severe_reasons": sorted(severe_reasons),
         "severe_reason_prefixes": list(RELAXED_SEVERE_REASON_PREFIXES),
         "total_files": len(relaxed_rows),
@@ -1083,6 +1130,7 @@ def write_reports(
     thresholds,
     input_root,
     severe_reasons,
+    filter_policy,
     write_relaxed_report,
     write_symlink_dirs,
 ):
@@ -1116,6 +1164,8 @@ def write_reports(
             duration_sec[s] = duration_sec.get(s, 0.0) + n / fps
 
     summary = {
+        "filter_schema_version": FILTER_SCHEMA_VERSION,
+        "filter_policy": filter_policy,
         "total_files": len(rel_details),
         "status_counts": dict(summary_counter),
         "frame_counts": frame_counts,
@@ -1190,6 +1240,8 @@ def write_reports(
             rel_details=rel_details,
             input_root=input_root,
             severe_reasons=severe_reasons,
+            filter_policy=filter_policy,
+            thresholds=thresholds,
             write_symlink_dirs=write_symlink_dirs,
         )
 
@@ -1197,16 +1249,10 @@ def write_reports(
 def main():
     args = parse_args()
     thresholds = FilterThresholds()
-    severe_reasons = parse_reason_set(args.relaxed_severe_reasons)
-    if args.relaxed_dynamic_actions:
-        severe_reasons -= {
-            "arm_side_anomaly",
-            "high_elevation_or_climb_like",
-            "joint_acc_spike",
-            "joint_speed_spike",
-            "long_airborne",
-            "root_speed_spike",
-        }
+    filter_policy, severe_reasons = resolve_filter_policy(
+        args.relaxed_severe_reasons,
+        args.relaxed_dynamic_actions,
+    )
     motion_files, input_root = collect_motion_files(args.input)
     if args.max_files is not None:
         motion_files = motion_files[: args.max_files]
@@ -1249,6 +1295,7 @@ def main():
         thresholds=thresholds,
         input_root=input_root,
         severe_reasons=severe_reasons,
+        filter_policy=filter_policy,
         write_relaxed_report=not args.no_relaxed_report,
         write_symlink_dirs=not args.no_symlink_dirs,
     )

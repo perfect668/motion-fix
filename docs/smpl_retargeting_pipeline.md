@@ -40,7 +40,8 @@ Filter report / selected robot-motion folders
 | SMPL-X -> robot | `scripts/smplx_to_robot_dataset.py` | 批量重定向到指定机器人，生成 robot-motion `.pkl`。 |
 | 单文件调试 | `scripts/smplx_to_robot.py` | 单条 SMPL-X 可视化、快速保存，用于排查 IK 和姿态问题。 |
 | 重定向结果筛选 | `scripts/filter_robot_motion.py` | 对 robot-motion 做质量筛选，输出报告和软链接目录。 |
-| 训练时长子集选择 | `scripts/data_process/select_robot_motion_subset.py` | 从 relaxed keep 中按类别比例和多样性再选固定时长子集，例如 8h。 |
+| 训练时长子集选择 | `scripts/data_process/select_robot_motion_subset.py` | 从 relaxed keep 中按类别比例和多样性再选固定时长子集；支持 `balanced` 和 `low_dynamic` profile。 |
+| 高动态候选/最终集 | `scripts/data_process/select_high_dynamic_smplx_subset.py` | 在 retarget 前按 SMPL-X 动态指标缩小候选集，并在 filter 后选最终高动态集。 |
 | 回放检查 | `scripts/vis_robot_motion.py`, `scripts/vis_robot_motion_dataset.py` | 回放单条或文件夹 robot-motion。 |
 
 机器人 XML 和 SMPL-X IK config 的映射在 `general_motion_retargeting/params.py` 中维护：
@@ -77,6 +78,33 @@ conda run -n gear_sonic_train python scripts/data_process/select_sonic_smpl_subs
   --min_hours 11.8 \
   --max_hours 12.2 \
   --overwrite
+```
+
+如果是在已有数据集上做增量补充，使用 `--exclude_manifest` 排除已选 Sonic 源数据，避免重复：
+
+```bash
+conda run -n gear_sonic_train python scripts/data_process/select_sonic_smpl_subset.py \
+  --mode diverse_all_actions \
+  --src_folder ~/robot_software/drl/wbc/GR00T-WholeBodyControl/data/smpl_filtered \
+  --metadata_csv data/sonic_smpl_analysis/full_source/manifest.csv \
+  --out_folder data/sonic_smpl_data/diverse_all_actions_4h_v2.2_supplement \
+  --exclude_manifest data/sonic_smpl_data/diverse_all_actions_12h_v2/manifest.csv \
+  --target_hours 4 \
+  --min_hours 3.95 \
+  --max_hours 4.1 \
+  --overwrite
+```
+
+新增数据单独完成 SMPL/SMPL-X/robot retarget 后，可以用合并脚本把 supplement 追加到已有 robot 数据集，并生成合并后的 Sonic manifest：
+
+```bash
+python scripts/data_process/merge_sonic_robot_supplement.py \
+  --base_manifest data/sonic_smpl_data/diverse_all_actions_12h_v2/manifest.csv \
+  --supplement_manifest data/sonic_smpl_data/diverse_all_actions_4h_v2.2_supplement/manifest.csv \
+  --combined_sonic_out data/sonic_smpl_data/diverse_all_actions_12h_v2.2 \
+  --base_robot_root data/retarget_data/ne01/diverse_all_actions_12h_v2.2 \
+  --supplement_robot_root data/retarget_data/ne01/diverse_all_actions_4h_v2.2_supplement \
+  --overwrite_sonic_out
 ```
 
 输出：
@@ -119,7 +147,9 @@ gender             scalar string
 source_file
 source_pose_key
 source_trans_key
+source_fps_key
 coord_transform
+normalization_adjustments
 ```
 
 Sonic 数据使用 Y-up。默认坐标转换为 GMR Z-up：
@@ -145,6 +175,11 @@ conda run -n gear_sonic_train python scripts/gear_sonic_smpl_to_gmr_smpl.py \
 ```bash
 --coord_transform none
 ```
+
+转换器与源数据 analyzer 使用同一套字段别名、shape、finite 和 FPS 校验。pose/trans
+帧数不一致时默认失败；只有确认需要插值修复时才显式使用
+`--resample_mismatched_trans`，该操作会写入 `normalization_adjustments`。源文件缺少
+FPS 时默认失败，可显式传入 `--default_fps`。
 
 ## 3. AMASS 或其它 SMPL 数据入口
 
@@ -341,6 +376,11 @@ relaxed_reject_motions/
 
 Relaxed 用于训练集构建。它只把严重问题保留为 reject，部分 strict reject 会降为 tag，从而提高可用数据量。
 
+`relaxed_report.csv` 每行包含 `filter_schema_version` 和 `filter_policy`；
+`relaxed_summary.json` 还记录完整 thresholds 和 severe reasons，供下游 selector
+验证报告来源。`filter_policy` 为 `default`、`dynamic`、`custom` 或
+`dynamic_custom`。
+
 默认严重原因包括：
 
 ```text
@@ -352,6 +392,8 @@ fall_or_lie_like
 foot_penetration_persistent
 foot_penetration_severe
 high_elevation_or_climb_like
+joint_position_jump
+joint_second_diff_spike
 joint_speed_spike
 kneeling_like
 long_airborne
@@ -370,7 +412,7 @@ filter_report/relaxed_keep_motions
 
 ## 8. 从 Relaxed Keep 选择固定时长子集
 
-如果 relaxed keep 超过目标训练时长，可以用 `scripts/data_process/select_robot_motion_subset.py` 再选固定时长子集。该脚本按 Sonic 源 manifest 的类别比例、family 多样性、actor 多样性和 relaxed 状态排序，输出软链接目录。
+如果 relaxed keep 超过目标训练时长，可以用 `scripts/data_process/select_robot_motion_subset.py` 再选固定时长子集。该脚本按 Sonic 源 manifest 的类别比例、family 多样性、actor 多样性和 relaxed 状态排序，输出软链接目录。质量问题只由 filter 判定，selector 不再重复判定 external support 或 joint jump。
 
 当前 NE01 8h 子集命令：
 
@@ -380,6 +422,7 @@ conda run -n gmr python scripts/data_process/select_robot_motion_subset.py \
   --relaxed_report data/retarget_data/ne01/diverse_all_actions_12h/filter_report/relaxed_report.csv \
   --robot_motion_root data/retarget_data/ne01/diverse_all_actions_12h \
   --output_dir data/retarget_data/ne01/diverse_all_actions_8h \
+  --profile balanced \
   --target_hours 8 \
   --max_hours 8.1 \
   --overwrite
@@ -395,6 +438,20 @@ data/retarget_data/ne01/diverse_all_actions_8h/
   summary.json
 ```
 
+只需要低动态训练动作时，使用同一入口：
+
+```bash
+conda run -n gmr python scripts/data_process/select_robot_motion_subset.py \
+  --source_manifest data/sonic_smpl_data/diverse_all_actions_12h/manifest.csv \
+  --relaxed_report data/retarget_data/ne01/diverse_all_actions_12h/filter_report/relaxed_report.csv \
+  --robot_motion_root data/retarget_data/ne01/diverse_all_actions_12h \
+  --output_dir data/retarget_data/ne01/diverse_all_actions_low_dynamic_8h \
+  --profile low_dynamic \
+  --target_hours 8 --max_hours 8.1 --overwrite
+```
+
+该 profile 会额外生成 `available_candidates.csv` 和 `excluded_report.csv`，明确记录被排除的高动态动作；关节跳变仍由 filter 的 relaxed severe policy 负责。
+
 ## 9. 筛选规则摘要
 
 筛选脚本检查：
@@ -406,6 +463,7 @@ data/retarget_data/ne01/diverse_all_actions_8h/
 - root 大倾角、倒地、趴地。
 - 跪地、坐姿、手撑地/爬行。
 - root speed spike。
+- joint position single-frame jump / second-difference spike。
 - joint speed / acceleration spike。
 - 关节接近极限比例。
 - 左右手侧向异常和手臂 IK 极限残留。
@@ -593,6 +651,7 @@ conda run -n gmr python scripts/data_process/select_robot_motion_subset.py \
   --relaxed_report data/retarget_data/ne01/diverse_all_actions_12h/filter_report/relaxed_report.csv \
   --robot_motion_root data/retarget_data/ne01/diverse_all_actions_12h \
   --output_dir data/retarget_data/ne01/diverse_all_actions_8h \
+  --profile balanced \
   --target_hours 8 \
   --max_hours 8.1 \
   --overwrite
