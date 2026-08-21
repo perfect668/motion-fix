@@ -26,14 +26,21 @@ def convert_smpl_to_smplx(input_path, output_path, gender='neutral'):
     smpl_data = np.load(input_path, allow_pickle=True)
     data_dict = dict(smpl_data)  # Convert to dict for modification
 
-    # Handle betas padding for SMPL-X (pad from 10 to 16 if necessary)
+    # Handle betas padding for legacy SMPL data while preserving higher-order
+    # SMPL-X shape coefficients (for example, MOYO stores 300 coefficients).
     if 'betas' in data_dict:
-        betas = data_dict['betas']
+        betas = np.asarray(data_dict['betas'])
+        if betas.ndim == 2 and betas.shape[0] == 1:
+            betas = betas.reshape(-1)
         if betas.shape == (10,):
-            data_dict['betas'] = np.concatenate([betas, np.zeros(6, dtype=betas.dtype)])
+            betas = np.concatenate([betas, np.zeros(6, dtype=betas.dtype)])
             print(f"Padded betas from 10 to 16 for {input_path}")
-        elif betas.shape not in [(16,), (1, 16)]:
-            raise ValueError(f"Unexpected betas shape: {betas.shape}. Expected (10,), (16,), or (1,16) for padding to SMPL-X.")
+        elif betas.ndim != 1 or betas.size < 16:
+            raise ValueError(
+                f"Unexpected betas shape: {betas.shape}. Expected a 10-element "
+                "legacy SMPL vector or an SMPL-X vector with at least 16 elements."
+            )
+        data_dict['betas'] = betas
 
     # Handle mocap_frame_rate variations
     if 'mocap_framerate' in data_dict:
@@ -63,12 +70,22 @@ def convert_smpl_to_smplx(input_path, output_path, gender='neutral'):
     print(f"Converted {input_path} to {output_path}")
 
 def process_directory(src_folder, tgt_folder, gender='neutral'):
+    src_folder = os.path.abspath(src_folder)
+    tgt_folder = os.path.abspath(tgt_folder)
     os.makedirs(tgt_folder, exist_ok=True)
-    for filename in tqdm(os.listdir(src_folder)):
-        if filename.endswith('.npz'):
-            input_path = os.path.join(src_folder, filename)
-            output_path = os.path.join(tgt_folder, filename)
-            convert_smpl_to_smplx(input_path, output_path, gender)
+
+    input_paths = []
+    for dirpath, dirnames, filenames in os.walk(src_folder):
+        dirnames.sort()
+        for filename in sorted(filenames):
+            if filename.endswith('.npz'):
+                input_paths.append(os.path.join(dirpath, filename))
+
+    for input_path in tqdm(input_paths):
+        relative_path = os.path.relpath(input_path, src_folder)
+        output_path = os.path.join(tgt_folder, relative_path)
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        convert_smpl_to_smplx(input_path, output_path, gender)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Convert SMPL motion data to SMPL-X format.")

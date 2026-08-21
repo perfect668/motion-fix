@@ -1,0 +1,7 @@
+frame_idx,event,side,value
+0,collision_constraint_activation,,v3_pelvis_proxy:v3_left_hand_proxy
+0,velocity_saturation,,1.0
+2,touchdown,left,FLAT
+2,load_transition,left,UNLOADED->SUPPORT
+2,touchdown,right,FLAT
+2,load_transition,right,UNLOADED->SUPPORT

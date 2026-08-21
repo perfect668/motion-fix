@@ -56,6 +56,12 @@ if __name__ == "__main__":
     parser.add_argument("--record_video", action="store_true")
     parser.add_argument("--video_path", type=str, 
                         default="videos/example.mp4")
+    parser.add_argument("--show_body_frames", action="store_true",
+                        help="Draw XYZ frames on every robot body/link")
+    parser.add_argument("--show_joint_axes", action="store_true",
+                        help="Show MuJoCo joint axes")
+    parser.add_argument("--show_sites", action="store_true",
+                        help="Draw XML sites, including heel/forefoot/knee guards")
                         
     args = parser.parse_args()
     
@@ -88,6 +94,9 @@ if __name__ == "__main__":
     env = RobotMotionViewer(robot_type=robot_type,
                             motion_fps=motion_fps,
                             record_video=args.record_video, video_path=args.video_path, 
+                            show_body_frames=args.show_body_frames,
+                            show_joint_axes=args.show_joint_axes,
+                            show_sites=args.show_sites,
                             keyboard_callback=keyboard_callback)
     
     frame_idx = 0

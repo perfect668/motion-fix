@@ -58,6 +58,9 @@ class RobotMotionViewer:
                 video_width=640,
                 video_height=480,
                 keyboard_callback=None,
+                show_body_frames=False,
+                show_joint_axes=False,
+                show_sites=False,
                 ):
         
         self.robot_type = robot_type
@@ -77,6 +80,9 @@ class RobotMotionViewer:
         self.rate_limiter = RateLimiter(frequency=self.motion_fps, warn=False)
         self.camera_follow = camera_follow
         self.record_video = record_video
+        self.show_body_frames = bool(show_body_frames)
+        self.show_joint_axes = bool(show_joint_axes)
+        self.show_sites = bool(show_sites)
 
 
         self.viewer = mjv.launch_passive(
@@ -88,7 +94,43 @@ class RobotMotionViewer:
             )      
 
         self.viewer.opt.flags[mj.mjtVisFlag.mjVIS_TRANSPARENT] = transparent_robot
+        self.viewer.opt.flags[mj.mjtVisFlag.mjVIS_JOINT] = self.show_joint_axes
         self._set_camera(self.camera_lookat)
+
+    def _draw_debug_overlay(self):
+        """Draw body coordinate frames and MuJoCo sites in the user scene."""
+        if not (self.show_body_frames or self.show_sites):
+            return
+        self.viewer.user_scn.ngeom = 0
+        if self.show_body_frames:
+            for body_id in range(1, self.model.nbody):
+                if self.viewer.user_scn.ngeom + 3 >= self.viewer.user_scn.maxgeom:
+                    break
+                name = mj.mj_id2name(self.model, mj.mjtObj.mjOBJ_BODY, body_id) or f"body_{body_id}"
+                draw_frame(
+                    self.data.xpos[body_id].copy(),
+                    self.data.xmat[body_id].reshape(3, 3).copy(),
+                    self.viewer,
+                    0.055,
+                    joint_name=None,
+                )
+        if self.show_sites:
+            for site_id in range(self.model.nsite):
+                if self.viewer.user_scn.ngeom >= self.viewer.user_scn.maxgeom:
+                    break
+                name = mj.mj_id2name(self.model, mj.mjtObj.mjOBJ_SITE, site_id) or f"site_{site_id}"
+                geom = self.viewer.user_scn.geoms[self.viewer.user_scn.ngeom]
+                color = [1.0, 0.25, 0.05, 1.0] if ("guard" in name or "contact" in name) else [0.1, 0.85, 1.0, 1.0]
+                mj.mjv_initGeom(
+                    geom,
+                    type=mj.mjtGeom.mjGEOM_SPHERE,
+                    size=[0.012, 0.012, 0.012],
+                    pos=self.data.site_xpos[site_id],
+                    mat=np.eye(3).flatten(),
+                    rgba=color,
+                )
+                geom.label = ""
+                self.viewer.user_scn.ngeom += 1
         
         if self.record_video:
             assert video_path is not None, "Please provide video path for recording"
@@ -141,16 +183,23 @@ class RobotMotionViewer:
         self.data.qpos[7:] = dof_pos
         
         mj.mj_forward(self.model, self.data)
+
+        self._draw_debug_overlay()
         
         if follow_camera is None:
             follow_camera = self.camera_follow
 
         if follow_camera:
-            self._follow_camera_position(self.data.xpos[self.model.body(self.robot_base).id])
+            # Track the robot's torso area rather than the base origin.  This
+            # keeps the full humanoid in frame for motions whose root is near
+            # the ground (as in the NE01 retargeted dataset).
+            base_pos = self.data.xpos[self.model.body(self.robot_base).id]
+            self._follow_camera_position(base_pos + np.array([0.0, 0.0, 0.35]))
         
         if human_motion_data is not None:
             # Clean custom geometry
-            self.viewer.user_scn.ngeom = 0
+            if not (self.show_body_frames or self.show_sites):
+                self.viewer.user_scn.ngeom = 0
             # Draw the task targets for reference
             for human_body_name, (pos, rot) in human_motion_data.items():
                 draw_frame(

@@ -24,6 +24,9 @@ ROBOT_XML_DICT = {
     "pal_talos": ASSET_ROOT / "pal_talos" / "talos.xml",
     "fourier_gr3": ASSET_ROOT / "fourier_gr3v2_1_1" / "mjcf" / "gr3v2_1_1_dummy_hand.xml",
     "ne01": ASSET_ROOT / "ne01" / "ne01.xml",
+    "ne01_wholebody_omni_gmr": ASSET_ROOT / "ne01" / "ne01_wholebody_omni_gmr.xml",
+    "ne01_wholebody_omni_gmr_v2": ASSET_ROOT / "ne01" / "ne01_wholebody_omni_gmr_v2.xml",
+    "ne01_holosoma_wholebody_omni_gmr_v2": ASSET_ROOT / "ne01" / "ne01_holosoma_wholebody_omni_gmr_v2.xml",
     "unitree_g1_24dof": ASSET_ROOT / "unitree_g1_24dof" / "g1_mocap_24dof.xml",
 }
 
@@ -48,6 +51,9 @@ IK_CONFIG_DICT = {
         "tienkung": IK_CONFIG_ROOT / "smplx_to_tienkung.json",
         "fourier_gr3": IK_CONFIG_ROOT / "smplx_to_gr3.json",
         "ne01": IK_CONFIG_ROOT / "smplx_to_ne01.json",
+        "ne01_wholebody_omni_gmr": IK_CONFIG_ROOT / "smplx_to_ne01.json",
+        "ne01_wholebody_omni_gmr_v2": IK_CONFIG_ROOT / "smplx_to_ne01.json",
+        "ne01_holosoma_wholebody_omni_gmr_v2": IK_CONFIG_ROOT / "smplx_to_ne01_holosoma.json",
         "unitree_g1_24dof": IK_CONFIG_ROOT / "smplx_to_g1.json",
     },
     "bvh_lafan1":{
@@ -104,6 +110,9 @@ ROBOT_BASE_DICT = {
     "pal_talos": "base_link",
     "fourier_gr3": "base_link",
     "ne01": "base_link",
+    "ne01_wholebody_omni_gmr": "base_link",
+    "ne01_wholebody_omni_gmr_v2": "base_link",
+    "ne01_holosoma_wholebody_omni_gmr_v2": "BASE_LINK",
     "unitree_g1_24dof": "pelvis",
 }
 
@@ -127,5 +136,8 @@ VIEWER_CAM_DISTANCE_DICT = {
     "pal_talos": 3.0,
     "fourier_gr3": 2.0,
     "ne01": 2.0,
+    "ne01_wholebody_omni_gmr": 2.0,
+    "ne01_wholebody_omni_gmr_v2": 2.0,
+    "ne01_holosoma_wholebody_omni_gmr_v2": 2.0,
     "unitree_g1_24dof": 2.0,
 }

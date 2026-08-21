@@ -50,7 +50,7 @@ except ImportError:
     psutil = None
 
 
-def check_memory(threshold_gb=30):  # adjust based on your available memory
+def check_memory(threshold_gb=4):
     if psutil is None:
         return False
     mem = psutil.virtual_memory()
@@ -73,6 +73,8 @@ def process_file(
     tgt_folder,
     total_files,
     device,
+    tgt_fps,
+    min_available_memory_gb,
     verbose=False,
     use_velocity_limit=False,
     velocity_limit=3 * np.pi,
@@ -91,7 +93,7 @@ def process_file(
     log_memory("Initial memory usage")
     
     num_pause = 0
-    while check_memory():
+    while check_memory(min_available_memory_gb):
         print(f"[PAUSE] Paused processing {smplx_file_path} to prevent memory overflow. num_pause: {num_pause}")
         time.sleep(60*2)
         num_pause += 1
@@ -108,7 +110,6 @@ def process_file(
         return
     
   
-    tgt_fps = 30
     try:
         smplx_frame_data_list, aligned_fps = get_smplx_data_offline_fast(smplx_data, body_model, smplx_output, tgt_fps=tgt_fps)
     except Exception as e:
@@ -122,8 +123,9 @@ def process_file(
             tgt_robot=tgt_robot,
             actual_human_height=actual_human_height,
             verbose=verbose,
-            use_velocity_limit=use_velocity_limit,
+            use_velocity_limit=use_velocity_limit or tgt_robot == "ne01",
             velocity_limit=velocity_limit,
+            motion_fps=tgt_fps,
         )
         qpos_list = []
         for smplx_frame_data in smplx_frame_data_list:
@@ -169,7 +171,9 @@ def process_file(
 
     body_names = kinematics_model.body_names
     
-    HEIGHT_ADJUST = True
+    # NE01 foot targets now enforce its four-point support-plane height during IK.
+    # Applying a sequence-wide lowest-point shift would reintroduce floating feet.
+    HEIGHT_ADJUST = tgt_robot != "ne01"
     if HEIGHT_ADJUST:
         try:
             # height adjust to ensure the lowerset part is on the ground
@@ -231,13 +235,23 @@ def run_process_pool(
     args_list,
     total_files,
     device,
+    tgt_fps,
+    min_available_memory_gb,
     verbose,
     num_cpus,
     use_velocity_limit=False,
     velocity_limit=3 * np.pi,
 ):
     process_args = [
-        args + (total_files, device, verbose, use_velocity_limit, velocity_limit)
+        args + (
+            total_files,
+            device,
+            tgt_fps,
+            min_available_memory_gb,
+            verbose,
+            use_velocity_limit,
+            velocity_limit,
+        )
         for args in args_list
     ]
     if num_cpus <= 1:
@@ -267,6 +281,18 @@ def main():
     
     parser.add_argument("--override", default=False, action="store_true")
     parser.add_argument("--num_cpus", default=4, type=int)
+    parser.add_argument(
+        "--tgt_fps",
+        default=50,
+        type=float,
+        help="Target FPS used when aligning source motions.",
+    )
+    parser.add_argument(
+        "--min_available_memory_gb",
+        default=4,
+        type=float,
+        help="Pause workers while available system memory is below this value.",
+    )
     parser.add_argument(
         "--device",
         default="auto",
@@ -382,6 +408,8 @@ def main():
         args_list,
         total_files,
         device,
+        args.tgt_fps,
+        args.min_available_memory_gb,
         verbose,
         args.num_cpus,
         use_velocity_limit=args.use_velocity_limit,

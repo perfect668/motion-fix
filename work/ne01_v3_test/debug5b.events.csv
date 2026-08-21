@@ -1,0 +1,11 @@
+frame_idx,event,side,value
+0,velocity_saturation,,0.9994601897664654
+1,arm_branch_flip,right,-1
+1,velocity_saturation,,1.0000000000000002
+2,touchdown,left,FLAT
+2,load_transition,left,UNLOADED->SUPPORT
+2,touchdown,right,FLAT
+2,load_transition,right,UNLOADED->SUPPORT
+2,qp_infeasible,,Stage B: NoSolutionFound: QP solver proxqp failed to find a solution.
+3,qp_infeasible,,Stage B: NoSolutionFound: QP solver proxqp failed to find a solution.
+4,qp_infeasible,,Stage B: NoSolutionFound: QP solver proxqp failed to find a solution.

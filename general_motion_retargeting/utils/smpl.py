@@ -2,6 +2,7 @@ import numpy as np
 import smplx
 import torch
 from pathlib import Path
+from types import SimpleNamespace
 from scipy.spatial.transform import Rotation as R
 from smplx.joint_names import JOINT_NAMES
 from scipy.interpolate import interp1d
@@ -68,18 +69,37 @@ def load_smplx_file(smplx_file, smplx_body_model_path):
     # print(smplx_data["trans"].shape)
     
     num_frames = smplx_data["pose_body"].shape[0]
-    smplx_output = body_model(
-        betas=torch.tensor(betas).float().view(1, -1), # (B,)
-        global_orient=torch.tensor(smplx_data["root_orient"]).float(), # (N, 3)
-        body_pose=torch.tensor(smplx_data["pose_body"]).float(), # (N, 63)
-        transl=torch.tensor(smplx_data["trans"]).float(), # (N, 3)
-        left_hand_pose=torch.zeros(num_frames, 45).float(),
-        right_hand_pose=torch.zeros(num_frames, 45).float(),
-        jaw_pose=torch.zeros(num_frames, 3).float(),
-        leye_pose=torch.zeros(num_frames, 3).float(),
-        reye_pose=torch.zeros(num_frames, 3).float(),
-        # expression=torch.zeros(num_frames, 10).float(),
-        return_full_pose=True,
+    betas_tensor = torch.tensor(betas).float().view(1, -1)
+    root_orient = torch.tensor(smplx_data["root_orient"]).float()
+    pose_body = torch.tensor(smplx_data["pose_body"]).float()
+    trans = torch.tensor(smplx_data["trans"]).float()
+    output_parts = {"global_orient": [], "full_pose": [], "joints": []}
+
+    body_model.eval()
+    with torch.no_grad():
+        # SMPL-X materializes per-frame vertices internally. Chunking prevents
+        # long AMASS recordings such as LARa from exhausting host memory.
+        for start in range(0, num_frames, 512):
+            end = min(start + 512, num_frames)
+            batch_size = end - start
+            output = body_model(
+                betas=betas_tensor,
+                global_orient=root_orient[start:end],
+                body_pose=pose_body[start:end],
+                transl=trans[start:end],
+                left_hand_pose=torch.zeros(batch_size, 45).float(),
+                right_hand_pose=torch.zeros(batch_size, 45).float(),
+                jaw_pose=torch.zeros(batch_size, 3).float(),
+                leye_pose=torch.zeros(batch_size, 3).float(),
+                reye_pose=torch.zeros(batch_size, 3).float(),
+                return_full_pose=True,
+                return_verts=False,
+            )
+            for name in output_parts:
+                output_parts[name].append(getattr(output, name).detach().cpu())
+
+    smplx_output = SimpleNamespace(
+        **{name: torch.cat(parts, dim=0) for name, parts in output_parts.items()}
     )
     
     human_height = 1.66 + 0.1 * betas[0]
@@ -218,22 +238,24 @@ def get_smplx_data_offline_fast(smplx_data, body_model, smplx_output, tgt_fps=30
         ...
     }
     """
-    src_fps = smplx_data["mocap_frame_rate"].item()
-    frame_skip = int(src_fps / tgt_fps)
+    src_fps = float(smplx_data["mocap_frame_rate"].item())
+    if src_fps <= 0 or tgt_fps <= 0:
+        raise ValueError(f"FPS values must be positive, got src={src_fps}, target={tgt_fps}")
     num_frames = smplx_data["pose_body"].shape[0]
-    global_orient = smplx_output.global_orient.squeeze()
-    full_body_pose = smplx_output.full_pose.reshape(num_frames, -1, 3)
-    joints = smplx_output.joints.detach().numpy().squeeze()
+    global_orient = smplx_output.global_orient.detach().cpu().numpy().reshape(num_frames, 3)
+    full_body_pose = smplx_output.full_pose.detach().cpu().numpy().reshape(num_frames, -1, 3)
+    joints = smplx_output.joints.detach().cpu().numpy().reshape(num_frames, -1, 3)
     joint_names = JOINT_NAMES[: len(body_model.parents)]
     parents = body_model.parents
     
-    if tgt_fps < src_fps:
-        # perform fps alignment with proper interpolation
-        new_num_frames = num_frames // frame_skip
-        
-        # Create time points for interpolation
+    if num_frames == 1:
+        aligned_fps = tgt_fps
+    elif not np.isclose(tgt_fps, src_fps):
+        # Sample by time so non-integer ratios such as 120 FPS -> 50 FPS keep
+        # the requested output rate instead of silently falling back to 60 FPS.
+        new_num_frames = max(1, int(np.floor((num_frames - 1) * tgt_fps / src_fps)) + 1)
         original_time = np.arange(num_frames)
-        target_time = np.linspace(0, num_frames-1, new_num_frames)
+        target_time = np.arange(new_num_frames) * (src_fps / tgt_fps)
         
         # Interpolate global orientation using SLERP
         global_orient_interp = []
@@ -274,9 +296,9 @@ def get_smplx_data_offline_fast(smplx_data, body_model, smplx_output, tgt_fps=30
                 joints_interp.append(interp_func(target_time))
         joints = np.stack(joints_interp, axis=1).reshape(new_num_frames, -1, 3)
         
-        aligned_fps = len(global_orient) / num_frames * src_fps
-    else:
         aligned_fps = tgt_fps
+    else:
+        aligned_fps = src_fps
         
     smplx_data_frames = []
     for curr_frame in range(len(global_orient)):

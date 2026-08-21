@@ -3,6 +3,7 @@ import pathlib
 import time
 from general_motion_retargeting import GeneralMotionRetargeting as GMR
 from general_motion_retargeting import RobotMotionViewer
+from general_motion_retargeting.motion_data import enrich_robot_motion_with_fk
 from general_motion_retargeting.utils.xsens import load_xsens_file
 from rich import print
 from tqdm import tqdm
@@ -102,6 +103,12 @@ if __name__ == "__main__":
         help="The format of bvh files,3ds Max,MotionBuilder,and P6?",
     )
 
+    parser.add_argument(
+        "--fk_device",
+        default="auto",
+        help="Device for local-body FK when saving a PKL: auto, cpu, cuda, or cuda:0.",
+    )
+
     args = parser.parse_args()
 
     if args.save_path is not None:
@@ -189,17 +196,17 @@ if __name__ == "__main__":
         # Save root quaternion in xyzw, matching other GMR export scripts.
         root_rot = np.array([qpos[3:7][[1, 2, 3, 0]] for qpos in qpos_list])
         dof_pos = np.array([qpos[7:] for qpos in qpos_list])
-        local_body_pos = None
-        body_names = None
-
         motion_data = {
             "fps": motion_fps,
             "root_pos": root_pos,
             "root_rot": root_rot,
             "dof_pos": dof_pos,
-            "local_body_pos": local_body_pos,
-            "link_body_list": body_names,
         }
+        motion_data = enrich_robot_motion_with_fk(
+            motion_data,
+            robot=args.robot,
+            device=args.fk_device,
+        )
         with open(args.save_path, "wb") as f:
             pickle.dump(motion_data, f)
         print(f"Saved to {args.save_path}")
