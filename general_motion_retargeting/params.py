@@ -27,6 +27,7 @@ ROBOT_XML_DICT = {
     "ne01_wholebody_omni_gmr": ASSET_ROOT / "ne01" / "ne01_wholebody_omni_gmr.xml",
     "ne01_wholebody_omni_gmr_v2": ASSET_ROOT / "ne01" / "ne01_wholebody_omni_gmr_v2.xml",
     "ne01_holosoma_wholebody_omni_gmr_v2": ASSET_ROOT / "ne01" / "ne01_holosoma_wholebody_omni_gmr_v2.xml",
+    "ne01_desktop_assets_wholebody_omni_gmr_v2": ASSET_ROOT / "ne01" / "ne01_desktop_assets_wholebody_omni_gmr_v2.xml",
     "unitree_g1_24dof": ASSET_ROOT / "unitree_g1_24dof" / "g1_mocap_24dof.xml",
 }
 
@@ -54,6 +55,7 @@ IK_CONFIG_DICT = {
         "ne01_wholebody_omni_gmr": IK_CONFIG_ROOT / "smplx_to_ne01.json",
         "ne01_wholebody_omni_gmr_v2": IK_CONFIG_ROOT / "smplx_to_ne01.json",
         "ne01_holosoma_wholebody_omni_gmr_v2": IK_CONFIG_ROOT / "smplx_to_ne01_holosoma.json",
+        "ne01_desktop_assets_wholebody_omni_gmr_v2": IK_CONFIG_ROOT / "smplx_to_ne01.json",
         "unitree_g1_24dof": IK_CONFIG_ROOT / "smplx_to_g1.json",
     },
     "bvh_lafan1":{
@@ -113,6 +115,7 @@ ROBOT_BASE_DICT = {
     "ne01_wholebody_omni_gmr": "base_link",
     "ne01_wholebody_omni_gmr_v2": "base_link",
     "ne01_holosoma_wholebody_omni_gmr_v2": "BASE_LINK",
+    "ne01_desktop_assets_wholebody_omni_gmr_v2": "base_link",
     "unitree_g1_24dof": "pelvis",
 }
 
@@ -139,5 +142,6 @@ VIEWER_CAM_DISTANCE_DICT = {
     "ne01_wholebody_omni_gmr": 2.0,
     "ne01_wholebody_omni_gmr_v2": 2.0,
     "ne01_holosoma_wholebody_omni_gmr_v2": 2.0,
+    "ne01_desktop_assets_wholebody_omni_gmr_v2": 2.0,
     "unitree_g1_24dof": 2.0,
 }

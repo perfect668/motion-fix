@@ -512,21 +512,18 @@ class WholeBodyOmniGMR(LaplacianSoftContactRetargeting):
         """Declare whether input rotations are measured or position-derived.
 
         Position-only prepared NPZ files do not contain joint rotations.  Their
-        unit quaternions are placeholders and must never create orientation
-        residuals in FrameTask.  Pelvis/spine orientation, when supplied by
-        the wholebody loader, is the only position-derived orientation retained.
+        quaternions are either placeholders or bases reconstructed from three
+        points.  They are useful for rotating semantic position offsets, but
+        must not create FrameTask orientation residuals: the SMPL-X rotation
+        offsets assume measured SMPL-X local frames and otherwise inject a
+        spurious roughly 90-degree pelvis/torso rotation.  This matches the
+        HoloSoMo mocap retargeter, whose interaction mesh tracks positions only.
         """
         self._orientation_valid = bool(valid)
         if valid:
             return
         for task in self.primary_tasks:
-            frame = self.task_frame_names.get(task, "")
-            original_orientation = self._orientation_base_costs.get(task, np.zeros(0))
             task.cost[3:] = 0.0
-            # The loader supplies stable pelvis/spine directions, but position
-            # tracking remains the authority for position-only data.
-            if frame in {"base_link", "TORSO_LINK"}:
-                task.cost[3:] = np.minimum(original_orientation, 0.25)
 
     def build_contact_schedule(self, frames):
         from .wholebody_contact_utils import build_foot_temporal_contact_schedule, build_whole_body_contact_schedule

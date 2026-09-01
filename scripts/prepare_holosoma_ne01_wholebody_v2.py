@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 import re
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-HOLO_XML = ROOT.parent / "holosoma" / "holosoma" / "src" / "holosoma" / "holosoma" / "data" / "robots" / "ne01_mujoco" / "mjcf" / "ne01.xml"
-OUT_XML = ROOT / "assets" / "ne01" / "ne01_holosoma_wholebody_omni_gmr_v2.xml"
+HOLO_XML = pathlib.Path(os.environ.get("GMR_NE01_SOURCE_XML", str(ROOT.parent / "holosoma" / "holosoma" / "src" / "holosoma" / "holosoma" / "data" / "robots" / "ne01_mujoco" / "mjcf" / "ne01.xml")))
+OUT_XML = pathlib.Path(os.environ.get("GMR_NE01_OUT_XML", str(ROOT / "assets" / "ne01" / "ne01_holosoma_wholebody_omni_gmr_v2.xml")))
 BASE_CONFIG = ROOT / "general_motion_retargeting" / "ik_configs" / "smplx_to_ne01_wholebody_omni_gmr_v2.json"
-OUT_CONFIG = ROOT / "general_motion_retargeting" / "ik_configs" / "smplx_to_ne01_holosoma_wholebody_omni_gmr_v2.json"
+OUT_CONFIG = pathlib.Path(os.environ.get("GMR_NE01_OUT_CONFIG", str(ROOT / "general_motion_retargeting" / "ik_configs" / "smplx_to_ne01_holosoma_wholebody_omni_gmr_v2.json")))
 BASE_IK_CONFIG = ROOT / "general_motion_retargeting" / "ik_configs" / "smplx_to_ne01.json"
 OUT_IK_CONFIG = ROOT / "general_motion_retargeting" / "ik_configs" / "smplx_to_ne01_holosoma.json"
 
@@ -78,8 +79,8 @@ def add_sites_and_guards(xml: str) -> str:
         xml, count = re.subn(pattern, replacement, xml, count=1)
         if count != 1:
             raise RuntimeError(f"Could not inject HoloSoMo NE01 asset marker: {pattern}")
-    mesh_dir = HOLO_XML.parent.parent / "meshes" / "ne01"
-    xml = xml.replace('meshdir="../meshes/ne01"', f'meshdir="{mesh_dir}"')
+    mesh_dir = pathlib.Path(os.environ.get("GMR_NE01_MESH_DIR", str(HOLO_XML.parent.parent / "meshes" / "ne01")))
+    xml = re.sub(r'meshdir="[^"]+"', f'meshdir="{mesh_dir}"', xml, count=1)
     return xml.replace('<mujoco model="NE01_scene">', '<mujoco model="NE01_holosoma_gmr_v2">')
 
 
@@ -87,23 +88,27 @@ def main() -> None:
     if not HOLO_XML.exists():
         raise FileNotFoundError(HOLO_XML)
     config = json.loads(BASE_CONFIG.read_text(encoding="utf-8"))
-    # HoloSoMo uses uppercase BASE_LINK; all other configured body names are
-    # already identical to its MuJoCo asset.
-    for section in (config["ground_interaction_graph"]["regions"], config["ground_collision_points"]):
-        for spec in section.values():
-            if spec.get("robot_body") == "base_link":
-                spec["robot_body"] = "BASE_LINK"
-    config["_asset_note"] = "Independent HoloSoMo NE01 MuJoCo asset; generated from local holosoma data/robots/ne01_mujoco/mjcf/ne01.xml"
+    # Only the HoloSoMo asset uses BASE_LINK.  The local desktop asset keeps
+    # the original GMR base_link naming and therefore needs no body remap.
+    if os.environ.get("GMR_NE01_BASE_LINK", "BASE_LINK") == "BASE_LINK":
+        for section in (config["ground_interaction_graph"]["regions"], config["ground_collision_points"]):
+            for spec in section.values():
+                if spec.get("robot_body") == "base_link":
+                    spec["robot_body"] = "BASE_LINK"
+        config["_asset_note"] = "Independent HoloSoMo NE01 MuJoCo asset"
+    else:
+        config["_asset_note"] = "Independent desktop ne01-robot-assets NE01 MuJoCo asset"
     ik_config = json.loads(BASE_IK_CONFIG.read_text(encoding="utf-8"))
-    ik_config["robot_root_name"] = "BASE_LINK"
-    ik_config["ik_priority_levels"] = [
-        ["BASE_LINK" if name == "base_link" else name for name in level]
-        for level in ik_config["ik_priority_levels"]
-    ]
-    for table_name in ("ik_match_table1", "ik_match_table2"):
-        table = ik_config[table_name]
-        if "base_link" in table:
-            table["BASE_LINK"] = table.pop("base_link")
+    if os.environ.get("GMR_NE01_BASE_LINK", "BASE_LINK") == "BASE_LINK":
+        ik_config["robot_root_name"] = "BASE_LINK"
+    else:
+        ik_config["robot_root_name"] = "base_link"
+    if os.environ.get("GMR_NE01_BASE_LINK", "BASE_LINK") == "BASE_LINK":
+        ik_config["ik_priority_levels"] = [["BASE_LINK" if name == "base_link" else name for name in level] for level in ik_config["ik_priority_levels"]]
+        for table_name in ("ik_match_table1", "ik_match_table2"):
+            table = ik_config[table_name]
+            if "base_link" in table:
+                table["BASE_LINK"] = table.pop("base_link")
     OUT_XML.write_text(add_sites_and_guards(HOLO_XML.read_text(encoding="utf-8")), encoding="utf-8")
     OUT_CONFIG.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
     OUT_IK_CONFIG.write_text(json.dumps(ik_config, indent=2) + "\n", encoding="utf-8")

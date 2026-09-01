@@ -49,18 +49,19 @@ def load_motion_frames(source: pathlib.Path, root: pathlib.Path, fps: float):
             result = {name: identity.copy() for name in names}
             index = {name: i for i, name in enumerate(names)}
 
-            def make_basis(origin, across, up):
-                across = np.asarray(across, dtype=float)
+            def make_basis(origin, left, up):
+                left = np.asarray(left, dtype=float)
                 up = np.asarray(up, dtype=float)
-                if np.linalg.norm(across) < 1e-7 or np.linalg.norm(up) < 1e-7:
+                if np.linalg.norm(left) < 1e-7 or np.linalg.norm(up) < 1e-7:
                     return None
-                x = across / np.linalg.norm(across)
-                z = up - x * np.dot(x, up)
+                # Robot convention: +X forward, +Y left, +Z up.
+                y = left / np.linalg.norm(left)
+                z = up - y * np.dot(y, up)
                 if np.linalg.norm(z) < 1e-7:
                     return None
                 z /= np.linalg.norm(z)
-                y = np.cross(z, x)
-                y /= max(np.linalg.norm(y), 1e-7)
+                x = np.cross(y, z)
+                x /= max(np.linalg.norm(x), 1e-7)
                 z = np.cross(x, y)
                 return np.column_stack((x, y, z))
 
@@ -73,14 +74,14 @@ def load_motion_frames(source: pathlib.Path, root: pathlib.Path, fps: float):
             if all(key in index for key in ("left_hip", "right_hip", "spine3")):
                 assign("pelvis", make_basis(
                     frame[index["pelvis"]] if "pelvis" in index else frame[index["spine3"]],
-                    frame[index["right_hip"]] - frame[index["left_hip"]],
+                    frame[index["left_hip"]] - frame[index["right_hip"]],
                     frame[index["spine3"]] - 0.5 * (frame[index["left_hip"]] + frame[index["right_hip"]]),
                 ))
                 assign("spine3", make_basis(
                     frame[index["spine3"]],
-                    frame[index["right_shoulder"]] - frame[index["left_shoulder"]]
+                    frame[index["left_shoulder"]] - frame[index["right_shoulder"]]
                     if "left_shoulder" in index and "right_shoulder" in index
-                    else frame[index["right_hip"]] - frame[index["left_hip"]],
+                    else frame[index["left_hip"]] - frame[index["right_hip"]],
                     frame[index["spine3"]] - 0.5 * (frame[index["left_hip"]] + frame[index["right_hip"]]),
                 ))
             return result

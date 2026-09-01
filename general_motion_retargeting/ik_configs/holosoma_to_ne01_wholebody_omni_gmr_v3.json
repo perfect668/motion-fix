@@ -1,0 +1,136 @@
+{
+  "robot_xml": "assets/ne01/ne01_desktop_assets_wholebody_omni_gmr_v2.xml",
+  "scene": {
+    "robot_height": 1.316,
+    "default_human_height": 1.78,
+    "rotation": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+    "translation": [0.0, 0.0, 0.0]
+  },
+  "semantic_points": {
+    "pelvis": {"source": "Spine1", "robot": {"body": "base_link", "offsets": [[0.0, 0.0, 0.0]]}},
+    "left_hip": {"source": "LeftUpLeg", "robot": {"body": "HIP_PITCH_L_LINK", "offsets": [[0.0, 0.0, 0.0]]}},
+    "left_knee": {"source": "LeftLeg", "robot": {"body": "KNEE_PITCH_L_LINK", "offsets": [[0.0, 0.0, 0.0]]}},
+    "left_foot": {"source": "LeftFoot", "robot": {"body": "ANKLE_PITCH_L_LINK", "offsets": [[0.0, 0.0, 0.0]]}},
+    "left_toe": {"source": "LeftToeBase", "robot": {"body": "ANKLE_ROLL_L_LINK", "offsets": [[0.14, 0.0, -0.034]]}},
+    "right_hip": {"source": "RightUpLeg", "robot": {"body": "HIP_PITCH_R_LINK", "offsets": [[0.0, 0.0, 0.0]]}},
+    "right_knee": {"source": "RightLeg", "robot": {"body": "KNEE_PITCH_R_LINK", "offsets": [[0.0, 0.0, 0.0]]}},
+    "right_foot": {"source": "RightFoot", "robot": {"body": "ANKLE_PITCH_R_LINK", "offsets": [[0.0, 0.0, 0.0]]}},
+    "right_toe": {"source": "RightToeBase", "robot": {"body": "ANKLE_ROLL_R_LINK", "offsets": [[0.14, 0.0, -0.034]]}},
+    "left_shoulder": {"source": "LeftArm", "robot": {"body": "SHOULDER_ROLL_L_LINK", "offsets": [[0.0, 0.0, 0.0]]}},
+    "left_elbow": {"source": "LeftForeArm", "robot": {"body": "ELBOW_PITCH_L_LINK", "offsets": [[0.0, 0.0, 0.0]]}},
+    "left_hand": {"source": "LeftHandMiddle3", "robot": {"body": "HAND_YAW_L_LINK", "offsets": [[0.0, -0.004, -0.08]]}},
+    "right_shoulder": {"source": "RightArm", "robot": {"body": "SHOULDER_ROLL_R_LINK", "offsets": [[0.0, 0.0, 0.0]]}},
+    "right_elbow": {"source": "RightForeArm", "robot": {"body": "ELBOW_PITCH_R_LINK", "offsets": [[0.0, 0.0, 0.0]]}},
+    "right_hand": {"source": "RightHandMiddle3", "robot": {"body": "HAND_YAW_R_LINK", "offsets": [[0.0, 0.004, -0.08]]}}
+  },
+  "global_anchor": {
+    "source": "Spine1",
+    "robot_body": "base_link",
+    "cost": [4.0, 4.0, 1.5, 2.0]
+  },
+  "joint_position_limits": {
+    "TORSO_ROLL_JOINT": [-0.3, 0.3]
+  },
+  "torso_pelvis_coherence": {
+    "gain": 0.45,
+    "blend_frames": 7,
+    "waist_yaw": {
+      "joint": "WAIST_YAW_JOINT",
+      "minimum": -0.45,
+      "maximum": 0.45,
+      "cost": 4.0
+    },
+    "torso_roll": {
+      "joint": "TORSO_ROLL_JOINT",
+      "minimum": -0.3,
+      "maximum": 0.3,
+      "cost": 6.0
+    }
+  },
+  "interaction_graph": {
+    "terrain_sampling": {
+      "points_per_square_meter": 60.0,
+      "minimum": 96,
+      "maximum": 320
+    },
+    "environment_points_per_semantic": 4.0,
+    "environment_points_minimum": 32,
+    "environment_points_maximum": 96,
+    "semantic_cost": 10.0,
+    "environment_cost": 1.0,
+    "gain": 0.55
+  },
+  "contact_tasks": {
+    "normal_cost": 35.0,
+    "tangent_cost": 18.0,
+    "foot_orientation_cost": 0.8,
+    "clearance": 0.004,
+    "sole_local_normal": [0.0, 0.0, 1.0],
+    "foot_bodies": {"left": "ANKLE_ROLL_L_LINK", "right": "ANKLE_ROLL_R_LINK"},
+    "robot_points": {
+      "left_heel": {"sites": ["ground_guard_left_heel_inner", "ground_guard_left_heel_outer"]},
+      "left_toe": {"sites": ["ground_guard_left_toe_inner", "ground_guard_left_toe_outer"]},
+      "right_heel": {"sites": ["ground_guard_right_heel_inner", "ground_guard_right_heel_outer"]},
+      "right_toe": {"sites": ["ground_guard_right_toe_inner", "ground_guard_right_toe_outer"]},
+      "left_palm": {"body": "HAND_YAW_L_LINK", "offsets": [[0.0, -0.004, -0.08]]},
+      "right_palm": {"body": "HAND_YAW_R_LINK", "offsets": [[0.0, 0.004, -0.08]]},
+      "left_knee": {"sites": ["ground_contact_left_knee"]},
+      "right_knee": {"sites": ["ground_contact_right_knee"]},
+      "left_shin": {"body": "KNEE_PITCH_L_LINK", "offsets": [[-0.045, 0.0, -0.205]]},
+      "right_shin": {"body": "KNEE_PITCH_R_LINK", "offsets": [[-0.045, 0.0, -0.205]]}
+    }
+  },
+  "terrain_contact": {
+    "support_normal_min_z": 0.6,
+    "contact_enter_distance": 0.03,
+    "contact_exit_distance": 0.055,
+    "static_tangent_speed": 0.08,
+    "normal_speed_limit": 0.20,
+    "surface_switch_hysteresis": 0.015,
+    "state_score_threshold": 0.15,
+    "flat_foot_max_normal_angle_deg": 12.0,
+    "flat_foot_min_score": 0.35,
+    "heel_proxy_back_fraction": 0.28,
+    "heel_proxy_sole_offset": 0.07,
+    "contact_blend_frames": 7
+  },
+  "terrain_nonpenetration": {
+    "margin": 0.004,
+    "activate_distance": 0.055,
+    "deactivate_distance": 0.085,
+    "prediction_horizon": 2.0,
+    "deactivate_hold_steps": 3,
+    "mesh_proxy_density": 1000.0,
+    "mesh_proxy_minimum": 32,
+    "mesh_proxy_maximum": 128,
+    "active_points_per_shell": 5,
+    "point_separation": 0.015
+  },
+  "self_collision": {
+    "enabled": true,
+    "activate_distance": 0.05,
+    "margin": 0.003,
+    "excluded_kinematic_hops": 2
+  },
+  "posture": {
+    "nominal_cost": 0.01,
+    "temporal_cost": 0.08,
+    "joint_costs": {
+      "WAIST_YAW_JOINT": 0.25,
+      "TORSO_ROLL_JOINT": 0.30,
+      "SHOULDER_YAW_L_JOINT": 0.20,
+      "SHOULDER_YAW_R_JOINT": 0.20,
+      "HAND_YAW_L_JOINT": 0.25,
+      "HAND_YAW_R_JOINT": 0.25,
+      "HIP_YAW_L_JOINT": 0.12,
+      "HIP_YAW_R_JOINT": 0.12
+    }
+  },
+  "solver": {
+    "damping": 0.1,
+    "trust_region": 0.12,
+    "joint_velocity_limit": 9.42477796076938,
+    "first_frame_iterations": 30,
+    "iterations": 8
+  }
+}

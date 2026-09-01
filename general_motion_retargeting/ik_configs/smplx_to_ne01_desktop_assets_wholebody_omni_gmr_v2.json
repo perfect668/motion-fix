@@ -467,7 +467,7 @@
       "margin": 0.008
     },
     "pelvis_front_left": {
-      "robot_body": "BASE_LINK",
+      "robot_body": "base_link",
       "robot_offset": [
         0.0384,
         0.05,
@@ -477,7 +477,7 @@
       "margin": 0.008
     },
     "pelvis_front_right": {
-      "robot_body": "BASE_LINK",
+      "robot_body": "base_link",
       "robot_offset": [
         0.0384,
         -0.05,
@@ -487,7 +487,7 @@
       "margin": 0.008
     },
     "pelvis_back_left": {
-      "robot_body": "BASE_LINK",
+      "robot_body": "base_link",
       "robot_offset": [
         -0.0404,
         0.05,
@@ -497,7 +497,7 @@
       "margin": 0.008
     },
     "pelvis_back_right": {
-      "robot_body": "BASE_LINK",
+      "robot_body": "base_link",
       "robot_offset": [
         -0.0404,
         -0.05,
@@ -748,7 +748,7 @@
         ]
       },
       "pelvis_front": {
-        "robot_body": "BASE_LINK",
+        "robot_body": "base_link",
         "robot_offset": [
           0.07,
           0.0,
@@ -765,7 +765,7 @@
         ]
       },
       "pelvis_back": {
-        "robot_body": "BASE_LINK",
+        "robot_body": "base_link",
         "robot_offset": [
           -0.07,
           0.0,
@@ -898,5 +898,5 @@
       "foot_orientation": 0.2
     }
   },
-  "_asset_note": "Independent HoloSoMo NE01 MuJoCo asset"
+  "_asset_note": "Independent desktop ne01-robot-assets NE01 MuJoCo asset"
 }

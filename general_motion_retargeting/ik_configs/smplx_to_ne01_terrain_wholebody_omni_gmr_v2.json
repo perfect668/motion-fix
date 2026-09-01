@@ -1,0 +1,66 @@
+{
+  "base_config": "smplx_to_ne01_desktop_assets_wholebody_omni_gmr_v2.json",
+  "kinematic_config": "smplx_to_ne01.json",
+  "scene_transform": {
+    "rotation": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+    "scene_scale": null,
+    "translation": [0.0, 0.0, 0.0],
+    "source_floor_z": 0.0,
+    "solver_floor_z": 0.0,
+    "actual_human_height": 1.78
+  },
+  "terrain": {
+    "support_normal_min_z": 0.6,
+    "contact_enter_distance": 0.03,
+    "contact_exit_distance": 0.055,
+    "static_tangent_speed": 0.08,
+    "normal_speed_limit": 0.20,
+    "surface_switch_hysteresis": 0.015,
+    "state_score_threshold": 0.15,
+    "flat_foot_max_normal_angle_deg": 12.0,
+    "flat_foot_min_score": 0.45,
+    "heel_proxy_back_fraction": 0.28,
+    "heel_proxy_sole_offset": 0.07
+  },
+  "terrain_nonpenetration": {
+    "adaptive_activation": true,
+    "activate_distance": 0.06,
+    "deactivate_distance": 0.09,
+    "deactivate_hold_steps": 3,
+    "prediction_horizon": 2.0,
+    "contact_activation_score": 0.15,
+    "default_margin": 0.008,
+    "mesh_proxy_points": 96,
+    "active_points_per_shell": 5,
+    "near_slack_threshold": 0.025,
+    "mesh_shells": {
+      "left_palm_shell": {"body": "HAND_YAW_L_LINK", "margin": 0.004, "separation": 0.015},
+      "right_palm_shell": {"body": "HAND_YAW_R_LINK", "margin": 0.004, "separation": 0.015},
+      "pelvis_shell": {"body": "base_link", "margin": 0.004, "separation": 0.025},
+      "chest_shell": {"body": "TORSO_LINK", "margin": 0.004, "separation": 0.025}
+    }
+  },
+  "terrain_contact_tasks": {
+    "normal_cost": 80.0,
+    "tangent_cost": 80.0,
+    "temporal_tangent_cost": 0.04,
+    "foot_orientation_cost": 0.12,
+    "clearance": 0.004,
+    "contact_blend_frames": 7,
+    "terrain_inner_iterations": 5,
+    "first_frame_iterations": 8,
+    "sole_local_normal": [0.0, 0.0, 1.0]
+  },
+  "robot_contact_points": {
+    "left_heel": {"sites": ["ground_guard_left_heel_inner", "ground_guard_left_heel_outer"]},
+    "left_toe": {"sites": ["ground_guard_left_forefoot_inner", "ground_guard_left_forefoot_outer"]},
+    "right_heel": {"sites": ["ground_guard_right_heel_inner", "ground_guard_right_heel_outer"]},
+    "right_toe": {"sites": ["ground_guard_right_forefoot_inner", "ground_guard_right_forefoot_outer"]},
+    "left_palm": {"body": "HAND_YAW_L_LINK", "offsets": [[-0.0322, 0.0006, -0.1287], [0.0225, -0.0063, -0.1254]]},
+    "right_palm": {"body": "HAND_YAW_R_LINK", "offsets": [[-0.0322, -0.0006, -0.1287], [0.0225, 0.0063, -0.1254]]},
+    "left_knee": {"sites": ["ground_contact_left_knee"]},
+    "right_knee": {"sites": ["ground_contact_right_knee"]},
+    "left_shin": {"body": "KNEE_PITCH_L_LINK", "offsets": [[-0.045, 0.0, -0.205]]},
+    "right_shin": {"body": "KNEE_PITCH_R_LINK", "offsets": [[-0.045, 0.0, -0.205]]}
+  }
+}
