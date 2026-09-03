@@ -209,7 +209,7 @@ def main() -> None:
     # channel explicitly selects chair surface samples.  Feeding every chair
     # vertex to the global Laplacian makes unrelated leg targets compete with
     # the human pose and was the source of the V4 limb distortion.
-    impl.WholeBodyOmniGMRV3 = WholeBodyOmniGMRV4
+    impl.RETARGETER_CLASS = WholeBodyOmniGMRV4
     impl.DEFAULT_CONFIG = effective_path
     def _object_contact_schedule(schedule, source_frames, config):
         samples = scene.objects[0].transformed_samples()
@@ -278,10 +278,9 @@ def main() -> None:
                 import xml.etree.ElementTree as ET
                 xml_path = Path(payload["robot_xml"])
                 root_xml = ET.parse(xml_path).getroot()
-                # Object metadata and the reconstructed human already share
-                # GRAIL's scene origin.  qpos XY normalization is a robot
-                # trajectory convention, not a source-world translation;
-                # applying human_data.trans here would move the chair away.
+                # Preserve the source-world origin.  Applying an XY shift to
+                # qpos alone detaches the chair from the robot and invalidates
+                # interaction/collision alignment.
                 shift = np.zeros(2, dtype=float)
                 for body in root_xml.findall("./worldbody/body"):
                     if str(body.get("name", "")).startswith("scene_"):
@@ -294,6 +293,7 @@ def main() -> None:
     finally:
         sys.argv = old_argv
         impl.sample_terrain_surface_pool = original_pool_builder
+        impl.RETARGETER_CLASS = impl.WholeBodyOmniGMRV3
         impl.SCENE_CONTACT_POSTPROCESS = None
         # Keep combined XML/spec/cache for reproducibility and visualization;
         # only the temporary effective config is disposable.

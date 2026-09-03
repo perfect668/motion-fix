@@ -52,6 +52,22 @@ class RootSE3Task(Task):
         jacp = np.zeros((3, self.model.nv), dtype=float)
         jacr = np.zeros((3, self.model.nv), dtype=float)
         mj.mj_jacBody(self.model, configuration.data, jacp, jacr, self.body_id)
+        # The residual is log(R_target.T @ R_current), expressed in the
+        # target frame.  mj_jacBody returns world-frame angular velocity;
+        # convert it through the SO(3) right-Jacobian inverse so the QP uses
+        # the same tangent coordinates as the error.
+        phi = Rotation.from_matrix(
+            self.target_rotation.T @ configuration.data.xmat[self.body_id].reshape(3, 3)
+        ).as_rotvec()
+        theta = float(np.linalg.norm(phi))
+        hat = np.array([[0.0, -phi[2], phi[1]], [phi[2], 0.0, -phi[0]], [-phi[1], phi[0], 0.0]])
+        if theta < 1e-5:
+            Jr_inv = np.eye(3) + 0.5 * hat + (hat @ hat) / 12.0
+        else:
+            half = 0.5 * theta
+            coeff = 1.0 / (theta * theta) - (1.0 + np.cos(theta)) / (2.0 * theta * np.sin(theta))
+            Jr_inv = np.eye(3) + 0.5 * hat + coeff * (hat @ hat)
+        jacr = Jr_inv @ self.target_rotation.T @ jacr
         return np.vstack((jacp, jacr))
 
 
@@ -105,6 +121,8 @@ class LimbPlaneTask(Task):
         self.robot_points = robot_points
         self.triples = [(a, b, c) for a, b, c in triples if a in robot_points and b in robot_points and c in robot_points]
         self.sources: dict[str, np.ndarray] = {}
+        self._previous_normals: dict[tuple[str, str, str], np.ndarray] = {}
+        self.confidence: dict[tuple[str, str, str], float] = {}
         super().__init__(cost=np.full(3 * len(self.triples), float(cost)), gain=float(gain), lm_damping=1.0)
 
     def set_source(self, source: dict[str, np.ndarray]) -> None:
@@ -122,14 +140,29 @@ class LimbPlaneTask(Task):
         ja, jb, jc = (self.robot_points[n].jacobian(configuration) for n in names)
         u, v = pb - pa, pc - pa
         normal, norm = self._normal(u, v)
-        target, _ = self._normal(self.sources[b] - self.sources[a], self.sources[c] - self.sources[a])
+        target, target_norm = self._normal(self.sources[b] - self.sources[a], self.sources[c] - self.sources[a])
+        scale = max(float(np.linalg.norm(u)) * float(np.linalg.norm(v)), 1e-12)
+        sin_angle = norm / scale
+        # The plane is undefined for an almost straight limb.  Smoothly
+        # fade it out and keep its normal sign continuous across frames.
+        confidence = float(np.clip((sin_angle - 0.08) / 0.12, 0.0, 1.0))
+        previous = self._previous_normals.get(names)
+        if previous is not None and float(normal @ previous) < 0.0:
+            normal = -normal
+        if np.isfinite(normal).all() and norm > 1e-8:
+            self._previous_normals[names] = normal.copy()
+        self.confidence[names] = confidence if target_norm > 1e-8 else 0.0
         # d(u x v) = du x v + u x dv, then project through normalized cross.
         cross_j = np.cross(jb - ja, v[:, None], axis=0) + np.cross(u[:, None], jc - ja, axis=0)
         projector = (np.eye(3) - np.outer(normal, normal)) / max(norm, 1e-9)
-        return normal, target, projector @ cross_j
+        return normal, target, confidence * projector @ cross_j
 
     def compute_error(self, configuration: mink.Configuration) -> np.ndarray:
-        return np.concatenate([self._triple(configuration, triple)[0] - self._triple(configuration, triple)[1] for triple in self.triples]) if self.triples else np.empty(0)
+        values = []
+        for triple in self.triples:
+            normal, target, _ = self._triple(configuration, triple)
+            values.append(self.confidence.get(triple, 0.0) * (normal - target))
+        return np.concatenate(values) if values else np.empty(0)
 
     def compute_jacobian(self, configuration: mink.Configuration) -> np.ndarray:
         return np.vstack([self._triple(configuration, triple)[2] for triple in self.triples]) if self.triples else np.empty((0, self.model.nv))

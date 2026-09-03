@@ -34,6 +34,9 @@ from general_motion_retargeting.wholebody_omni_gmr_v3 import (
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CONFIG = ROOT / "general_motion_retargeting/ik_configs/holosoma_to_ne01_wholebody_omni_gmr_v3.json"
 SCENE_CONTACT_POSTPROCESS = None
+# Entry-point injection used by the V4 scene wrapper.  The default keeps the
+# original V3 path completely unchanged.
+RETARGETER_CLASS = WholeBodyOmniGMRV3
 
 
 def _load_grail(path: Path) -> dict:
@@ -119,6 +122,28 @@ def _contact_aliases(points: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
     return aliases
 
 
+def _anatomical_quaternion(points: dict[str, np.ndarray], center: str = "pelvis") -> np.ndarray:
+    """Build a stable anatomical frame from landmarks, independent of SMPLX axes."""
+    if center == "pelvis":
+        up_vec = points["spine3"] - points["pelvis"]
+    else:
+        up_vec = points["spine3"] - points["pelvis"]
+    left_vec = points["left_hip"] - points["right_hip"]
+    up_norm = np.linalg.norm(up_vec)
+    left_norm = np.linalg.norm(left_vec)
+    if up_norm < 1e-8 or left_norm < 1e-8:
+        return np.array([1.0, 0.0, 0.0, 0.0])
+    up = up_vec / up_norm
+    left = left_vec / left_norm
+    forward = np.cross(left, up)
+    if np.linalg.norm(forward) < 1e-8:
+        return np.array([1.0, 0.0, 0.0, 0.0])
+    forward /= np.linalg.norm(forward)
+    left = np.cross(up, forward)
+    left /= max(np.linalg.norm(left), 1e-12)
+    return Rotation.from_matrix(np.column_stack((forward, left, up))).as_quat(scalar_first=True)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--motion", required=True, type=Path)
@@ -170,17 +195,30 @@ def main() -> None:
     contacts_input = []
     for frame in frames:
         points = _source_frame(frame)
-        # SMPL-X FK output has no ToeBase semantic key.  Construct a stable
-        # forward toe proxy from the ankle-to-knee axis rather than collapsing
-        # toe and ankle to the same target.
+        # SMPL-X FK output has no ToeBase semantic key.  A toe must be a
+        # forward foot landmark, never an ankle-to-knee point: that vector is
+        # mostly vertical and makes the V4 bone task select a mirrored leg.
         for side in ("left", "right"):
-            foot, knee = points[f"{side}_foot"], points[f"{side}_knee"]
-            axis = foot - knee
-            axis /= max(float(np.linalg.norm(axis)), 1e-12)
-            points[f"{side}_toe"] = foot + 0.16 * axis
+            foot = points[f"{side}_foot"]
+            foot_quat = np.asarray(frame[f"{side}_foot"][1], dtype=float)
+            foot_forward = Rotation.from_quat(foot_quat, scalar_first=True).apply([1.0, 0.0, 0.0])
+            foot_forward[2] = 0.0
+            if np.linalg.norm(foot_forward) < 0.2:
+                pelvis_forward = Rotation.from_quat(
+                    np.asarray(frame["pelvis"][1], dtype=float), scalar_first=True
+                ).apply([1.0, 0.0, 0.0])
+                pelvis_forward[2] = 0.0
+                foot_forward = pelvis_forward
+            foot_forward /= max(float(np.linalg.norm(foot_forward)), 1e-12)
+            points[f"{side}_toe"] = foot + 0.16 * foot_forward
         transformed = {name: transform.transform_points(point) for name, point in points.items()}
         source_frames.append(transformed)
-        orientation_frames.append((frame["pelvis"][1], frame["spine3"][1]))
+        # Source SMPL-X pelvis axes are model-specific.  Use the landmark-
+        # derived anatomical frame so GRAIL follows the same convention as
+        # the other adapters and cannot introduce a global 90/180 degree leg
+        # twist.  The torso target shares this calibrated frame.
+        anatomical_quat = _anatomical_quaternion(points)
+        orientation_frames.append((anatomical_quat, anatomical_quat))
         contacts_input.append(_contact_aliases(transformed))
 
     # Contact schedule is computed from human points only; it never sees qpos.
@@ -206,12 +244,15 @@ def main() -> None:
     adapted_config = args.save_path.parent / f".{args.save_path.stem}_v3_config.json"
     adapted_config.write_text(json.dumps(config, indent=2))
     try:
-        retargeter = WholeBodyOmniGMRV3(adapted_config, terrain.transform(transform), pool, fps=args.tgt_fps, solver=args.solver)
+        retargeter = RETARGETER_CLASS(adapted_config, terrain.transform(transform), pool, fps=args.tgt_fps, solver=args.solver)
         qpos = [retargeter.retarget(frame, ori[0], contact, chest_quaternion=ori[1]) for frame, ori, contact in zip(source_frames, orientation_frames, schedule)]
     finally:
         adapted_config.unlink(missing_ok=True)
     qpos = np.asarray(qpos, dtype=float)
-    qpos[:, :2] -= qpos[0, :2]
+    # The solver and every scene representation use the same origin.  Keep
+    # source-world coordinates here; shifting only qpos would detach the chair
+    # from the robot.  Consumers that normalize XY must transform the scene
+    # metadata with the identical shift.
     object_data = record.get("obj_data") or {}
     payload = {
         "fps": float(args.tgt_fps), "qpos": qpos,
@@ -228,8 +269,8 @@ def main() -> None:
     with args.save_path.with_suffix(".pkl").open("wb") as stream:
         pickle.dump(payload, stream)
     np.savez_compressed(args.save_path.with_suffix(".npz"), **{k: _jsonable(v) for k, v in payload.items() if k not in {"contact_schedule", "terrain_diagnostics", "grail_object_data"}})
-    print(f"Saved GRAIL V3 PKL: {args.save_path.with_suffix('.pkl')}")
-    print(f"Saved GRAIL V3 NPZ: {args.save_path.with_suffix('.npz')}")
+    print(f"Saved {retargeter.__class__.__name__} GRAIL PKL: {args.save_path.with_suffix('.pkl')}")
+    print(f"Saved {retargeter.__class__.__name__} GRAIL NPZ: {args.save_path.with_suffix('.npz')}")
 
 
 if __name__ == "__main__":
