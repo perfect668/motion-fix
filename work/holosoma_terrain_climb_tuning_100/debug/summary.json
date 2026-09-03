@@ -1,0 +1,61 @@
+{
+  "frames": 100,
+  "fps": 50.0,
+  "max_penetration_m": 0.0,
+  "p99_penetration_m": 0.0,
+  "max_margin_violation_m": 0.0,
+  "penetration_counts_by_region": {},
+  "contact_episodes": {
+    "left_heel": [
+      [
+        77,
+        87
+      ]
+    ],
+    "left_knee": [],
+    "left_palm": [],
+    "left_shin": [],
+    "left_toe": [
+      [
+        2,
+        99
+      ]
+    ],
+    "right_heel": [],
+    "right_knee": [],
+    "right_palm": [],
+    "right_shin": [],
+    "right_toe": []
+  },
+  "surface_switches": {
+    "left_heel": 0,
+    "left_knee": 0,
+    "left_palm": 0,
+    "left_shin": 0,
+    "left_toe": 0,
+    "right_heel": 0,
+    "right_knee": 0,
+    "right_palm": 0,
+    "right_shin": 0,
+    "right_toe": 0
+  },
+  "static_cumulative_slip_m": {
+    "left_heel": 0.0,
+    "left_knee": 0.0,
+    "left_palm": 0.0,
+    "left_shin": 0.0,
+    "left_toe": 0.17931015512411974,
+    "right_heel": 0.0,
+    "right_knee": 0.0,
+    "right_palm": 0.0,
+    "right_shin": 0.0,
+    "right_toe": 0.0
+  },
+  "max_foot_orientation_error_deg": 0.0,
+  "joint_limit_violations": 0,
+  "velocity_limit_violations": 0,
+  "max_joint_velocity_rad_s": 9.42477796076938,
+  "max_joint_acceleration_rad_s2": 234.2945017461836,
+  "max_joint_jerk_rad_s3": 8683.64282994002,
+  "qp_failures": 0
+}

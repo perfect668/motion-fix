@@ -33,6 +33,7 @@ from general_motion_retargeting.wholebody_omni_gmr_v3 import (
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CONFIG = ROOT / "general_motion_retargeting/ik_configs/holosoma_to_ne01_wholebody_omni_gmr_v3.json"
+SCENE_CONTACT_POSTPROCESS = None
 
 
 def _load_grail(path: Path) -> dict:
@@ -68,12 +69,17 @@ def _jsonable(value):
 
 def _config_for_smplx(config: dict) -> dict:
     """Translate V3 source labels to the names emitted by SMPL-X FK."""
+    if "extends" in config and "semantic_points" not in config:
+        base_path = Path(__file__).resolve().parent.parent / "general_motion_retargeting/ik_configs" / config["extends"]
+        base = json.loads(base_path.read_text())
+        base.update({k: v for k, v in config.items() if k != "extends"})
+        config = base
     labels = {
         "Spine1": "pelvis",
         "LeftUpLeg": "left_hip", "RightUpLeg": "right_hip",
         "LeftLeg": "left_knee", "RightLeg": "right_knee",
         "LeftFoot": "left_foot", "RightFoot": "right_foot",
-        "LeftToeBase": "left_foot", "RightToeBase": "right_foot",
+        "LeftToeBase": "left_toe", "RightToeBase": "right_toe",
         "LeftArm": "left_shoulder", "RightArm": "right_shoulder",
         "LeftForeArm": "left_elbow", "RightForeArm": "right_elbow",
         "LeftHandMiddle3": "left_wrist", "RightHandMiddle3": "right_wrist",
@@ -94,7 +100,7 @@ def _contact_aliases(points: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
     aliases = dict(points)
     required = {
         "LeftFoot": "left_foot", "RightFoot": "right_foot",
-        "LeftToeBase": "left_foot", "RightToeBase": "right_foot",
+        "LeftToeBase": "left_toe", "RightToeBase": "right_toe",
         "LeftHand": "left_wrist", "RightHand": "right_wrist",
         "LeftLeg": "left_knee", "RightLeg": "right_knee",
     }
@@ -156,22 +162,35 @@ def main() -> None:
     contacts_input = []
     for frame in frames:
         points = _source_frame(frame)
+        # SMPL-X FK output has no ToeBase semantic key.  Construct a stable
+        # forward toe proxy from the ankle-to-knee axis rather than collapsing
+        # toe and ankle to the same target.
+        for side in ("left", "right"):
+            foot, knee = points[f"{side}_foot"], points[f"{side}_knee"]
+            axis = foot - knee
+            axis /= max(float(np.linalg.norm(axis)), 1e-12)
+            points[f"{side}_toe"] = foot + 0.16 * axis
         transformed = {name: transform.transform_points(point) for name, point in points.items()}
         source_frames.append(transformed)
         orientation_frames.append((frame["pelvis"][1], frame["spine3"][1]))
-        contacts_input.append(_contact_aliases(points))
+        contacts_input.append(_contact_aliases(transformed))
 
     # Contact schedule is computed from human points only; it never sees qpos.
     from general_motion_retargeting.terrain_contact_utils import build_terrain_contact_schedule
 
+    # contacts_input points are already in solver coordinates below; avoid
+    # applying SceneTransform a second time inside contact inference.
+    identity_transform = SceneTransform(np.eye(3), 1.0, np.zeros(3))
     schedule = build_terrain_contact_schedule(
         contacts_input,
         terrain,
-        transform,
+        identity_transform,
         {},
         float(args.tgt_fps),
         config["terrain_contact"],
     )
+    if SCENE_CONTACT_POSTPROCESS is not None:
+        schedule = SCENE_CONTACT_POSTPROCESS(schedule, source_frames, config)
     transformed_points = np.asarray(
         [[*frame.values()] for frame in source_frames], dtype=float
     ).reshape(-1, 3)
@@ -189,7 +208,8 @@ def main() -> None:
     payload = {
         "fps": float(args.tgt_fps), "qpos": qpos,
         "root_pos": qpos[:, :3], "root_rot": qpos[:, 3:7][:, [1, 2, 3, 0]],
-        "dof_pos": qpos[:, 7:], "algorithm": "wholebody_omni_gmr_v3_grail",
+        "dof_pos": qpos[:, 7:],
+        "algorithm": f"{retargeter.__class__.__name__.lower()}_grail",
         "source_motion": str(args.motion), "robot_xml": str(retargeter.robot_xml),
         "scene_transform": transform.to_dict(), "terrain_primitives": terrain.transform(transform).to_spec(),
         "contact_schedule": schedule, "terrain_diagnostics": retargeter.diagnostics,

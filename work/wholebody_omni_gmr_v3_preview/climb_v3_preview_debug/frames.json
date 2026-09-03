@@ -1,0 +1,2042 @@
+[
+  {
+    "frame": 0,
+    "qp_failures": [],
+    "active_collision_shells": [
+      "ANKLE_PITCH_L_LINK",
+      "ANKLE_PITCH_R_LINK",
+      "ANKLE_ROLL_L_LINK",
+      "ANKLE_ROLL_R_LINK",
+      "HAND_YAW_R_LINK",
+      "KNEE_PITCH_L_LINK",
+      "KNEE_PITCH_R_LINK"
+    ],
+    "active_collision_points": 35,
+    "minimum_terrain_slack": 3.163565182422168e-07,
+    "max_velocity": 0.0,
+    "contact_states": {
+      "left_heel": {
+        "score": 0.07128834786251681,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "left_toe": {
+        "score": 0.0826374872807915,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "left_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_2:x-"
+      },
+      "left_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "left_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_heel": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_toe": {
+        "score": 0.06942309841663667,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      }
+    }
+  },
+  {
+    "frame": 1,
+    "qp_failures": [],
+    "active_collision_shells": [
+      "ANKLE_PITCH_L_LINK",
+      "ANKLE_PITCH_R_LINK",
+      "ANKLE_ROLL_L_LINK",
+      "ANKLE_ROLL_R_LINK",
+      "HAND_YAW_R_LINK",
+      "KNEE_PITCH_L_LINK",
+      "KNEE_PITCH_R_LINK"
+    ],
+    "active_collision_points": 35,
+    "minimum_terrain_slack": 5.9424884058661975e-08,
+    "max_velocity": 2.08084805397393,
+    "contact_states": {
+      "left_heel": {
+        "score": 0.13236354075522008,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "left_toe": {
+        "score": 0.15324936537221315,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_2:x-"
+      },
+      "left_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "left_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_heel": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_toe": {
+        "score": 0.12888122585912182,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      }
+    }
+  },
+  {
+    "frame": 2,
+    "qp_failures": [],
+    "active_collision_shells": [
+      "ANKLE_PITCH_L_LINK",
+      "ANKLE_PITCH_R_LINK",
+      "ANKLE_ROLL_L_LINK",
+      "ANKLE_ROLL_R_LINK",
+      "HAND_YAW_R_LINK",
+      "KNEE_PITCH_L_LINK",
+      "KNEE_PITCH_R_LINK"
+    ],
+    "active_collision_points": 35,
+    "minimum_terrain_slack": 8.43797150207326e-11,
+    "max_velocity": 2.0432969120290716,
+    "contact_states": {
+      "left_heel": {
+        "score": 0.18413017479095523,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_toe": {
+        "score": 0.2140243125916551,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_2:x-"
+      },
+      "left_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "left_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_heel": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_toe": {
+        "score": 0.1798863337504497,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "right_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      }
+    }
+  },
+  {
+    "frame": 3,
+    "qp_failures": [],
+    "active_collision_shells": [
+      "ANKLE_PITCH_L_LINK",
+      "ANKLE_PITCH_R_LINK",
+      "ANKLE_ROLL_L_LINK",
+      "ANKLE_ROLL_R_LINK",
+      "HAND_YAW_R_LINK",
+      "KNEE_PITCH_L_LINK",
+      "KNEE_PITCH_R_LINK"
+    ],
+    "active_collision_points": 35,
+    "minimum_terrain_slack": 6.97251921824571e-09,
+    "max_velocity": 2.021148458824415,
+    "contact_states": {
+      "left_heel": {
+        "score": 0.22794956826635898,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_toe": {
+        "score": 0.26609705552399565,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_2:x-"
+      },
+      "left_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "left_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_heel": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_toe": {
+        "score": 0.22342954375174126,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "right_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      }
+    }
+  },
+  {
+    "frame": 4,
+    "qp_failures": [],
+    "active_collision_shells": [
+      "ANKLE_PITCH_L_LINK",
+      "ANKLE_PITCH_R_LINK",
+      "ANKLE_ROLL_L_LINK",
+      "ANKLE_ROLL_R_LINK",
+      "HAND_YAW_R_LINK",
+      "KNEE_PITCH_L_LINK",
+      "KNEE_PITCH_R_LINK"
+    ],
+    "active_collision_points": 35,
+    "minimum_terrain_slack": 7.464163915421596e-09,
+    "max_velocity": 1.9087743157414043,
+    "contact_states": {
+      "left_heel": {
+        "score": 0.26520612160321516,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_toe": {
+        "score": 0.31062957530752694,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_2:x-"
+      },
+      "left_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "left_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_heel": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_toe": {
+        "score": 0.26080261536745314,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "right_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      }
+    }
+  },
+  {
+    "frame": 5,
+    "qp_failures": [],
+    "active_collision_shells": [
+      "ANKLE_PITCH_L_LINK",
+      "ANKLE_PITCH_R_LINK",
+      "ANKLE_ROLL_L_LINK",
+      "ANKLE_ROLL_R_LINK",
+      "HAND_YAW_R_LINK",
+      "KNEE_PITCH_L_LINK",
+      "KNEE_PITCH_R_LINK"
+    ],
+    "active_collision_points": 35,
+    "minimum_terrain_slack": 9.549046647155945e-09,
+    "max_velocity": 1.8305938308112057,
+    "contact_states": {
+      "left_heel": {
+        "score": 0.2969963308545754,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_toe": {
+        "score": 0.34887318125918826,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_2:x-"
+      },
+      "left_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "left_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_heel": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_toe": {
+        "score": 0.29287438880018063,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "right_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      }
+    }
+  },
+  {
+    "frame": 6,
+    "qp_failures": [],
+    "active_collision_shells": [
+      "ANKLE_PITCH_L_LINK",
+      "ANKLE_PITCH_R_LINK",
+      "ANKLE_ROLL_L_LINK",
+      "ANKLE_ROLL_R_LINK",
+      "HAND_YAW_R_LINK",
+      "KNEE_PITCH_L_LINK",
+      "KNEE_PITCH_R_LINK"
+    ],
+    "active_collision_points": 35,
+    "minimum_terrain_slack": 9.495549655597069e-09,
+    "max_velocity": 1.823447646305737,
+    "contact_states": {
+      "left_heel": {
+        "score": 0.3245121713724898,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_toe": {
+        "score": 0.381400370927198,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_2:x-"
+      },
+      "left_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "left_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_heel": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_toe": {
+        "score": 0.3202628538344728,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "right_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      }
+    }
+  },
+  {
+    "frame": 7,
+    "qp_failures": [],
+    "active_collision_shells": [
+      "ANKLE_PITCH_L_LINK",
+      "ANKLE_PITCH_R_LINK",
+      "ANKLE_ROLL_L_LINK",
+      "ANKLE_ROLL_R_LINK",
+      "HAND_YAW_R_LINK",
+      "KNEE_PITCH_L_LINK",
+      "KNEE_PITCH_R_LINK"
+    ],
+    "active_collision_points": 35,
+    "minimum_terrain_slack": 4.352230135312718e-09,
+    "max_velocity": 1.7963734472662,
+    "contact_states": {
+      "left_heel": {
+        "score": 0.34843298918145005,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_toe": {
+        "score": 0.4091117593455534,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_2:x-"
+      },
+      "left_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "left_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_heel": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_toe": {
+        "score": 0.3437583494253402,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "right_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      }
+    }
+  },
+  {
+    "frame": 8,
+    "qp_failures": [],
+    "active_collision_shells": [
+      "ANKLE_PITCH_L_LINK",
+      "ANKLE_PITCH_R_LINK",
+      "ANKLE_ROLL_L_LINK",
+      "ANKLE_ROLL_R_LINK",
+      "HAND_YAW_R_LINK",
+      "KNEE_PITCH_L_LINK",
+      "KNEE_PITCH_R_LINK"
+    ],
+    "active_collision_points": 35,
+    "minimum_terrain_slack": 3.420852861396595e-09,
+    "max_velocity": 1.7273744631754433,
+    "contact_states": {
+      "left_heel": {
+        "score": 0.3684621313421914,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_toe": {
+        "score": 0.4332378191087655,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_2:x-"
+      },
+      "left_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "left_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_heel": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_toe": {
+        "score": 0.36401011797460725,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "right_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      }
+    }
+  },
+  {
+    "frame": 9,
+    "qp_failures": [],
+    "active_collision_shells": [
+      "ANKLE_PITCH_L_LINK",
+      "ANKLE_PITCH_R_LINK",
+      "ANKLE_ROLL_L_LINK",
+      "ANKLE_ROLL_R_LINK",
+      "HAND_YAW_R_LINK",
+      "KNEE_PITCH_L_LINK",
+      "KNEE_PITCH_R_LINK"
+    ],
+    "active_collision_points": 35,
+    "minimum_terrain_slack": 3.656650173627929e-09,
+    "max_velocity": 1.6262858928403179,
+    "contact_states": {
+      "left_heel": {
+        "score": 0.3856857129726165,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_toe": {
+        "score": 0.4538393614715623,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_2:x-"
+      },
+      "left_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "left_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_heel": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_toe": {
+        "score": 0.38132829912468397,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "right_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      }
+    }
+  },
+  {
+    "frame": 10,
+    "qp_failures": [],
+    "active_collision_shells": [
+      "ANKLE_PITCH_L_LINK",
+      "ANKLE_PITCH_R_LINK",
+      "ANKLE_ROLL_L_LINK",
+      "ANKLE_ROLL_R_LINK",
+      "HAND_YAW_R_LINK",
+      "KNEE_PITCH_L_LINK",
+      "KNEE_PITCH_R_LINK"
+    ],
+    "active_collision_points": 35,
+    "minimum_terrain_slack": 3.2642580964636903e-09,
+    "max_velocity": 1.4670034107946206,
+    "contact_states": {
+      "left_heel": {
+        "score": 0.40030988961616343,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_toe": {
+        "score": 0.4714998096005298,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_2:x-"
+      },
+      "left_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "left_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_heel": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_toe": {
+        "score": 0.3961744658065396,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "right_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      }
+    }
+  },
+  {
+    "frame": 11,
+    "qp_failures": [],
+    "active_collision_shells": [
+      "ANKLE_PITCH_L_LINK",
+      "ANKLE_PITCH_R_LINK",
+      "ANKLE_ROLL_L_LINK",
+      "ANKLE_ROLL_R_LINK",
+      "HAND_YAW_R_LINK",
+      "KNEE_PITCH_L_LINK",
+      "KNEE_PITCH_R_LINK"
+    ],
+    "active_collision_points": 35,
+    "minimum_terrain_slack": 2.4917123468692903e-09,
+    "max_velocity": 1.270171133251713,
+    "contact_states": {
+      "left_heel": {
+        "score": 0.41233593631527277,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_toe": {
+        "score": 0.48675497853798916,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_2:x-"
+      },
+      "left_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "left_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_heel": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_toe": {
+        "score": 0.40891892416714876,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "right_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      }
+    }
+  },
+  {
+    "frame": 12,
+    "qp_failures": [],
+    "active_collision_shells": [
+      "ANKLE_PITCH_L_LINK",
+      "ANKLE_PITCH_R_LINK",
+      "ANKLE_ROLL_L_LINK",
+      "ANKLE_ROLL_R_LINK",
+      "HAND_YAW_R_LINK",
+      "KNEE_PITCH_L_LINK",
+      "KNEE_PITCH_R_LINK"
+    ],
+    "active_collision_points": 35,
+    "minimum_terrain_slack": 1.7741609258103974e-09,
+    "max_velocity": 1.210185536859576,
+    "contact_states": {
+      "left_heel": {
+        "score": 0.4227527593703904,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_toe": {
+        "score": 0.5000691766023396,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_2:x-"
+      },
+      "left_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "left_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_heel": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_toe": {
+        "score": 0.41983119357144505,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "right_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      }
+    }
+  },
+  {
+    "frame": 13,
+    "qp_failures": [],
+    "active_collision_shells": [
+      "ANKLE_PITCH_L_LINK",
+      "ANKLE_PITCH_R_LINK",
+      "ANKLE_ROLL_L_LINK",
+      "ANKLE_ROLL_R_LINK",
+      "HAND_YAW_R_LINK",
+      "KNEE_PITCH_L_LINK",
+      "KNEE_PITCH_R_LINK"
+    ],
+    "active_collision_points": 35,
+    "minimum_terrain_slack": 1.1866051093101238e-09,
+    "max_velocity": 1.206127361064091,
+    "contact_states": {
+      "left_heel": {
+        "score": 0.43193443833226514,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_toe": {
+        "score": 0.5113504646652759,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_2:x-"
+      },
+      "left_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "left_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_heel": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_toe": {
+        "score": 0.42923222191828114,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "right_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      }
+    }
+  },
+  {
+    "frame": 14,
+    "qp_failures": [],
+    "active_collision_shells": [
+      "ANKLE_PITCH_L_LINK",
+      "ANKLE_PITCH_R_LINK",
+      "ANKLE_ROLL_L_LINK",
+      "ANKLE_ROLL_R_LINK",
+      "HAND_YAW_R_LINK",
+      "KNEE_PITCH_L_LINK",
+      "KNEE_PITCH_R_LINK"
+    ],
+    "active_collision_points": 35,
+    "minimum_terrain_slack": 8.40312788102926e-10,
+    "max_velocity": 1.1716143391559797,
+    "contact_states": {
+      "left_heel": {
+        "score": 0.4398214309230592,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_toe": {
+        "score": 0.5210494599501602,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_2:x-"
+      },
+      "left_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "left_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_heel": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_toe": {
+        "score": 0.4372564009041161,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "right_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      }
+    }
+  },
+  {
+    "frame": 15,
+    "qp_failures": [],
+    "active_collision_shells": [
+      "ANKLE_PITCH_L_LINK",
+      "ANKLE_PITCH_R_LINK",
+      "ANKLE_ROLL_L_LINK",
+      "ANKLE_ROLL_R_LINK",
+      "HAND_YAW_R_LINK",
+      "KNEE_PITCH_L_LINK",
+      "KNEE_PITCH_R_LINK"
+    ],
+    "active_collision_points": 35,
+    "minimum_terrain_slack": 6.857551922145877e-10,
+    "max_velocity": 1.0856981630220364,
+    "contact_states": {
+      "left_heel": {
+        "score": 0.4468920175142214,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_toe": {
+        "score": 0.5290965324684883,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_2:x-"
+      },
+      "left_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "left_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_heel": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_toe": {
+        "score": 0.4439546567566258,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "right_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      }
+    }
+  },
+  {
+    "frame": 16,
+    "qp_failures": [],
+    "active_collision_shells": [
+      "ANKLE_PITCH_L_LINK",
+      "ANKLE_PITCH_R_LINK",
+      "ANKLE_ROLL_L_LINK",
+      "ANKLE_ROLL_R_LINK",
+      "HAND_YAW_R_LINK",
+      "KNEE_PITCH_L_LINK",
+      "KNEE_PITCH_R_LINK"
+    ],
+    "active_collision_points": 35,
+    "minimum_terrain_slack": 4.872832380653502e-10,
+    "max_velocity": 0.9773778239772768,
+    "contact_states": {
+      "left_heel": {
+        "score": 0.4528682387763808,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_toe": {
+        "score": 0.5365516008256083,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_2:x-"
+      },
+      "left_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "left_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_heel": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_toe": {
+        "score": 0.44983482519554047,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "right_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      }
+    }
+  },
+  {
+    "frame": 17,
+    "qp_failures": [],
+    "active_collision_shells": [
+      "ANKLE_PITCH_L_LINK",
+      "ANKLE_PITCH_R_LINK",
+      "ANKLE_ROLL_L_LINK",
+      "ANKLE_ROLL_R_LINK",
+      "HAND_YAW_R_LINK",
+      "KNEE_PITCH_L_LINK",
+      "KNEE_PITCH_R_LINK"
+    ],
+    "active_collision_points": 35,
+    "minimum_terrain_slack": 3.568731386793811e-10,
+    "max_velocity": 0.860343378771733,
+    "contact_states": {
+      "left_heel": {
+        "score": 0.4579167684196208,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_toe": {
+        "score": 0.5428852233121921,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_2:x-"
+      },
+      "left_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "left_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_heel": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_toe": {
+        "score": 0.45494638259127446,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "right_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      }
+    }
+  },
+  {
+    "frame": 18,
+    "qp_failures": [],
+    "active_collision_shells": [
+      "ANKLE_PITCH_L_LINK",
+      "ANKLE_PITCH_R_LINK",
+      "ANKLE_ROLL_L_LINK",
+      "ANKLE_ROLL_R_LINK",
+      "HAND_YAW_R_LINK",
+      "KNEE_PITCH_L_LINK",
+      "KNEE_PITCH_R_LINK"
+    ],
+    "active_collision_points": 35,
+    "minimum_terrain_slack": 2.372011718987377e-10,
+    "max_velocity": 0.7723214847912996,
+    "contact_states": {
+      "left_heel": {
+        "score": 0.462373613101558,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_toe": {
+        "score": 0.548145949426767,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_2:x-"
+      },
+      "left_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "left_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_heel": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_toe": {
+        "score": 0.4593064290089846,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "right_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      }
+    }
+  },
+  {
+    "frame": 19,
+    "qp_failures": [],
+    "active_collision_shells": [
+      "ANKLE_PITCH_L_LINK",
+      "ANKLE_PITCH_R_LINK",
+      "ANKLE_ROLL_L_LINK",
+      "ANKLE_ROLL_R_LINK",
+      "HAND_YAW_R_LINK",
+      "KNEE_PITCH_L_LINK",
+      "KNEE_PITCH_R_LINK"
+    ],
+    "active_collision_points": 35,
+    "minimum_terrain_slack": 1.6680064621188428e-10,
+    "max_velocity": 0.7086598446520376,
+    "contact_states": {
+      "left_heel": {
+        "score": 0.46613920677285536,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_toe": {
+        "score": 0.5526389451219762,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_2:x-"
+      },
+      "left_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "left_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_heel": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_toe": {
+        "score": 0.4629527788320277,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "right_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      }
+    }
+  },
+  {
+    "frame": 20,
+    "qp_failures": [],
+    "active_collision_shells": [
+      "ANKLE_PITCH_L_LINK",
+      "ANKLE_PITCH_R_LINK",
+      "ANKLE_ROLL_L_LINK",
+      "ANKLE_ROLL_R_LINK",
+      "HAND_YAW_R_LINK",
+      "KNEE_PITCH_L_LINK",
+      "KNEE_PITCH_R_LINK"
+    ],
+    "active_collision_points": 35,
+    "minimum_terrain_slack": 1.7257925297164967e-10,
+    "max_velocity": 0.6650315120404815,
+    "contact_states": {
+      "left_heel": {
+        "score": 0.46921707335705504,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_toe": {
+        "score": 0.5566911890136319,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_2:x-"
+      },
+      "left_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "left_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_heel": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_toe": {
+        "score": 0.4662347573390104,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "right_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      }
+    }
+  },
+  {
+    "frame": 21,
+    "qp_failures": [],
+    "active_collision_shells": [
+      "ANKLE_PITCH_L_LINK",
+      "ANKLE_PITCH_R_LINK",
+      "ANKLE_ROLL_L_LINK",
+      "ANKLE_ROLL_R_LINK",
+      "HAND_YAW_R_LINK",
+      "KNEE_PITCH_L_LINK",
+      "KNEE_PITCH_R_LINK"
+    ],
+    "active_collision_points": 35,
+    "minimum_terrain_slack": 1.444470966449618e-10,
+    "max_velocity": 0.5668198436608984,
+    "contact_states": {
+      "left_heel": {
+        "score": 0.471883782418293,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_toe": {
+        "score": 0.5602048434382587,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_2:x-"
+      },
+      "left_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "left_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_heel": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_toe": {
+        "score": 0.4690241293858572,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "right_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      }
+    }
+  },
+  {
+    "frame": 22,
+    "qp_failures": [],
+    "active_collision_shells": [
+      "ANKLE_PITCH_L_LINK",
+      "ANKLE_PITCH_R_LINK",
+      "ANKLE_ROLL_L_LINK",
+      "ANKLE_ROLL_R_LINK",
+      "HAND_YAW_R_LINK",
+      "KNEE_PITCH_L_LINK",
+      "KNEE_PITCH_R_LINK"
+    ],
+    "active_collision_points": 35,
+    "minimum_terrain_slack": 1.4613675200503273e-10,
+    "max_velocity": 0.41989048085447345,
+    "contact_states": {
+      "left_heel": {
+        "score": 0.4741654994917857,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_toe": {
+        "score": 0.5633199994273586,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_2:x-"
+      },
+      "left_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "left_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_heel": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_toe": {
+        "score": 0.4713768961372736,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "right_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      }
+    }
+  },
+  {
+    "frame": 23,
+    "qp_failures": [],
+    "active_collision_shells": [
+      "ANKLE_PITCH_L_LINK",
+      "ANKLE_PITCH_R_LINK",
+      "ANKLE_ROLL_L_LINK",
+      "ANKLE_ROLL_R_LINK",
+      "HAND_YAW_R_LINK",
+      "KNEE_PITCH_L_LINK",
+      "KNEE_PITCH_R_LINK"
+    ],
+    "active_collision_points": 35,
+    "minimum_terrain_slack": 2.5486522267637035e-10,
+    "max_velocity": 0.2758715494779074,
+    "contact_states": {
+      "left_heel": {
+        "score": 0.47604486000403806,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_toe": {
+        "score": 0.5657644169085286,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_2:x-"
+      },
+      "left_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "left_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_heel": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_toe": {
+        "score": 0.4733908517419702,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "right_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      }
+    }
+  },
+  {
+    "frame": 24,
+    "qp_failures": [],
+    "active_collision_shells": [
+      "ANKLE_PITCH_L_LINK",
+      "ANKLE_PITCH_R_LINK",
+      "ANKLE_ROLL_L_LINK",
+      "ANKLE_ROLL_R_LINK",
+      "HAND_YAW_R_LINK",
+      "KNEE_PITCH_L_LINK",
+      "KNEE_PITCH_R_LINK"
+    ],
+    "active_collision_points": 35,
+    "minimum_terrain_slack": 2.910596381966446e-10,
+    "max_velocity": 0.23754823498258193,
+    "contact_states": {
+      "left_heel": {
+        "score": 0.47785304012383983,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_toe": {
+        "score": 0.5679467364069563,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_2:x-"
+      },
+      "left_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "left_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_heel": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_toe": {
+        "score": 0.4751646413505348,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "right_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      }
+    }
+  },
+  {
+    "frame": 25,
+    "qp_failures": [],
+    "active_collision_shells": [
+      "ANKLE_PITCH_L_LINK",
+      "ANKLE_PITCH_R_LINK",
+      "ANKLE_ROLL_L_LINK",
+      "ANKLE_ROLL_R_LINK",
+      "HAND_YAW_R_LINK",
+      "KNEE_PITCH_L_LINK",
+      "KNEE_PITCH_R_LINK"
+    ],
+    "active_collision_points": 35,
+    "minimum_terrain_slack": 1.4510162169023566e-10,
+    "max_velocity": 0.25831939226492184,
+    "contact_states": {
+      "left_heel": {
+        "score": 0.4793761062822158,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_toe": {
+        "score": 0.569930221330128,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_2:x-"
+      },
+      "left_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "left_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_heel": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_toe": {
+        "score": 0.4766990822669588,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "right_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      }
+    }
+  },
+  {
+    "frame": 26,
+    "qp_failures": [],
+    "active_collision_shells": [
+      "ANKLE_PITCH_L_LINK",
+      "ANKLE_PITCH_R_LINK",
+      "ANKLE_ROLL_L_LINK",
+      "ANKLE_ROLL_R_LINK",
+      "HAND_YAW_R_LINK",
+      "KNEE_PITCH_L_LINK",
+      "KNEE_PITCH_R_LINK"
+    ],
+    "active_collision_points": 35,
+    "minimum_terrain_slack": 1.7080918970902026e-10,
+    "max_velocity": 0.2559150296270185,
+    "contact_states": {
+      "left_heel": {
+        "score": 0.48079436582066504,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_toe": {
+        "score": 0.5716146968237439,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_2:x-"
+      },
+      "left_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "left_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_heel": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_toe": {
+        "score": 0.47806311893231757,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "right_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      }
+    }
+  },
+  {
+    "frame": 27,
+    "qp_failures": [],
+    "active_collision_shells": [
+      "ANKLE_PITCH_L_LINK",
+      "ANKLE_PITCH_R_LINK",
+      "ANKLE_ROLL_L_LINK",
+      "ANKLE_ROLL_R_LINK",
+      "HAND_YAW_R_LINK",
+      "KNEE_PITCH_L_LINK",
+      "KNEE_PITCH_R_LINK"
+    ],
+    "active_collision_points": 35,
+    "minimum_terrain_slack": 7.619150692306231e-10,
+    "max_velocity": 0.2218237999109196,
+    "contact_states": {
+      "left_heel": {
+        "score": 0.48177857292770937,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_toe": {
+        "score": 0.5729512256208973,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_2:x-"
+      },
+      "left_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "left_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_heel": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_toe": {
+        "score": 0.47921721801647044,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "right_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      }
+    }
+  },
+  {
+    "frame": 28,
+    "qp_failures": [],
+    "active_collision_shells": [
+      "ANKLE_PITCH_L_LINK",
+      "ANKLE_PITCH_R_LINK",
+      "ANKLE_ROLL_L_LINK",
+      "ANKLE_ROLL_R_LINK",
+      "HAND_YAW_R_LINK",
+      "KNEE_PITCH_L_LINK",
+      "KNEE_PITCH_R_LINK"
+    ],
+    "active_collision_points": 35,
+    "minimum_terrain_slack": 3.068354563484643e-10,
+    "max_velocity": 0.2063309946279679,
+    "contact_states": {
+      "left_heel": {
+        "score": 0.48258742475946803,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_toe": {
+        "score": 0.5741638782889598,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_2:x-"
+      },
+      "left_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "left_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_heel": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_toe": {
+        "score": 0.48013754243670687,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "right_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      }
+    }
+  },
+  {
+    "frame": 29,
+    "qp_failures": [],
+    "active_collision_shells": [
+      "ANKLE_PITCH_L_LINK",
+      "ANKLE_PITCH_R_LINK",
+      "ANKLE_ROLL_L_LINK",
+      "ANKLE_ROLL_R_LINK",
+      "HAND_YAW_R_LINK",
+      "KNEE_PITCH_L_LINK",
+      "KNEE_PITCH_R_LINK"
+    ],
+    "active_collision_points": 35,
+    "minimum_terrain_slack": 1.4644185516998753e-10,
+    "max_velocity": 0.18781758139684857,
+    "contact_states": {
+      "left_heel": {
+        "score": 0.48353035067257755,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_toe": {
+        "score": 0.5753886979793076,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "left_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_2:x-"
+      },
+      "left_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "left_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_heel": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      },
+      "right_toe": {
+        "score": 0.48098908434122284,
+        "state": "STATIC",
+        "surface_id": "floor"
+      },
+      "right_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "box_1:x-"
+      },
+      "right_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "surface_id": "floor"
+      }
+    }
+  }
+]

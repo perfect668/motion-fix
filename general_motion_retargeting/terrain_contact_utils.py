@@ -11,13 +11,24 @@ from .terrain_geometry import SceneTransform, TerrainField, TerrainSurfaceHit
 
 def _proxy_points(frame: dict[str, np.ndarray], config: dict) -> dict[str, tuple[np.ndarray, str, bool]]:
     points: dict[str, tuple[np.ndarray, str, bool]] = {}
+    def pick(*names: str) -> np.ndarray | None:
+        for name in names:
+            if name in frame:
+                return np.asarray(frame[name], dtype=float)
+        return None
     foot_back_fraction = float(config.get("heel_proxy_back_fraction", 0.28))
     sole_offset = float(config.get("heel_proxy_sole_offset", 0.0))
-    lateral = np.asarray(frame["LeftFoot"], dtype=float) - np.asarray(frame["RightFoot"], dtype=float)
+    left_foot = pick("LeftFoot", "left_foot")
+    right_foot = pick("RightFoot", "right_foot")
+    if left_foot is None or right_foot is None:
+        raise KeyError("Terrain contact inference requires left/right foot points")
+    lateral = left_foot - right_foot
     lateral /= max(float(np.linalg.norm(lateral)), 1e-12)
     for side, title in (("left", "Left"), ("right", "Right")):
-        foot = np.asarray(frame[f"{title}Foot"], dtype=float)
-        toe = np.asarray(frame[f"{title}ToeBase"], dtype=float)
+        foot = pick(f"{title}Foot", f"{side}_foot")
+        toe = pick(f"{title}ToeBase", f"{side}_toe", f"{side}_toe_base")
+        if foot is None or toe is None:
+            raise KeyError(f"Missing {side} foot/toe points")
         foot_vector = toe - foot
         # FootMod duplicates Foot in the verified sequence.  Construct a heel
         # proxy along the measured foot axis and retain provenance explicitly.
@@ -28,11 +39,41 @@ def _proxy_points(frame: dict[str, np.ndarray], config: dict) -> dict[str, tuple
         heel = foot - foot_back_fraction * foot_vector - sole_offset * sole_normal
         points[f"{side}_heel"] = (heel, "Foot_to_ToeBase_surface_proxy", True)
         points[f"{side}_toe"] = (toe, "ToeBase", True)
-        points[f"{side}_palm"] = (np.asarray(frame[f"{title}Hand"], dtype=float), "Hand", False)
-        knee = np.asarray(frame[f"{title}Leg"], dtype=float)
+        hand = pick(f"{title}Hand", f"{side}_hand", f"{side}_wrist")
+        if hand is not None:
+            points[f"{side}_palm"] = (hand, "hand_surface_proxy", False)
+        knee = pick(f"{title}Leg", f"{side}_knee")
+        if knee is None:
+            continue
         ankle = foot
         points[f"{side}_knee"] = (knee, "Leg", False)
         points[f"{side}_shin"] = (0.55 * knee + 0.45 * ankle, "Leg_Foot_proxy", False)
+    # Surface proxies for seated/back contact.  These are deliberately built
+    # from source points only and carry provenance for diagnostics.
+    pelvis = pick("pelvis", "Pelvis", "hips")
+    left_hip = pick("left_hip", "LeftUpLeg")
+    right_hip = pick("right_hip", "RightUpLeg")
+    spine = pick("spine3", "spine2", "spine", "Spine")
+    if pelvis is not None:
+        if left_hip is not None and right_hip is not None:
+            axis = left_hip - right_hip
+            axis /= max(float(np.linalg.norm(axis)), 1e-12)
+            # Posterior proxy is opposite the forward spine direction when
+            # available; lateral offsets keep left/right channels distinct.
+            forward = spine - pelvis if spine is not None else np.array([0.0, 0.0, 1.0])
+            forward /= max(float(np.linalg.norm(forward)), 1e-12)
+            posterior = np.cross(axis, forward)
+            posterior /= max(float(np.linalg.norm(posterior)), 1e-12)
+            if posterior[2] < 0:
+                posterior = -posterior
+            points["left_butt"] = (pelvis + 0.06 * axis - 0.025 * posterior, "hip_derived_butt_proxy", False)
+            points["right_butt"] = (pelvis - 0.06 * axis - 0.025 * posterior, "hip_derived_butt_proxy", False)
+        else:
+            points["left_butt"] = (pelvis + np.array([0.0, 0.045, -0.02]), "pelvis_surface_proxy", False)
+            points["right_butt"] = (pelvis + np.array([0.0, -0.045, -0.02]), "pelvis_surface_proxy", False)
+    if spine is not None:
+        points["lower_back"] = (spine + np.array([0.0, 0.0, -0.08]), "spine_surface_proxy", False)
+        points["upper_back"] = (spine + np.array([0.0, 0.0, 0.06]), "spine_surface_proxy", False)
     return points
 
 
@@ -121,9 +162,30 @@ def build_terrain_contact_schedule(
                 "signed_distance": float(hit.signed_distance),
                 "normal_speed": normal_speed,
                 "tangential_speed": tangential_speed,
+                "source_state": state,
+                "normal_error": float(abs(hit.signed_distance)),
+                "tangent_error": tangential_speed,
             }
             previous[channel] = point_solver.copy()
 
+        # Keep the channel schema stable across frames/configurations.  A
+        # missing optional proxy is an inactive channel, never an implicit
+        # contact or a silently re-used joint center.
+        for channel in config.get("channels", ("left_heel", "right_heel", "left_toe", "right_toe",
+                                                "left_palm", "right_palm", "left_knee", "right_knee",
+                                                "left_shin", "right_shin", "left_butt", "right_butt",
+                                                "lower_back", "upper_back")):
+            contacts.setdefault(channel, {
+                "score": 0.0, "state": "NONE", "source_state": "NONE",
+                "human_point_source": np.zeros(3), "human_point_solver": np.zeros(3),
+                "surface_point_source": np.zeros(3), "surface_point_solver": np.zeros(3),
+                "surface_normal_source": np.array([0.0, 0.0, 1.0]),
+                "surface_normal_solver": np.array([0.0, 0.0, 1.0]),
+                "surface_id": "", "surface_type": "", "signed_distance": float("inf"),
+                "normal_speed": 0.0, "tangential_speed": 0.0,
+                "normal_error": 0.0, "tangent_error": 0.0,
+                "human_point_provenance": "missing_optional_proxy",
+            })
         flat_foot = {}
         max_angle = np.deg2rad(float(config.get("flat_foot_max_normal_angle_deg", 12.0)))
         min_score = float(config.get("flat_foot_min_score", 0.45))

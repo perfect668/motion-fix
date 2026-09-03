@@ -1,0 +1,167 @@
+{
+  "frames": 201,
+  "qp_failure_count": 0,
+  "mean_active_scene_collision_pairs": 16.01492537313433,
+  "max_active_scene_collision_pairs": 40,
+  "minimum_scene_distance": 0.003875151156738546,
+  "maximum_penetration": 0.0,
+  "mean_collision_query_runtime_seconds": 0.03048988436209733,
+  "mean_qp_runtime_seconds": 0.07064649780959688,
+  "contact_channels": {
+    "left_butt": {
+      "contact_ratio": 0.0,
+      "state_counts": {
+        "NONE": 201
+      },
+      "surface_ids": [
+        "floor"
+      ],
+      "median_signed_distance": 0.5992567551558905
+    },
+    "left_heel": {
+      "contact_ratio": 0.9552238805970149,
+      "state_counts": {
+        "NONE": 9,
+        "STATIC": 66,
+        "SLIDING": 126
+      },
+      "surface_ids": [
+        "floor"
+      ],
+      "median_signed_distance": -0.059281831080149776
+    },
+    "left_knee": {
+      "contact_ratio": 0.0,
+      "state_counts": {
+        "NONE": 201
+      },
+      "surface_ids": [
+        "floor"
+      ],
+      "median_signed_distance": 0.2534128638635199
+    },
+    "left_palm": {
+      "contact_ratio": 0.0,
+      "state_counts": {
+        "NONE": 201
+      },
+      "surface_ids": [
+        "floor"
+      ],
+      "median_signed_distance": 0.4971596303043596
+    },
+    "left_shin": {
+      "contact_ratio": 0.0,
+      "state_counts": {
+        "NONE": 201
+      },
+      "surface_ids": [
+        "floor"
+      ],
+      "median_signed_distance": 0.09988777514250882
+    },
+    "left_toe": {
+      "contact_ratio": 0.8805970149253731,
+      "state_counts": {
+        "NONE": 24,
+        "STATIC": 45,
+        "SLIDING": 132
+      },
+      "surface_ids": [
+        "floor"
+      ],
+      "median_signed_distance": -0.19913001553389628
+    },
+    "lower_back": {
+      "contact_ratio": 0.0,
+      "state_counts": {
+        "NONE": 201
+      },
+      "surface_ids": [
+        "floor"
+      ],
+      "median_signed_distance": 0.7505314843740808
+    },
+    "right_butt": {
+      "contact_ratio": 0.0,
+      "state_counts": {
+        "NONE": 201
+      },
+      "surface_ids": [
+        "floor"
+      ],
+      "median_signed_distance": 0.5883327266811448
+    },
+    "right_heel": {
+      "contact_ratio": 0.9950248756218906,
+      "state_counts": {
+        "NONE": 1,
+        "STATIC": 71,
+        "SLIDING": 129
+      },
+      "surface_ids": [
+        "floor"
+      ],
+      "median_signed_distance": -0.05865410260060948
+    },
+    "right_knee": {
+      "contact_ratio": 0.0,
+      "state_counts": {
+        "NONE": 201
+      },
+      "surface_ids": [
+        "floor"
+      ],
+      "median_signed_distance": 0.26644752638885777
+    },
+    "right_palm": {
+      "contact_ratio": 0.0,
+      "state_counts": {
+        "NONE": 201
+      },
+      "surface_ids": [
+        "floor"
+      ],
+      "median_signed_distance": 0.4948086976143251
+    },
+    "right_shin": {
+      "contact_ratio": 0.0,
+      "state_counts": {
+        "NONE": 201
+      },
+      "surface_ids": [
+        "floor"
+      ],
+      "median_signed_distance": 0.1065420441871666
+    },
+    "right_toe": {
+      "contact_ratio": 0.9701492537313433,
+      "state_counts": {
+        "NONE": 6,
+        "STATIC": 55,
+        "SLIDING": 140
+      },
+      "surface_ids": [
+        "floor"
+      ],
+      "median_signed_distance": -0.20064747342580616
+    },
+    "upper_back": {
+      "contact_ratio": 0.0,
+      "state_counts": {
+        "NONE": 201
+      },
+      "surface_ids": [
+        "floor"
+      ],
+      "median_signed_distance": 0.8615194361813098
+    }
+  },
+  "left_butt_contact_ratio": 0.0,
+  "right_butt_contact_ratio": 0.0,
+  "lower_back_contact_ratio": 0.0,
+  "chair_asset": "/home/user/datasets/grail_200/data/sitting/object_usd/sitting__art_nouveau_curvilinear_iron_and_stained_glass_single_chair__002.usd",
+  "interaction_scene_points": 512,
+  "mujoco_scene_geom_count": 33,
+  "coacd_piece_count": 32
+}

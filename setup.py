@@ -27,6 +27,9 @@ setup(
     "protobuf",
     "redis[hiredis]",
     "imageio[ffmpeg]",
+    "trimesh>=4.0",
+    "usd-core>=24.0",
+    "coacd>=1.0.0",
   ],
   python_requires='>=3.10',
 )

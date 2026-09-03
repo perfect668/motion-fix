@@ -1,0 +1,25 @@
+{
+  "version": 2,
+  "object_id": "terrain_stairs__stairs_0037__0004",
+  "source_mesh": "/home/user/datasets/grail_200/data/stair_p1/object_usd/terrain_stairs__stairs_0037__0004.usd",
+  "source_sha256": "8304509e767169cd53839e40339783e46f2a98d09a1bf78ffa9c623a52f4edcb",
+  "cache_key": "3e046248ec0b50fb0e262ec0c9cca6929d0d8f38302bd3489b4c5495b187dec2",
+  "decomposition_parameters": {
+    "algorithm": "coacd",
+    "resolution": 2000,
+    "threshold": 0.05,
+    "max_convex_hull": 32,
+    "preprocess_mode": "auto"
+  },
+  "source_vertices": 72,
+  "source_faces": 36,
+  "source_watertight": false,
+  "visual_mesh": "source_visual.obj",
+  "pieces": [
+    "piece_000.obj",
+    "piece_001.obj",
+    "piece_002.obj"
+  ],
+  "piece_count": 3,
+  "cache_hit": false
+}

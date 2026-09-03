@@ -1,0 +1,548 @@
+[
+  {
+    "frame": 0,
+    "qp_failures": [],
+    "qp_solve_runtime_seconds": 0.1614152432885021,
+    "active_collision_shells": [
+      "ANKLE_PITCH_L_LINK",
+      "ANKLE_PITCH_R_LINK",
+      "ANKLE_ROLL_L_LINK",
+      "ANKLE_ROLL_R_LINK",
+      "HAND_YAW_R_LINK",
+      "KNEE_PITCH_L_LINK",
+      "KNEE_PITCH_R_LINK"
+    ],
+    "active_collision_points": 35,
+    "active_self_collision_pairs": 5,
+    "minimum_self_distance": 0.024030117835155525,
+    "minimum_terrain_slack": 4.417330381721596e-07,
+    "max_velocity": 0.0,
+    "torso_pelvis_targets": {
+      "waist_yaw": 0.01084897328418366,
+      "torso_roll": -0.015390408767332442
+    },
+    "contact_states": {
+      "left_heel": {
+        "score": 0.07128834786251681,
+        "state": "NONE",
+        "source_state": "NONE",
+        "object_id": "",
+        "surface_id": "floor",
+        "signed_distance": 0.027553986072931025,
+        "normal_error": 0.027553986072931025,
+        "tangent_error": 0.0
+      },
+      "left_toe": {
+        "score": 0.0826374872807915,
+        "state": "NONE",
+        "source_state": "NONE",
+        "object_id": "",
+        "surface_id": "floor",
+        "signed_distance": 0.02318456739689527,
+        "normal_error": 0.02318456739689527,
+        "tangent_error": 0.0
+      },
+      "left_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "source_state": "NONE",
+        "object_id": "",
+        "surface_id": "box_2:x-",
+        "signed_distance": 0.6163034616541899,
+        "normal_error": 0.6163034616541899,
+        "tangent_error": 0.0
+      },
+      "left_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "source_state": "NONE",
+        "object_id": "",
+        "surface_id": "floor",
+        "signed_distance": 0.3946998640392604,
+        "normal_error": 0.3946998640392604,
+        "tangent_error": 0.0
+      },
+      "left_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "source_state": "NONE",
+        "object_id": "",
+        "surface_id": "floor",
+        "signed_distance": 0.246090261315027,
+        "normal_error": 0.246090261315027,
+        "tangent_error": 0.0
+      },
+      "right_heel": {
+        "score": 0.0,
+        "state": "NONE",
+        "source_state": "NONE",
+        "object_id": "",
+        "surface_id": "floor",
+        "signed_distance": 0.038878053164648485,
+        "normal_error": 0.038878053164648485,
+        "tangent_error": 0.0
+      },
+      "right_toe": {
+        "score": 0.06942309841663667,
+        "state": "NONE",
+        "source_state": "NONE",
+        "object_id": "",
+        "surface_id": "floor",
+        "signed_distance": 0.028272107109594883,
+        "normal_error": 0.028272107109594883,
+        "tangent_error": 0.0
+      },
+      "right_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "source_state": "NONE",
+        "object_id": "",
+        "surface_id": "box_1:x-",
+        "signed_distance": 0.1102801824940649,
+        "normal_error": 0.1102801824940649,
+        "tangent_error": 0.0
+      },
+      "right_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "source_state": "NONE",
+        "object_id": "",
+        "surface_id": "box_1:x-",
+        "signed_distance": 0.39015889405479404,
+        "normal_error": 0.39015889405479404,
+        "tangent_error": 0.0
+      },
+      "right_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "source_state": "NONE",
+        "object_id": "",
+        "surface_id": "floor",
+        "signed_distance": 0.2520293103777961,
+        "normal_error": 0.2520293103777961,
+        "tangent_error": 0.0
+      },
+      "lower_back": {
+        "score": 0.0,
+        "state": "NONE",
+        "source_state": "NONE",
+        "object_id": "",
+        "surface_id": "box_1:x-",
+        "signed_distance": 0.4633560260565144,
+        "normal_error": 0.4633560260565144,
+        "tangent_error": 0.0
+      },
+      "upper_back": {
+        "score": 0.0,
+        "state": "NONE",
+        "source_state": "NONE",
+        "object_id": "",
+        "surface_id": "box_1:x-",
+        "signed_distance": 0.46936673714611427,
+        "normal_error": 0.46936673714611427,
+        "tangent_error": 0.0
+      },
+      "left_butt": {
+        "score": 0.0,
+        "state": "NONE",
+        "source_state": "NONE",
+        "object_id": "",
+        "surface_id": "",
+        "signed_distance": Infinity,
+        "normal_error": 0.0,
+        "tangent_error": 0.0
+      },
+      "right_butt": {
+        "score": 0.0,
+        "state": "NONE",
+        "source_state": "NONE",
+        "object_id": "",
+        "surface_id": "",
+        "signed_distance": Infinity,
+        "normal_error": 0.0,
+        "tangent_error": 0.0
+      }
+    },
+    "active_scene_collision_pairs": 0,
+    "minimum_scene_distance": 0.06348855133662835,
+    "maximum_penetration": 0.0,
+    "active_scene_collision_pair_details": [],
+    "scene_collision_query_runtime_seconds": 0.007843389292247593,
+    "jacobian_finite_difference": {
+      "pairs_tested": 0,
+      "max_abs_error": 0.0
+    },
+    "closest_scene_collision_pair": {
+      "robot_geom_id": 18,
+      "robot_geom": "HAND_YAW_R_LINK_g1_aligned_02",
+      "scene_geom_id": 70,
+      "scene_geom": "scene_multi_boxes_collision_002"
+    },
+    "scene_collision_final_query_runtime_seconds": 0.00024950597435235977,
+    "peak_active_scene_collision_pairs": 0
+  },
+  {
+    "frame": 1,
+    "qp_failures": [],
+    "qp_solve_runtime_seconds": 0.05052786506712437,
+    "active_collision_shells": [
+      "ANKLE_PITCH_L_LINK",
+      "ANKLE_PITCH_R_LINK",
+      "ANKLE_ROLL_L_LINK",
+      "ANKLE_ROLL_R_LINK",
+      "HAND_YAW_R_LINK",
+      "KNEE_PITCH_L_LINK",
+      "KNEE_PITCH_R_LINK"
+    ],
+    "active_collision_points": 35,
+    "active_self_collision_pairs": 5,
+    "minimum_self_distance": 0.023721799931935662,
+    "minimum_terrain_slack": 5.957432076472702e-08,
+    "max_velocity": 2.1329503859063155,
+    "torso_pelvis_targets": {
+      "waist_yaw": 0.01086340775141248,
+      "torso_roll": -0.015403217890009424
+    },
+    "contact_states": {
+      "left_heel": {
+        "score": 0.13236354075522008,
+        "state": "NONE",
+        "source_state": "NONE",
+        "object_id": "",
+        "surface_id": "floor",
+        "signed_distance": 0.02755207451261908,
+        "normal_error": 0.02755207451261908,
+        "tangent_error": 0.0016032441078319421
+      },
+      "left_toe": {
+        "score": 0.15324936537221315,
+        "state": "STATIC",
+        "source_state": "STATIC",
+        "object_id": "",
+        "surface_id": "floor",
+        "signed_distance": 0.02317237839437603,
+        "normal_error": 0.02317237839437603,
+        "tangent_error": 0.0006437787341900805
+      },
+      "left_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "source_state": "NONE",
+        "object_id": "",
+        "surface_id": "box_2:x-",
+        "signed_distance": 0.61598116237656,
+        "normal_error": 0.61598116237656,
+        "tangent_error": 0.010267383053541117
+      },
+      "left_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "source_state": "NONE",
+        "object_id": "",
+        "surface_id": "floor",
+        "signed_distance": 0.3946861326828432,
+        "normal_error": 0.3946861326828432,
+        "tangent_error": 0.0030835972585703665
+      },
+      "left_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "source_state": "NONE",
+        "object_id": "",
+        "surface_id": "floor",
+        "signed_distance": 0.24608040231349101,
+        "normal_error": 0.24608040231349101,
+        "tangent_error": 0.002047745644852535
+      },
+      "right_heel": {
+        "score": 0.0,
+        "state": "NONE",
+        "source_state": "NONE",
+        "object_id": "",
+        "surface_id": "floor",
+        "signed_distance": 0.03889347942751301,
+        "normal_error": 0.03889347942751301,
+        "tangent_error": 0.000526082865556809
+      },
+      "right_toe": {
+        "score": 0.12888122585912182,
+        "state": "NONE",
+        "source_state": "NONE",
+        "object_id": "",
+        "surface_id": "floor",
+        "signed_distance": 0.02826889681012443,
+        "normal_error": 0.02826889681012443,
+        "tangent_error": 0.0002876855236957507
+      },
+      "right_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "source_state": "NONE",
+        "object_id": "",
+        "surface_id": "box_1:x-",
+        "signed_distance": 0.11023353665264488,
+        "normal_error": 0.11023353665264488,
+        "tangent_error": 0.02272197489573411
+      },
+      "right_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "source_state": "NONE",
+        "object_id": "",
+        "surface_id": "box_1:x-",
+        "signed_distance": 0.3901837443317942,
+        "normal_error": 0.3901837443317942,
+        "tangent_error": 0.007917484327765957
+      },
+      "right_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "source_state": "NONE",
+        "object_id": "",
+        "surface_id": "floor",
+        "signed_distance": 0.25201774641419394,
+        "normal_error": 0.25201774641419394,
+        "tangent_error": 0.004621571605618852
+      },
+      "lower_back": {
+        "score": 0.0,
+        "state": "NONE",
+        "source_state": "NONE",
+        "object_id": "",
+        "surface_id": "box_1:x-",
+        "signed_distance": 0.4633465305067718,
+        "normal_error": 0.4633465305067718,
+        "tangent_error": 0.004751374309841624
+      },
+      "upper_back": {
+        "score": 0.0,
+        "state": "NONE",
+        "source_state": "NONE",
+        "object_id": "",
+        "surface_id": "box_1:x-",
+        "signed_distance": 0.4693534439315612,
+        "normal_error": 0.4693534439315612,
+        "tangent_error": 0.004728572628518308
+      },
+      "left_butt": {
+        "score": 0.0,
+        "state": "NONE",
+        "source_state": "NONE",
+        "object_id": "",
+        "surface_id": "",
+        "signed_distance": Infinity,
+        "normal_error": 0.0,
+        "tangent_error": 0.0
+      },
+      "right_butt": {
+        "score": 0.0,
+        "state": "NONE",
+        "source_state": "NONE",
+        "object_id": "",
+        "surface_id": "",
+        "signed_distance": Infinity,
+        "normal_error": 0.0,
+        "tangent_error": 0.0
+      }
+    },
+    "active_scene_collision_pairs": 0,
+    "minimum_scene_distance": 0.06408202655765885,
+    "maximum_penetration": 0.0,
+    "active_scene_collision_pair_details": [],
+    "scene_collision_query_runtime_seconds": 0.0022753532975912094,
+    "jacobian_finite_difference": {
+      "pairs_tested": 0,
+      "max_abs_error": 0.0
+    },
+    "closest_scene_collision_pair": {
+      "robot_geom_id": 18,
+      "robot_geom": "HAND_YAW_R_LINK_g1_aligned_02",
+      "scene_geom_id": 70,
+      "scene_geom": "scene_multi_boxes_collision_002"
+    },
+    "scene_collision_final_query_runtime_seconds": 0.0002627020003274083,
+    "peak_active_scene_collision_pairs": 0
+  },
+  {
+    "frame": 2,
+    "qp_failures": [],
+    "qp_solve_runtime_seconds": 0.04875886789523065,
+    "active_collision_shells": [
+      "ANKLE_PITCH_L_LINK",
+      "ANKLE_PITCH_R_LINK",
+      "ANKLE_ROLL_L_LINK",
+      "ANKLE_ROLL_R_LINK",
+      "HAND_YAW_R_LINK",
+      "KNEE_PITCH_L_LINK",
+      "KNEE_PITCH_R_LINK"
+    ],
+    "active_collision_points": 35,
+    "active_self_collision_pairs": 5,
+    "minimum_self_distance": 0.02400973161277998,
+    "minimum_terrain_slack": 8.793786029220874e-09,
+    "max_velocity": 2.143640709065525,
+    "torso_pelvis_targets": {
+      "waist_yaw": 0.010791459683307858,
+      "torso_roll": -0.015391123636034232
+    },
+    "contact_states": {
+      "left_heel": {
+        "score": 0.18413017479095523,
+        "state": "STATIC",
+        "source_state": "STATIC",
+        "object_id": "",
+        "surface_id": "floor",
+        "signed_distance": 0.027582347511809602,
+        "normal_error": 0.027582347511809602,
+        "tangent_error": 0.0007224727068806431
+      },
+      "left_toe": {
+        "score": 0.2140243125916551,
+        "state": "STATIC",
+        "source_state": "STATIC",
+        "object_id": "",
+        "surface_id": "floor",
+        "signed_distance": 0.023172299073318418,
+        "normal_error": 0.023172299073318418,
+        "tangent_error": 0.00045960567020027557
+      },
+      "left_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "source_state": "NONE",
+        "object_id": "",
+        "surface_id": "box_2:x-",
+        "signed_distance": 0.6156493350526842,
+        "normal_error": 0.6156493350526842,
+        "tangent_error": 0.009021613672418972
+      },
+      "left_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "source_state": "NONE",
+        "object_id": "",
+        "surface_id": "floor",
+        "signed_distance": 0.39468688182616507,
+        "normal_error": 0.39468688182616507,
+        "tangent_error": 0.006533107399220705
+      },
+      "left_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "source_state": "NONE",
+        "object_id": "",
+        "surface_id": "floor",
+        "signed_distance": 0.2460902545396867,
+        "normal_error": 0.2460902545396867,
+        "tangent_error": 0.003897236390724051
+      },
+      "right_heel": {
+        "score": 0.0,
+        "state": "NONE",
+        "source_state": "NONE",
+        "object_id": "",
+        "surface_id": "floor",
+        "signed_distance": 0.038918831440733104,
+        "normal_error": 0.038918831440733104,
+        "tangent_error": 0.000693807504889859
+      },
+      "right_toe": {
+        "score": 0.1798863337504497,
+        "state": "STATIC",
+        "source_state": "STATIC",
+        "object_id": "",
+        "surface_id": "floor",
+        "signed_distance": 0.028267899237656862,
+        "normal_error": 0.028267899237656862,
+        "tangent_error": 0.00014194188453754976
+      },
+      "right_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "source_state": "NONE",
+        "object_id": "",
+        "surface_id": "box_1:x-",
+        "signed_distance": 0.1102140514586188,
+        "normal_error": 0.1102140514586188,
+        "tangent_error": 0.02366614022529458
+      },
+      "right_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "source_state": "NONE",
+        "object_id": "",
+        "surface_id": "box_1:x-",
+        "signed_distance": 0.390223086222614,
+        "normal_error": 0.390223086222614,
+        "tangent_error": 0.006993591565355306
+      },
+      "right_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "source_state": "NONE",
+        "object_id": "",
+        "surface_id": "floor",
+        "signed_distance": 0.25201686022171144,
+        "normal_error": 0.25201686022171144,
+        "tangent_error": 0.00426847988751023
+      },
+      "lower_back": {
+        "score": 0.0,
+        "state": "NONE",
+        "source_state": "NONE",
+        "object_id": "",
+        "surface_id": "box_1:x-",
+        "signed_distance": 0.463367784159444,
+        "normal_error": 0.463367784159444,
+        "tangent_error": 0.006916504036519375
+      },
+      "upper_back": {
+        "score": 0.0,
+        "state": "NONE",
+        "source_state": "NONE",
+        "object_id": "",
+        "surface_id": "box_1:x-",
+        "signed_distance": 0.46937343336102455,
+        "normal_error": 0.46937343336102455,
+        "tangent_error": 0.006925931429709315
+      },
+      "left_butt": {
+        "score": 0.0,
+        "state": "NONE",
+        "source_state": "NONE",
+        "object_id": "",
+        "surface_id": "",
+        "signed_distance": Infinity,
+        "normal_error": 0.0,
+        "tangent_error": 0.0
+      },
+      "right_butt": {
+        "score": 0.0,
+        "state": "NONE",
+        "source_state": "NONE",
+        "object_id": "",
+        "surface_id": "",
+        "signed_distance": Infinity,
+        "normal_error": 0.0,
+        "tangent_error": 0.0
+      }
+    },
+    "active_scene_collision_pairs": 0,
+    "minimum_scene_distance": 0.06423928738968068,
+    "maximum_penetration": 0.0,
+    "active_scene_collision_pair_details": [],
+    "scene_collision_query_runtime_seconds": 0.002271933830343187,
+    "jacobian_finite_difference": {
+      "pairs_tested": 0,
+      "max_abs_error": 0.0
+    },
+    "closest_scene_collision_pair": {
+      "robot_geom_id": 18,
+      "robot_geom": "HAND_YAW_R_LINK_g1_aligned_02",
+      "scene_geom_id": 70,
+      "scene_geom": "scene_multi_boxes_collision_002"
+    },
+    "scene_collision_final_query_runtime_seconds": 0.0002552380319684744,
+    "peak_active_scene_collision_pairs": 0
+  }
+]

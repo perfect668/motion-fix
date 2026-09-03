@@ -1,0 +1,148 @@
+{
+  "frames": 1167,
+  "fps": 50.0,
+  "max_penetration_m": 0.0,
+  "p99_penetration_m": 0.0,
+  "max_margin_violation_m": 0.0010889231992268194,
+  "penetration_counts_by_region": {},
+  "contact_episodes": {
+    "left_heel": [
+      [
+        77,
+        87
+      ],
+      [
+        174,
+        288
+      ],
+      [
+        534,
+        550
+      ],
+      [
+        575,
+        584
+      ],
+      [
+        670,
+        838
+      ],
+      [
+        959,
+        988
+      ],
+      [
+        1099,
+        1132
+      ],
+      [
+        1150,
+        1166
+      ]
+    ],
+    "left_knee": [],
+    "left_palm": [],
+    "left_shin": [],
+    "left_toe": [
+      [
+        2,
+        141
+      ],
+      [
+        177,
+        369
+      ],
+      [
+        718,
+        853
+      ],
+      [
+        952,
+        1017
+      ],
+      [
+        1021,
+        1064
+      ],
+      [
+        1092,
+        1166
+      ]
+    ],
+    "right_heel": [
+      [
+        539,
+        578
+      ],
+      [
+        716,
+        750
+      ],
+      [
+        965,
+        979
+      ]
+    ],
+    "right_knee": [
+      [
+        799,
+        818
+      ]
+    ],
+    "right_palm": [],
+    "right_shin": [],
+    "right_toe": [
+      [
+        125,
+        307
+      ],
+      [
+        499,
+        763
+      ],
+      [
+        951,
+        1035
+      ],
+      [
+        1060,
+        1103
+      ],
+      [
+        1126,
+        1166
+      ]
+    ]
+  },
+  "surface_switches": {
+    "left_heel": 4,
+    "left_knee": 0,
+    "left_palm": 0,
+    "left_shin": 0,
+    "left_toe": 4,
+    "right_heel": 1,
+    "right_knee": 0,
+    "right_palm": 0,
+    "right_shin": 0,
+    "right_toe": 3
+  },
+  "static_cumulative_slip_m": {
+    "left_heel": 0.3594868009243583,
+    "left_knee": 0.0,
+    "left_palm": 0.0,
+    "left_shin": 0.0,
+    "left_toe": 0.7371507456636429,
+    "right_heel": 0.053835120185959,
+    "right_knee": 0.0462558345525413,
+    "right_palm": 0.0,
+    "right_shin": 0.0,
+    "right_toe": 0.606877044651113
+  },
+  "max_foot_orientation_error_deg": 22.525918052013292,
+  "joint_limit_violations": 0,
+  "velocity_limit_violations": 0,
+  "max_joint_velocity_rad_s": 9.424777960769404,
+  "max_joint_acceleration_rad_s2": 471.23889803846896,
+  "max_joint_jerk_rad_s3": 17690.14810258129,
+  "qp_failures": 0
+}

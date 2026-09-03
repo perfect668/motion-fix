@@ -1,0 +1,35 @@
+{
+  "extends": "holosoma_to_ne01_wholebody_omni_gmr_v3.json",
+  "scene_geometry": {
+    "surface_sampling": {"candidate_points_per_square_meter": 100, "minimum": 128, "maximum": 1024},
+    "interaction_selection": {"points_per_semantic": 4, "minimum": 32, "maximum": 96}
+  },
+  "scene_collision": {
+    "backend": "hybrid",
+    "margin": 0.004,
+    "activate_distance": 0.055,
+    "deactivate_distance": 0.085,
+    "max_active_per_robot_geom": 5,
+    "prediction_horizon": 2.0,
+    "hold_steps": 3,
+    "scene_body_prefix": "scene_"
+  },
+  "contact_channels": {
+    "left_butt": {"query_type": "support", "provenance": "pelvis_surface_proxy"},
+    "right_butt": {"query_type": "support", "provenance": "pelvis_surface_proxy"},
+    "lower_back": {"query_type": "nearest", "provenance": "spine_surface_proxy"},
+    "upper_back": {"query_type": "nearest", "provenance": "spine_surface_proxy"}
+  },
+  "terrain_contact": {
+    "object_contact_distance": 0.18,
+    "channels": ["left_heel", "right_heel", "left_toe", "right_toe", "left_palm", "right_palm", "left_knee", "right_knee", "left_shin", "right_shin", "left_butt", "right_butt", "lower_back", "upper_back"]
+  },
+  "contact_tasks": {
+    "robot_points": {
+      "left_butt": {"body": "base_link", "offsets": [[-0.075, 0.045, -0.025]]},
+      "right_butt": {"body": "base_link", "offsets": [[-0.075, -0.045, -0.025]]},
+      "lower_back": {"body": "TORSO_LINK", "offsets": [[-0.080, 0.0, 0.055]]},
+      "upper_back": {"body": "TORSO_LINK", "offsets": [[-0.070, 0.0, 0.16]]}
+    }
+  }
+}

@@ -1,0 +1,304 @@
+{
+  "scene_transform": {
+    "rotation": [
+      [
+        1.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        1.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "scale": 0.8504444444444443,
+    "translation": [
+      0.0,
+      0.0,
+      0.0
+    ]
+  },
+  "terrain": {
+    "floor_z": 0.0,
+    "floor_id": "floor",
+    "support_normal_min_z": 0.6,
+    "primitives": [
+      {
+        "type": "obb",
+        "surface_id": "box_1",
+        "center": [
+          -0.24296392406888886,
+          -0.5431187572533334,
+          0.40396111111111105
+        ],
+        "half_extents": [
+          0.20410667854248038,
+          0.680355559298876,
+          0.40396111111111105
+        ],
+        "rotation": [
+          [
+            0.07755618777833456,
+            0.9969879813074051,
+            0.0
+          ],
+          [
+            -0.9969879827446727,
+            0.07755620625446559,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      {
+        "type": "obb",
+        "surface_id": "box_2",
+        "center": [
+          0.0,
+          0.10620070000777777,
+          0.19985444444444442
+        ],
+        "half_extents": [
+          0.4252222189574472,
+          0.42522222319844066,
+          0.19985444444444442
+        ],
+        "rotation": [
+          [
+            0.997359298381869,
+            -0.07262526988601233,
+            0.0
+          ],
+          [
+            0.07262527061034721,
+            0.9973592984346134,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      {
+        "type": "obb",
+        "surface_id": "box_3",
+        "center": [
+          0.0,
+          -1.1638290210266669,
+          0.07653999999999998
+        ],
+        "half_extents": [
+          0.42522222222222245,
+          0.42522222222222217,
+          0.07653999999999998
+        ],
+        "rotation": [
+          [
+            0.0,
+            -1.0,
+            0.0
+          ],
+          [
+            1.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      }
+    ]
+  },
+  "source_joint_names": [
+    "Hips",
+    "Spine",
+    "Spine1",
+    "Neck",
+    "Head",
+    "LeftShoulder",
+    "LeftArm",
+    "LeftForeArm",
+    "LeftHand",
+    "LeftHandThumb1",
+    "LeftHandThumb2",
+    "LeftHandThumb3",
+    "LeftHandIndex1",
+    "LeftHandIndex2",
+    "LeftHandIndex3",
+    "LeftHandMiddle1",
+    "LeftHandMiddle2",
+    "LeftHandMiddle3",
+    "LeftHandRing1",
+    "LeftHandRing2",
+    "LeftHandRing3",
+    "LeftHandPinky1",
+    "LeftHandPinky2",
+    "LeftHandPinky3",
+    "RightShoulder",
+    "RightArm",
+    "RightForeArm",
+    "RightHand",
+    "RightHandThumb1",
+    "RightHandThumb2",
+    "RightHandThumb3",
+    "RightHandIndex1",
+    "RightHandIndex2",
+    "RightHandIndex3",
+    "RightHandMiddle1",
+    "RightHandMiddle2",
+    "RightHandMiddle3",
+    "RightHandRing1",
+    "RightHandRing2",
+    "RightHandRing3",
+    "RightHandPinky1",
+    "RightHandPinky2",
+    "RightHandPinky3",
+    "LeftUpLeg",
+    "LeftLeg",
+    "LeftFoot",
+    "LeftToeBase",
+    "RightUpLeg",
+    "RightLeg",
+    "RightFoot",
+    "RightToeBase",
+    "LeftFootMod",
+    "RightFootMod"
+  ],
+  "joint_map": {
+    "format": "holosoma_mocap_53",
+    "source_joint_names": [
+      "Hips",
+      "Spine",
+      "Spine1",
+      "Neck",
+      "Head",
+      "LeftShoulder",
+      "LeftArm",
+      "LeftForeArm",
+      "LeftHand",
+      "LeftHandThumb1",
+      "LeftHandThumb2",
+      "LeftHandThumb3",
+      "LeftHandIndex1",
+      "LeftHandIndex2",
+      "LeftHandIndex3",
+      "LeftHandMiddle1",
+      "LeftHandMiddle2",
+      "LeftHandMiddle3",
+      "LeftHandRing1",
+      "LeftHandRing2",
+      "LeftHandRing3",
+      "LeftHandPinky1",
+      "LeftHandPinky2",
+      "LeftHandPinky3",
+      "RightShoulder",
+      "RightArm",
+      "RightForeArm",
+      "RightHand",
+      "RightHandThumb1",
+      "RightHandThumb2",
+      "RightHandThumb3",
+      "RightHandIndex1",
+      "RightHandIndex2",
+      "RightHandIndex3",
+      "RightHandMiddle1",
+      "RightHandMiddle2",
+      "RightHandMiddle3",
+      "RightHandRing1",
+      "RightHandRing2",
+      "RightHandRing3",
+      "RightHandPinky1",
+      "RightHandPinky2",
+      "RightHandPinky3",
+      "LeftUpLeg",
+      "LeftLeg",
+      "LeftFoot",
+      "LeftToeBase",
+      "RightUpLeg",
+      "RightLeg",
+      "RightFoot",
+      "RightToeBase",
+      "LeftFootMod",
+      "RightFootMod"
+    ],
+    "required_source_joints": [
+      "Hips",
+      "Spine",
+      "Spine1",
+      "LeftUpLeg",
+      "RightUpLeg",
+      "LeftLeg",
+      "RightLeg",
+      "LeftFoot",
+      "RightFoot",
+      "LeftToeBase",
+      "RightToeBase",
+      "LeftArm",
+      "RightArm",
+      "LeftForeArm",
+      "RightForeArm",
+      "LeftHand",
+      "RightHand",
+      "LeftHandMiddle3",
+      "RightHandMiddle3"
+    ],
+    "solver_joint_mapping": {
+      "pelvis": "Hips",
+      "left_hip": "LeftUpLeg",
+      "right_hip": "RightUpLeg",
+      "spine1": "Spine",
+      "left_knee": "LeftLeg",
+      "right_knee": "RightLeg",
+      "spine3": "Spine1",
+      "left_foot": "LeftFoot",
+      "right_foot": "RightFoot",
+      "neck": "Neck",
+      "left_collar": "LeftShoulder",
+      "right_collar": "RightShoulder",
+      "head": "Head",
+      "left_shoulder": "LeftArm",
+      "right_shoulder": "RightArm",
+      "left_elbow": "LeftForeArm",
+      "right_elbow": "RightForeArm",
+      "left_wrist": "LeftHandMiddle3",
+      "right_wrist": "RightHandMiddle3",
+      "left_toe": "LeftToeBase",
+      "right_toe": "RightToeBase"
+    },
+    "contact_source_mapping": {
+      "left_palm": "LeftHand",
+      "right_palm": "RightHand",
+      "left_knee": "LeftLeg",
+      "right_knee": "RightLeg",
+      "left_ankle": "LeftFoot",
+      "right_ankle": "RightFoot",
+      "left_toe": "LeftToeBase",
+      "right_toe": "RightToeBase",
+      "left_foot_mod": "LeftFootMod",
+      "right_foot_mod": "RightFootMod"
+    },
+    "landmark_semantics": {
+      "Foot": "ankle/foot joint center; LeftFootMod and RightFootMod duplicate this point in the verified climb sequence",
+      "ToeBase": "forefoot/toe-base marker",
+      "FootMod": "dataset auxiliary foot marker; verified equal to Foot in mocap_climb_seq_0 and therefore not treated as heel",
+      "heel": "not measured; proxy extrapolated backward from Foot away from ToeBase",
+      "toe": "ToeBase",
+      "palm": "LeftHand/RightHand wrist-palm marker; no reliable palm orientation"
+    }
+  }
+}

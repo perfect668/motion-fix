@@ -6,6 +6,15 @@
     "rotation": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
     "translation": [0.0, 0.0, 0.0]
   },
+  "scene_collision": {
+    "backend": "hybrid",
+    "activate_distance": 0.06,
+    "deactivate_distance": 0.09,
+    "margin": 0.004,
+    "hold_steps": 3,
+    "max_active_per_robot_geom": 3,
+    "scene_body_prefix": "scene_"
+  },
   "semantic_points": {
     "pelvis": {"source": "Spine1", "robot": {"body": "base_link", "offsets": [[0.0, 0.0, 0.0]]}},
     "left_hip": {"source": "LeftUpLeg", "robot": {"body": "HIP_PITCH_L_LINK", "offsets": [[0.0, 0.0, 0.0]]}},

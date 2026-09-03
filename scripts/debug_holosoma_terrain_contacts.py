@@ -7,14 +7,26 @@ import json
 from pathlib import Path
 import pickle
 
+from general_motion_retargeting.scene_diagnostics import summarize_scene_diagnostics
+
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--motion", required=True, type=Path)
     parser.add_argument("--frame", type=int, default=None)
+    parser.add_argument("--summary_output", type=Path, default=None,
+                        help="Write a normalized V4 scene/contact summary JSON")
     args = parser.parse_args()
     with args.motion.open("rb") as stream:
         motion = pickle.load(stream)
+    if args.summary_output is not None:
+        summary = summarize_scene_diagnostics(
+            motion.get("terrain_diagnostics", motion.get("diagnostics", [])),
+            motion.get("contact_schedule", []),
+        )
+        args.summary_output.parent.mkdir(parents=True, exist_ok=True)
+        args.summary_output.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+        print(f"Wrote normalized scene summary to {args.summary_output}")
     print(json.dumps(motion.get("contact_metrics", {}), indent=2))
     if args.frame is None:
         return

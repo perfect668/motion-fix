@@ -1,0 +1,4082 @@
+[
+  {
+    "contacts": {
+      "left_heel": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.2902611589431763,
+          0.23766701698303222,
+          0.10281310871243476
+        ],
+        "human_point_solver": [
+          -1.0972954345056745,
+          0.20212259422090315,
+          0.08743683712055285
+        ],
+        "human_point_provenance": "Foot_to_ToeBase_proxy",
+        "surface_point_source": [
+          -1.2902611589431763,
+          0.2376670169830322,
+          0.0
+        ],
+        "surface_point_solver": [
+          -1.0972954345056745,
+          0.20212259422090315,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.08743683712055285,
+        "normal_speed": 0.0,
+        "tangential_speed": 0.0
+      },
+      "left_toe": {
+        "score": 0.0735866418498075,
+        "state": "NONE",
+        "human_point_source": [
+          -1.1020575761795044,
+          0.2707936763763428,
+          0.03135906532406807
+        ],
+        "human_point_solver": [
+          -0.9372387431197695,
+          0.23029497766494747,
+          0.02666914288782411
+        ],
+        "human_point_provenance": "ToeBase",
+        "surface_point_source": [
+          -1.1020575761795044,
+          0.2707936763763427,
+          0.0
+        ],
+        "surface_point_solver": [
+          -0.9372387431197695,
+          0.23029497766494747,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.02666914288782411,
+        "normal_speed": 0.0,
+        "tangential_speed": 0.0
+      },
+      "left_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.1819525957107544,
+          0.6629704236984253,
+          0.9901922941207886
+        ],
+        "human_point_solver": [
+          -1.0051850186189015,
+          0.5638195136653051,
+          0.8421035354667239
+        ],
+        "human_point_provenance": "Hand",
+        "surface_point_source": [
+          -0.5349922803885395,
+          0.5872437203357954,
+          0.47
+        ],
+        "surface_point_solver": [
+          -0.45498121267709796,
+          0.49941815949446416,
+          0.39970888888888884
+        ],
+        "surface_normal_source": [
+          -0.7761022123798293,
+          0.09084276210465428,
+          0.6240296054774416
+        ],
+        "surface_normal_solver": [
+          -0.7761022123798293,
+          0.09084276210465428,
+          0.6240296054774416
+        ],
+        "surface_id": "box_2:x-",
+        "surface_type": "obb",
+        "signed_distance": 0.7089321443762312,
+        "normal_speed": 0.0,
+        "tangential_speed": 0.0
+      },
+      "left_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.171732783317566,
+          0.2544727921485901,
+          0.5338645577430725
+        ],
+        "human_point_solver": [
+          -0.9964936359458498,
+          0.21641497234503426,
+          0.4540221472183863
+        ],
+        "human_point_provenance": "Leg",
+        "surface_point_source": [
+          -1.171732783317566,
+          0.2544727921485901,
+          0.0
+        ],
+        "surface_point_solver": [
+          -0.9964936359458498,
+          0.21641497234503426,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.4540221472183863,
+        "normal_speed": 0.0,
+        "tangential_speed": 0.0
+      },
+      "left_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.2065442621707918,
+          0.25017109885811806,
+          0.3328576482832432
+        ],
+        "human_point_solver": [
+          -1.026098864739471,
+          0.21275662118444838,
+          0.28307693777332704
+        ],
+        "human_point_provenance": "Leg_Foot_proxy",
+        "surface_point_source": [
+          -1.2065442621707918,
+          0.25017109885811806,
+          0.0
+        ],
+        "surface_point_solver": [
+          -1.026098864739471,
+          0.21275662118444838,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.28307693777332704,
+        "normal_speed": 0.0,
+        "tangential_speed": 0.0
+      },
+      "right_heel": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.2788861083984375,
+          0.0731076779961586,
+          0.11661401093006134
+        ],
+        "human_point_solver": [
+          -1.0876215859646265,
+          0.06217401859806643,
+          0.09917373773985437
+        ],
+        "human_point_provenance": "Foot_to_ToeBase_proxy",
+        "surface_point_source": [
+          -1.2788861083984373,
+          0.0731076779961586,
+          0.0
+        ],
+        "surface_point_solver": [
+          -1.0876215859646265,
+          0.06217401859806643,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.09917373773985437,
+        "normal_speed": 0.0,
+        "tangential_speed": 0.0
+      },
+      "right_toe": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.0919456481933594,
+          0.04998943954706192,
+          0.03824038803577423
+        ],
+        "human_point_solver": [
+          -0.9286391101413302,
+          0.04251324114369021,
+          0.03252132555842399
+        ],
+        "human_point_provenance": "ToeBase",
+        "surface_point_source": [
+          -1.0919456481933594,
+          0.04998943954706192,
+          0.0
+        ],
+        "surface_point_solver": [
+          -0.9286391101413302,
+          0.04251324114369021,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.03252132555842399,
+        "normal_speed": 0.0,
+        "tangential_speed": 0.0
+      },
+      "right_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.1337316036224365,
+          -0.32006046175956726,
+          0.9854962825775146
+        ],
+        "human_point_solver": [
+          -0.964175743791792,
+          -0.2721936415897475,
+          0.8381098385386996
+        ],
+        "human_point_provenance": "Hand",
+        "surface_point_source": [
+          -1.1018944055840851,
+          -0.46139715556403943,
+          0.95
+        ],
+        "surface_point_solver": [
+          -0.9370999755933985,
+          -0.3923926476319064,
+          0.8079222222222221
+        ],
+        "surface_normal_source": [
+          -0.21343871882967055,
+          0.9475307096092073,
+          0.23796946789834406
+        ],
+        "surface_normal_solver": [
+          -0.21343871882967055,
+          0.9475307096092073,
+          0.23796946789834406
+        ],
+        "surface_id": "box_1:x-",
+        "surface_type": "obb",
+        "signed_distance": 0.12685498479576487,
+        "normal_speed": 0.0,
+        "tangential_speed": 0.0
+      },
+      "right_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.1243157386779785,
+          0.06617552042007446,
+          0.5384169220924377
+        ],
+        "human_point_solver": [
+          -0.9561680737601385,
+          0.056278603699472206,
+          0.4578936801883909
+        ],
+        "human_point_provenance": "Leg",
+        "surface_point_source": [
+          -1.0833875768032442,
+          -0.4599574998641174,
+          0.5384169220924377
+        ],
+        "surface_point_solver": [
+          -0.9213609458724478,
+          -0.3911683004399949,
+          0.4578936801883909
+        ],
+        "surface_normal_source": [
+          -0.07755621465712345,
+          0.996987980653758,
+          0.0
+        ],
+        "surface_normal_solver": [
+          -0.07755621465712345,
+          0.996987980653758,
+          0.0
+        ],
+        "surface_id": "box_1:x-",
+        "surface_type": "obb",
+        "signed_distance": 0.44879868217407975,
+        "normal_speed": 0.0,
+        "tangential_speed": 0.0
+      },
+      "right_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.1754704535007479,
+          0.06701928973197938,
+          0.340890708565712
+        ],
+        "human_point_solver": [
+          -0.9996723167883026,
+          0.056996182623174456,
+          0.28990860926243994
+        ],
+        "human_point_provenance": "Leg_Foot_proxy",
+        "surface_point_source": [
+          -1.1754704535007479,
+          0.06701928973197938,
+          0.0
+        ],
+        "surface_point_solver": [
+          -0.9996723167883026,
+          0.056996182623174456,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.28990860926243994,
+        "normal_speed": 0.0,
+        "tangential_speed": 0.0
+      }
+    },
+    "flat_foot": {
+      "left": 0.0,
+      "right": 0.0
+    }
+  },
+  {
+    "contacts": {
+      "left_heel": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.2902389039993285,
+          0.2376358845233917,
+          0.10280885007977486
+        ],
+        "human_point_solver": [
+          -1.0972765079123177,
+          0.20209611779356,
+          0.0874332153900663
+        ],
+        "human_point_provenance": "Foot_to_ToeBase_proxy",
+        "surface_point_source": [
+          -1.2902389039993285,
+          0.23763588452339168,
+          0.0
+        ],
+        "surface_point_solver": [
+          -1.0972765079123177,
+          0.20209611779356,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.0874332153900663,
+        "normal_speed": -0.0001810865243277726,
+        "tangential_speed": 0.0016272808154637593
+      },
+      "left_toe": {
+        "score": 0.1364392576317644,
+        "state": "NONE",
+        "human_point_source": [
+          -1.1020436525344848,
+          0.2707832157611847,
+          0.0313425786793232
+        ],
+        "human_point_solver": [
+          -0.9372269018332161,
+          0.2302860814929008,
+          0.026655121912393304
+        ],
+        "human_point_provenance": "ToeBase",
+        "surface_point_source": [
+          -1.1020436525344846,
+          0.27078321576118464,
+          0.0
+        ],
+        "surface_point_solver": [
+          -0.9372269018332161,
+          0.2302860814929008,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.026655121912393304,
+        "normal_speed": -0.0007010487715402788,
+        "tangential_speed": 0.0007405368733622694
+      },
+      "left_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.181471586227417,
+          0.6627968549728394,
+          0.9901171326637268
+        ],
+        "human_point_solver": [
+          -1.004775946776072,
+          0.5636719031069013,
+          0.8420396148231294
+        ],
+        "human_point_provenance": "Hand",
+        "surface_point_source": [
+          -0.5349922803885395,
+          0.5872437203357954,
+          0.47
+        ],
+        "surface_point_solver": [
+          -0.45498121267709796,
+          0.49941815949446416,
+          0.39970888888888884
+        ],
+        "surface_normal_source": [
+          -0.7759309643523814,
+          0.0906819693829113,
+          0.624265904072952
+        ],
+        "surface_normal_solver": [
+          -0.7759309643523814,
+          0.0906819693829113,
+          0.624265904072952
+        ],
+        "surface_id": "box_2:x-",
+        "surface_type": "obb",
+        "signed_distance": 0.7085614044206127,
+        "normal_speed": -0.018535030199818642,
+        "tangential_speed": 0.01181054194591983
+      },
+      "left_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.1716497421264649,
+          0.2544806957244873,
+          0.5338459849357605
+        ],
+        "human_point_solver": [
+          -0.9964230140262179,
+          0.21642169389724727,
+          0.45400635207759005
+        ],
+        "human_point_provenance": "Leg",
+        "surface_point_source": [
+          -1.1716497421264649,
+          0.2544806957244873,
+          0.0
+        ],
+        "surface_point_solver": [
+          -0.9964230140262179,
+          0.21642169389724727,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.45400635207759005,
+        "normal_speed": -0.0007897570398124332,
+        "tangential_speed": 0.0035470532828847864
+      },
+      "left_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.206489394903183,
+          0.25016347110271453,
+          0.33284431315958507
+        ],
+        "human_point_solver": [
+          -1.0260522031765513,
+          0.21275013420224187,
+          0.28306559699149597
+        ],
+        "human_point_provenance": "Leg_Foot_proxy",
+        "surface_point_source": [
+          -1.206489394903183,
+          0.25016347110271453,
+          0.0
+        ],
+        "surface_point_solver": [
+          -1.0260522031765513,
+          0.21275013420224187,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.28306559699149597,
+        "normal_speed": -0.0005670390915535339,
+        "tangential_speed": 0.00235551607522811
+      },
+      "right_heel": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.2788706817626954,
+          0.07312744104862214,
+          0.11663058280944824
+        ],
+        "human_point_solver": [
+          -1.0876084664679633,
+          0.0621908259762393,
+          0.09918783120261297
+        ],
+        "human_point_provenance": "Foot_to_ToeBase_proxy",
+        "surface_point_source": [
+          -1.2788706817626954,
+          0.07312744104862212,
+          0.0
+        ],
+        "surface_point_solver": [
+          -1.0876084664679633,
+          0.0621908259762393,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.09918783120261297,
+        "normal_speed": 0.0007046731379301008,
+        "tangential_speed": 0.0010660782730921524
+      },
+      "right_toe": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.091940689086914,
+          0.049995437264442444,
+          0.038236045837402345
+        ],
+        "human_point_solver": [
+          -0.9286348926968044,
+          0.04251834186911582,
+          0.03251763275994195
+        ],
+        "human_point_provenance": "ToeBase",
+        "surface_point_source": [
+          -1.091940689086914,
+          0.04999543726444244,
+          0.0
+        ],
+        "surface_point_solver": [
+          -0.9286348926968044,
+          0.04251834186911582,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.03251763275994195,
+        "normal_speed": -0.00018463992410219787,
+        "tangential_speed": 0.0003309238514938359
+      },
+      "right_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.1331501960754395,
+          -0.3199525237083435,
+          0.9853175282478333
+        ],
+        "human_point_solver": [
+          -0.9636812889734904,
+          -0.27210184627374007,
+          0.8379578179121017
+        ],
+        "human_point_provenance": "Hand",
+        "surface_point_source": [
+          -1.1018944055840851,
+          -0.46139715556403943,
+          0.95
+        ],
+        "surface_point_solver": [
+          -0.9370999755933985,
+          -0.3923926476319064,
+          0.8079222222222221
+        ],
+        "surface_normal_source": [
+          -0.20962959173933793,
+          0.948655591924069,
+          0.23687127765601462
+        ],
+        "surface_normal_solver": [
+          -0.20962959173933793,
+          0.948655591924069,
+          0.23687127765601462
+        ],
+        "surface_id": "box_1:x-",
+        "surface_type": "obb",
+        "signed_distance": 0.1268013282151327,
+        "normal_speed": -0.0026289770951771763,
+        "tangential_speed": 0.026137024030438726
+      },
+      "right_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.1241082429885865,
+          0.06622537523508072,
+          0.5383786678314209
+        ],
+        "human_point_solver": [
+          -0.9559916102038488,
+          0.05632100244992309,
+          0.45786114706463277
+        ],
+        "human_point_provenance": "Leg",
+        "surface_point_source": [
+          -1.0831774742889946,
+          -0.4599411558818074,
+          0.5383786678314209
+        ],
+        "surface_point_solver": [
+          -0.9211822653564404,
+          -0.3911544007910393,
+          0.45786114706463277
+        ],
+        "surface_normal_source": [
+          -0.07755621465658817,
+          0.9969879806537997,
+          0.0
+        ],
+        "surface_normal_solver": [
+          -0.07755621465658817,
+          0.9969879806537997,
+          0.0
+        ],
+        "surface_id": "box_1:x-",
+        "surface_type": "obb",
+        "signed_distance": 0.44882726737805495,
+        "normal_speed": 0.001429259957180197,
+        "tangential_speed": 0.009107460028674956
+      },
+      "right_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.1753504192829134,
+          0.06705424822866918,
+          0.34087506733834744
+        ],
+        "human_point_solver": [
+          -0.999570234354602,
+          0.05702591288247042,
+          0.28989530726752344
+        ],
+        "human_point_provenance": "Leg_Foot_proxy",
+        "surface_point_source": [
+          -1.1753504192829134,
+          0.06705424822866916,
+          0.0
+        ],
+        "surface_point_solver": [
+          -0.999570234354602,
+          0.05702591288247042,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.28989530726752344,
+        "normal_speed": -0.0006650997458251817,
+        "tangential_speed": 0.005316180863185148
+      }
+    },
+    "flat_foot": {
+      "left": 0.0,
+      "right": 0.0
+    }
+  },
+  {
+    "contacts": {
+      "left_heel": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.2902231712341308,
+          0.23765371942520142,
+          0.10284519985318184
+        ],
+        "human_point_solver": [
+          -1.0972631280695595,
+          0.20211128538672127,
+          0.08746412885291709
+        ],
+        "human_point_provenance": "Foot_to_ToeBase_proxy",
+        "surface_point_source": [
+          -1.2902231712341306,
+          0.2376537194252014,
+          0.0
+        ],
+        "surface_point_solver": [
+          -1.0972631280695595,
+          0.20211128538672127,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.08746412885291709,
+        "normal_speed": 0.0015456731425396442,
+        "tangential_speed": 0.0010112814575325372
+      },
+      "left_toe": {
+        "score": 0.19056955267625073,
+        "state": "STATIC",
+        "human_point_source": [
+          -1.1020407676696777,
+          0.27079530954360964,
+          0.0313424713909626
+        ],
+        "human_point_solver": [
+          -0.9372244484159681,
+          0.23029636658297645,
+          0.026655030669603078
+        ],
+        "human_point_provenance": "ToeBase",
+        "surface_point_source": [
+          -1.1020407676696777,
+          0.27079530954360964,
+          0.0
+        ],
+        "surface_point_solver": [
+          -0.9372244484159681,
+          0.23029636658297645,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.026655030669603078,
+        "normal_speed": -4.562139511304908e-06,
+        "tangential_speed": 0.0005286831141074713
+      },
+      "left_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.1810229063034057,
+          0.6625909805297852,
+          0.9899857044219971
+        ],
+        "human_point_solver": [
+          -1.004394369427363,
+          0.5634968183305528,
+          0.8419278424051072
+        ],
+        "human_point_provenance": "Hand",
+        "surface_point_source": [
+          -0.5349922803885395,
+          0.5872437203357954,
+          0.47
+        ],
+        "surface_point_solver": [
+          -0.45498121267709796,
+          0.49941815949446416,
+          0.39970888888888884
+        ],
+        "surface_normal_source": [
+          -0.7758103671826977,
+          0.09048361370566459,
+          0.6244445450339141
+        ],
+        "surface_normal_solver": [
+          -0.7758103671826977,
+          0.09048361370566459,
+          0.6244445450339141
+        ],
+        "surface_id": "box_2:x-",
+        "surface_type": "obb",
+        "signed_distance": 0.7081797043801057,
+        "normal_speed": -0.019083482149930834,
+        "tangential_speed": 0.010377536918828678
+      },
+      "left_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.1714848756790162,
+          0.2545443594455719,
+          0.5338469982147217
+        ],
+        "human_point_solver": [
+          -0.9962828042719098,
+          0.21647583635515635,
+          0.45400721381505327
+        ],
+        "human_point_provenance": "Leg",
+        "surface_point_source": [
+          -1.1714848756790162,
+          0.2545443594455719,
+          0.0
+        ],
+        "surface_point_solver": [
+          -0.9962828042719098,
+          0.21647583635515635,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.45400721381505327,
+        "normal_speed": 4.308687316101345e-05,
+        "tangential_speed": 0.007515015128322044
+      },
+      "left_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.206392903327942,
+          0.250205946713686,
+          0.3328576391190291
+        ],
+        "human_point_solver": [
+          -1.0259701424524519,
+          0.21278625734961695,
+          0.28307692997967204
+        ],
+        "human_point_provenance": "Leg_Foot_proxy",
+        "surface_point_source": [
+          -1.206392903327942,
+          0.250205946713686,
+          0.0
+        ],
+        "surface_point_solver": [
+          -1.0259701424524519,
+          0.21278625734961695,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.28307692997967204,
+        "normal_speed": 0.0005666494088035767,
+        "tangential_speed": 0.004482980095875603
+      },
+      "right_heel": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.2788528957366943,
+          0.07314349019527436,
+          0.11666015067696572
+        ],
+        "human_point_solver": [
+          -1.087593340440962,
+          0.06220447488384776,
+          0.09921297703127728
+        ],
+        "human_point_provenance": "Foot_to_ToeBase_proxy",
+        "surface_point_source": [
+          -1.2788528957366943,
+          0.07314349019527436,
+          0.0
+        ],
+        "surface_point_solver": [
+          -1.087593340440962,
+          0.06220447488384776,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.09921297703127728,
+        "normal_speed": 0.0012572914332154017,
+        "tangential_speed": 0.001018687110636337
+      },
+      "right_toe": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.0919381618499755,
+          0.04999254643917084,
+          0.03823469653725624
+        ],
+        "human_point_solver": [
+          -0.9286327434221902,
+          0.04251588338282373,
+          0.0325164852551288
+        ],
+        "human_point_provenance": "ToeBase",
+        "surface_point_source": [
+          -1.0919381618499755,
+          0.04999254643917084,
+          0.0
+        ],
+        "surface_point_solver": [
+          -0.9286327434221902,
+          0.04251588338282373,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.0325164852551288,
+        "normal_speed": -5.7375240657478455e-05,
+        "tangential_speed": 0.00016327535190600848
+      },
+      "right_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.1325368881225586,
+          -0.3198151648044586,
+          0.9851931214332581
+        ],
+        "human_point_solver": [
+          -0.9631597046322291,
+          -0.2719850301570362,
+          0.8378520168277952
+        ],
+        "human_point_provenance": "Hand",
+        "surface_point_source": [
+          -1.1018944055840851,
+          -0.46139715556403943,
+          0.95
+        ],
+        "surface_point_solver": [
+          -0.9370999755933985,
+          -0.3923926476319064,
+          0.8079222222222221
+        ],
+        "surface_normal_source": [
+          -0.20555252814106056,
+          0.9497447246102283,
+          0.2360786230260168
+        ],
+        "surface_normal_solver": [
+          -0.20555252814106056,
+          0.9497447246102283,
+          0.2360786230260168
+        ],
+        "surface_id": "box_1:x-",
+        "surface_type": "obb",
+        "signed_distance": 0.12677891445106354,
+        "normal_speed": -0.0010622431846900701,
+        "tangential_speed": 0.0272230947624336
+      },
+      "right_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.1239248991012574,
+          0.0662930116057396,
+          0.5383578300476074
+        ],
+        "human_point_solver": [
+          -0.955835686413447,
+          0.05637852342559231,
+          0.4578434256871541
+        ],
+        "human_point_provenance": "Leg",
+        "surface_point_source": [
+          -1.0829900033883477,
+          -0.4599265724243236,
+          0.5383578300476074
+        ],
+        "surface_point_solver": [
+          -0.9210228317704903,
+          -0.3911419983706414,
+          0.4578434256871541
+        ],
+        "surface_normal_source": [
+          -0.07755621465574104,
+          0.9969879806538656,
+          0.0
+        ],
+        "surface_normal_solver": [
+          -0.07755621465574104,
+          0.9969879806538656,
+          0.0
+        ],
+        "surface_id": "box_1:x-",
+        "surface_type": "obb",
+        "signed_distance": 0.4488725222447855,
+        "normal_speed": 0.002262743120967846,
+        "tangential_speed": 0.008044708773841502
+      },
+      "right_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.1752430784702301,
+          0.0670968059450388,
+          0.340873868688941
+        ],
+        "human_point_solver": [
+          -0.9994789469567934,
+          0.057062105855925215,
+          0.28989428788279487
+        ],
+        "human_point_provenance": "Leg_Foot_proxy",
+        "surface_point_source": [
+          -1.1752430784702301,
+          0.06709680594503879,
+          0.0
+        ],
+        "surface_point_solver": [
+          -0.9994789469567934,
+          0.057062105855925215,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.28989428788279487,
+        "normal_speed": -5.096923642866624e-05,
+        "tangential_speed": 0.0049100204495927694
+      }
+    },
+    "flat_foot": {
+      "left": 0.0,
+      "right": 0.0
+    }
+  },
+  {
+    "contacts": {
+      "left_heel": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.290164840698242,
+          0.23758443641662597,
+          0.10291000720858574
+        ],
+        "human_point_solver": [
+          -1.0972135211893714,
+          0.20205236403698387,
+          0.08751924390827946
+        ],
+        "human_point_provenance": "Foot_to_ToeBase_proxy",
+        "surface_point_source": [
+          -1.290164840698242,
+          0.23758443641662594,
+          0.0
+        ],
+        "surface_point_solver": [
+          -1.0972135211893714,
+          0.20205236403698387,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.08751924390827946,
+        "normal_speed": 0.002755752768118791,
+        "tangential_speed": 0.003851158272802441
+      },
+      "left_toe": {
+        "score": 0.23694608434100065,
+        "state": "STATIC",
+        "human_point_source": [
+          -1.102016067504883,
+          0.2707796573638916,
+          0.03134373351931572
+        ],
+        "human_point_solver": [
+          -0.9372034422980414,
+          0.23028305527369178,
+          0.026656104039649166
+        ],
+        "human_point_provenance": "ToeBase",
+        "surface_point_source": [
+          -1.102016067504883,
+          0.2707796573638916,
+          0.0
+        ],
+        "surface_point_solver": [
+          -0.9372034422980414,
+          0.23028305527369178,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.026656104039649166,
+        "normal_speed": 5.366850230441311e-05,
+        "tangential_speed": 0.0012434306828496783
+      },
+      "left_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.180493426322937,
+          0.6626438617706298,
+          0.9899133205413818
+        ],
+        "human_point_solver": [
+          -1.0039440761195286,
+          0.5635417908880445,
+          0.8418662839359706
+        ],
+        "human_point_provenance": "Hand",
+        "surface_point_source": [
+          -0.5349922803885395,
+          0.5872437203357954,
+          0.47
+        ],
+        "surface_point_solver": [
+          -0.45498121267709796,
+          0.49941815949446416,
+          0.39970888888888884
+        ],
+        "surface_normal_source": [
+          -0.7755947138597756,
+          0.0905962003157782,
+          0.6246960607536407
+        ],
+        "surface_normal_solver": [
+          -0.7755947138597756,
+          0.0905962003157782,
+          0.6246960607536407
+        ],
+        "surface_id": "box_2:x-",
+        "surface_type": "obb",
+        "signed_distance": 0.7077960349250029,
+        "normal_speed": -0.019181304979556727,
+        "tangential_speed": 0.012390223448614183
+      },
+      "left_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.1713209390640258,
+          0.2545920491218567,
+          0.5338760256767273
+        ],
+        "human_point_solver": [
+          -0.9961433852884503,
+          0.2165163937754101,
+          0.45403190005885224
+        ],
+        "human_point_provenance": "Leg",
+        "surface_point_source": [
+          -1.1713209390640258,
+          0.2545920491218567,
+          0.0
+        ],
+        "surface_point_solver": [
+          -0.9961433852884503,
+          0.2165163937754101,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.45403190005885224,
+        "normal_speed": 0.0012343121899488496,
+        "tangential_speed": 0.007259916887703568
+      },
+      "left_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.2062797999382018,
+          0.2502062779664993,
+          0.3328965122997761
+        ],
+        "human_point_solver": [
+          -1.0258739543029995,
+          0.2127865390617317,
+          0.2831099894602762
+        ],
+        "human_point_provenance": "Leg_Foot_proxy",
+        "surface_point_source": [
+          -1.2062797999382018,
+          0.25020627796649925,
+          0.0
+        ],
+        "surface_point_solver": [
+          -1.0258739543029995,
+          0.2127865390617317,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.2831099894602762,
+        "normal_speed": 0.001652974030208476,
+        "tangential_speed": 0.004809428099259986
+      },
+      "right_heel": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.2788400259017945,
+          0.07315384611487388,
+          0.1166958130300045
+        ],
+        "human_point_solver": [
+          -1.0875823953613704,
+          0.06221328201813829,
+          0.09924330588129492
+        ],
+        "human_point_provenance": "Foot_to_ToeBase_proxy",
+        "surface_point_source": [
+          -1.2788400259017942,
+          0.07315384611487388,
+          0.0
+        ],
+        "surface_point_solver": [
+          -1.0875823953613704,
+          0.06221328201813829,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.09924330588129492,
+        "normal_speed": 0.0015164425008817872,
+        "tangential_speed": 0.0007024250523660314
+      },
+      "right_toe": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.0919347524642944,
+          0.0500031016767025,
+          0.03824776634573936
+        ],
+        "human_point_solver": [
+          -0.9286298439290787,
+          0.04252486002594232,
+          0.03252760040114323
+        ],
+        "human_point_provenance": "ToeBase",
+        "surface_point_source": [
+          -1.0919347524642942,
+          0.0500031016767025,
+          0.0
+        ],
+        "surface_point_solver": [
+          -0.9286298439290787,
+          0.04252486002594232,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.03252760040114323,
+        "normal_speed": 0.0005557573007214378,
+        "tangential_speed": 0.00047166508770052226
+      },
+      "right_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.131882905960083,
+          -0.3195933520793915,
+          0.9851657629013062
+        ],
+        "human_point_solver": [
+          -0.962603529135386,
+          -0.2717963907572958,
+          0.8378287499162885
+        ],
+        "human_point_provenance": "Hand",
+        "surface_point_source": [
+          -1.1018944055840851,
+          -0.46139715556403943,
+          0.95
+        ],
+        "surface_point_solver": [
+          -0.9370999755933985,
+          -0.3923926476319064,
+          0.8079222222222221
+        ],
+        "surface_normal_source": [
+          -0.2010693019199995,
+          0.9507775120052234,
+          0.23578222683349434
+        ],
+        "surface_normal_solver": [
+          -0.2010693019199995,
+          0.9507775120052234,
+          0.23578222683349434
+        ],
+        "surface_id": "box_1:x-",
+        "surface_type": "obb",
+        "signed_distance": 0.12683960555756082,
+        "normal_speed": 0.0031019178024755574,
+        "tangential_speed": 0.029223646160805045
+      },
+      "right_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.1238147258758544,
+          0.06637087762355805,
+          0.538362979888916
+        ],
+        "human_point_solver": [
+          -0.9557419902059765,
+          0.05644474414785702,
+          0.4578478053410847
+        ],
+        "human_point_provenance": "Leg",
+        "surface_point_source": [
+          -1.082874472047675,
+          -0.459917585182096,
+          0.5383629798889159
+        ],
+        "surface_point_solver": [
+          -0.920924578783656,
+          -0.39113435522041806,
+          0.4578478053410847
+        ],
+        "surface_normal_source": [
+          -0.07755621465464171,
+          0.9969879806539511,
+          0.0
+        ],
+        "surface_normal_solver": [
+          -0.07755621465464171,
+          0.9969879806539511,
+          0.0
+        ],
+        "surface_id": "box_1:x-",
+        "surface_type": "obb",
+        "signed_distance": 0.4489312767884313,
+        "normal_speed": 0.002937727049461824,
+        "tangential_speed": 0.004932354567877333
+      },
+      "right_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.1751776230335236,
+          0.06714431203901769,
+          0.34089052520692353
+        ],
+        "human_point_solver": [
+          -0.9994232807442875,
+          0.057102507149626815,
+          0.2899084533259769
+        ],
+        "human_point_provenance": "Leg_Foot_proxy",
+        "surface_point_source": [
+          -1.1751776230335234,
+          0.06714431203901769,
+          0.0
+        ],
+        "surface_point_solver": [
+          -0.9994232807442875,
+          0.057102507149626815,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.2899084533259769,
+        "normal_speed": 0.0007082721591028518,
+        "tangential_speed": 0.003439110258304493
+      }
+    },
+    "flat_foot": {
+      "left": 0.0,
+      "right": 0.0
+    }
+  },
+  {
+    "contacts": {
+      "left_heel": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.290131474494934,
+          0.23758895659446716,
+          0.10298520824313163
+        ],
+        "human_point_solver": [
+          -1.097185145087136,
+          0.2020562081971168,
+          0.0875831982103255
+        ],
+        "human_point_provenance": "Foot_to_ToeBase_proxy",
+        "surface_point_source": [
+          -1.290131474494934,
+          0.23758895659446713,
+          0.0
+        ],
+        "surface_point_solver": [
+          -1.097185145087136,
+          0.2020562081971168,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.0875831982103255,
+        "normal_speed": 0.0031977151023016015,
+        "tangential_speed": 0.0014317652960654033
+      },
+      "left_toe": {
+        "score": 0.2765919755949293,
+        "state": "STATIC",
+        "human_point_source": [
+          -1.102009129524231,
+          0.2707871377468109,
+          0.031350743025541306
+        ],
+        "human_point_solver": [
+          -0.9371975419309403,
+          0.23028941692378782,
+          0.026662065235277012
+        ],
+        "human_point_provenance": "ToeBase",
+        "surface_point_source": [
+          -1.102009129524231,
+          0.2707871377468109,
+          0.0
+        ],
+        "surface_point_solver": [
+          -0.9371975419309403,
+          0.23028941692378782,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.026662065235277012,
+        "normal_speed": 0.0002980597813923014,
+        "tangential_speed": 0.00043383442657476994
+      },
+      "left_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.180055069923401,
+          0.6629595160484314,
+          0.9902240753173828
+        ],
+        "human_point_solver": [
+          -1.0035712783548567,
+          0.5638102373149659,
+          0.8421305636088052
+        ],
+        "human_point_provenance": "Hand",
+        "surface_point_source": [
+          -0.5349922803885395,
+          0.5872437203357954,
+          0.47
+        ],
+        "surface_point_solver": [
+          -0.45498121267709796,
+          0.49941815949446416,
+          0.39970888888888884
+        ],
+        "surface_normal_source": [
+          -0.7751770209186356,
+          0.0909882664280284,
+          0.6251573574806036
+        ],
+        "surface_normal_solver": [
+          -0.7751770209186356,
+          0.0909882664280284,
+          0.6251573574806036
+        ],
+        "surface_id": "box_2:x-",
+        "surface_type": "obb",
+        "signed_distance": 0.7076965010702183,
+        "normal_speed": -0.004967120185200147,
+        "tangential_speed": 0.026029622056954624
+      },
+      "left_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.171156907081604,
+          0.25466575622558596,
+          0.5339110374450684
+        ],
+        "human_point_solver": [
+          -0.9960038852002884,
+          0.21657907757229275,
+          0.4540616756227281
+        ],
+        "human_point_provenance": "Leg",
+        "surface_point_source": [
+          -1.171156907081604,
+          0.25466575622558596,
+          0.0
+        ],
+        "surface_point_solver": [
+          -0.9960038852002884,
+          0.21657907757229275,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.4540616756227281,
+        "normal_speed": 0.0014887781937922284,
+        "tangential_speed": 0.007646818454232798
+      },
+      "left_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.2061771690845489,
+          0.25024914234876633,
+          0.3329428966343403
+        ],
+        "human_point_solver": [
+          -1.0257866724636817,
+          0.21282299283749526,
+          0.2831494367599156
+        ],
+        "human_point_provenance": "Leg_Foot_proxy",
+        "surface_point_source": [
+          -1.2061771690845486,
+          0.25024914234876633,
+          0.0
+        ],
+        "surface_point_solver": [
+          -1.0257866724636817,
+          0.21282299283749526,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.2831494367599156,
+        "normal_speed": 0.001972364981969732,
+        "tangential_speed": 0.004729428412113748
+      },
+      "right_heel": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.2788234615325926,
+          0.07318277838826179,
+          0.11672220838069916
+        ],
+        "human_point_solver": [
+          -1.087568308285607,
+          0.062237887309306184,
+          0.09926575366065236
+        ],
+        "human_point_provenance": "Foot_to_ToeBase_proxy",
+        "surface_point_source": [
+          -1.2788234615325924,
+          0.07318277838826179,
+          0.0
+        ],
+        "surface_point_solver": [
+          -1.087568308285607,
+          0.062237887309306184,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.09926575366065236,
+        "normal_speed": 0.001122388967872423,
+        "tangential_speed": 0.001417626587841327
+      },
+      "right_toe": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.0919286251068114,
+          0.05001085475087166,
+          0.03825572431087494
+        ],
+        "human_point_solver": [
+          -0.9286246329519482,
+          0.04253145358479685,
+          0.03253436820838186
+        ],
+        "human_point_provenance": "ToeBase",
+        "surface_point_source": [
+          -1.0919286251068114,
+          0.05001085475087166,
+          0.0
+        ],
+        "surface_point_solver": [
+          -0.9286246329519482,
+          0.04253145358479685,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.03253436820838186,
+        "normal_speed": 0.00033839036193174243,
+        "tangential_speed": 0.0004202062024242068
+      },
+      "right_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.131125259399414,
+          -0.31929410696029664,
+          0.9850850105285645
+        ],
+        "human_point_solver": [
+          -0.9619591928270127,
+          -0.2715418994082345,
+          0.8377600745095146
+        ],
+        "human_point_provenance": "Hand",
+        "surface_point_source": [
+          -1.1018944055840851,
+          -0.46139715556403943,
+          0.95
+        ],
+        "surface_point_solver": [
+          -0.9370999755933985,
+          -0.3923926476319064,
+          0.8079222222222221
+        ],
+        "surface_normal_source": [
+          -0.1958379257225457,
+          0.9520476703562186,
+          0.23505901433041784
+        ],
+        "surface_normal_solver": [
+          -0.1958379257225457,
+          0.9520476703562186,
+          0.23505901433041784
+        ],
+        "surface_id": "box_1:x-",
+        "surface_type": "obb",
+        "signed_distance": 0.12693769409992886,
+        "normal_speed": 0.004997981823752484,
+        "tangential_speed": 0.034447768708821214
+      },
+      "right_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.1237086534500123,
+          0.06646015644073486,
+          0.5383616924285889
+        ],
+        "human_point_solver": [
+          -0.9556517815007103,
+          0.056520670821931615,
+          0.4578467104276021
+        ],
+        "human_point_provenance": "Leg",
+        "surface_point_source": [
+          -1.0827621343730143,
+          -0.45990884637678486,
+          0.5383616924285889
+        ],
+        "surface_point_solver": [
+          -0.9208290418323389,
+          -0.3911269233519901,
+          0.4578467104276021
+        ],
+        "surface_normal_source": [
+          -0.07755621465335645,
+          0.9969879806540511,
+          0.0
+        ],
+        "surface_normal_solver": [
+          -0.07755621465335645,
+          0.9969879806540511,
+          0.0
+        ],
+        "surface_id": "box_1:x-",
+        "surface_type": "obb",
+        "signed_distance": 0.4489999785267686,
+        "normal_speed": 0.0034350867877088803,
+        "tangential_speed": 0.0047915917714611385
+      },
+      "right_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.1751128566265105,
+          0.06720435008406639,
+          0.3408998800814152
+        ],
+        "human_point_solver": [
+          -0.9993682005132567,
+          0.05715356617149379,
+          0.2899164091270168
+        ],
+        "human_point_provenance": "Leg_Foot_proxy",
+        "surface_point_source": [
+          -1.1751128566265103,
+          0.06720435008406639,
+          0.0
+        ],
+        "surface_point_solver": [
+          -0.9993682005132567,
+          0.05715356617149379,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.2899164091270168,
+        "normal_speed": 0.0003977900519952504,
+        "tangential_speed": 0.003755281468952557
+      }
+    },
+    "flat_foot": {
+      "left": 0.0,
+      "right": 0.0
+    }
+  },
+  {
+    "contacts": {
+      "left_heel": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.2900968074798584,
+          0.23759438037872316,
+          0.10305891767144204
+        ],
+        "human_point_solver": [
+          -1.0971556627167596,
+          0.2020608208243052,
+          0.08764588398413525
+        ],
+        "human_point_provenance": "Foot_to_ToeBase_proxy",
+        "surface_point_source": [
+          -1.2900968074798584,
+          0.23759438037872316,
+          0.0
+        ],
+        "surface_point_solver": [
+          -1.0971556627167596,
+          0.2020608208243052,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.08764588398413525,
+        "normal_speed": 0.0031342886904879574,
+        "tangential_speed": 0.0014920510150363277
+      },
+      "left_toe": {
+        "score": 0.3106483380530475,
+        "state": "STATIC",
+        "human_point_source": [
+          -1.1020009517669678,
+          0.2707878351211548,
+          0.031352732330560684
+        ],
+        "human_point_solver": [
+          -0.9371905872027078,
+          0.23029001000192428,
+          0.02666375702867905
+        ],
+        "human_point_provenance": "ToeBase",
+        "surface_point_source": [
+          -1.1020009517669676,
+          0.2707878351211548,
+          0.0
+        ],
+        "surface_point_solver": [
+          -0.9371905872027078,
+          0.23029001000192428,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.02666375702867905,
+        "normal_speed": 8.458967010183116e-05,
+        "tangential_speed": 0.0003489985188519634
+      },
+      "left_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.179445743560791,
+          0.6623978018760681,
+          0.9897118806838989
+        ],
+        "human_point_solver": [
+          -1.0030530801349216,
+          0.5633325306177138,
+          0.8416949705282846
+        ],
+        "human_point_provenance": "Hand",
+        "surface_point_source": [
+          -0.5349922803885395,
+          0.5872437203357954,
+          0.47
+        ],
+        "surface_point_solver": [
+          -0.45498121267709796,
+          0.49941815949446416,
+          0.39970888888888884
+        ],
+        "surface_normal_source": [
+          -0.7752305981615172,
+          0.0904048886632682,
+          0.6251755559680165
+        ],
+        "surface_normal_solver": [
+          -0.7752305981615172,
+          0.0904048886632682,
+          0.6251755559680165
+        ],
+        "surface_id": "box_2:x-",
+        "surface_type": "obb",
+        "signed_distance": 0.706979147229613,
+        "normal_speed": -0.03586161415378292,
+        "tangential_speed": 0.020739591826687102
+      },
+      "left_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.1710652112960815,
+          0.254732608795166,
+          0.5339567065238953
+        ],
+        "human_point_solver": [
+          -0.9959259030289119,
+          0.21663593196868894,
+          0.45410051463709933
+        ],
+        "human_point_provenance": "Leg",
+        "surface_point_source": [
+          -1.1710652112960815,
+          0.254732608795166,
+          0.0
+        ],
+        "surface_point_solver": [
+          -0.9959259030289119,
+          0.21663593196868894,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.45410051463709933,
+        "normal_speed": 0.0019419507185619578,
+        "tangential_speed": 0.004825360463778898
+      },
+      "left_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.2061137437820435,
+          0.25028788670897484,
+          0.33299412392079836
+        ],
+        "human_point_solver": [
+          -1.025732732767529,
+          0.21285594276338812,
+          0.2831930027210878
+        ],
+        "human_point_provenance": "Leg_Foot_proxy",
+        "surface_point_source": [
+          -1.2061137437820435,
+          0.25028788670897484,
+          0.0
+        ],
+        "surface_point_solver": [
+          -1.025732732767529,
+          0.21285594276338812,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.2831930027210878,
+        "normal_speed": 0.002178298058611028,
+        "tangential_speed": 0.0031603751507520185
+      },
+      "right_heel": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.278798246383667,
+          0.07321137875318527,
+          0.11675838723778725
+        ],
+        "human_point_solver": [
+          -1.0875468642022872,
+          0.06226221033076444,
+          0.09929652176866928
+        ],
+        "human_point_provenance": "Foot_to_ToeBase_proxy",
+        "surface_point_source": [
+          -1.2787982463836667,
+          0.07321137875318526,
+          0.0
+        ],
+        "surface_point_solver": [
+          -1.0875468642022872,
+          0.06226221033076444,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.09929652176866928,
+        "normal_speed": 0.001538405400845766,
+        "tangential_speed": 0.0016213097192409479
+      },
+      "right_toe": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.0919253826141357,
+          0.05000524967908859,
+          0.038249824196100235
+        ],
+        "human_point_solver": [
+          -0.928621875392066,
+          0.042526686782638226,
+          0.03252935048855013
+        ],
+        "human_point_provenance": "ToeBase",
+        "surface_point_source": [
+          -1.0919253826141357,
+          0.050005249679088586,
+          0.0
+        ],
+        "surface_point_solver": [
+          -0.928621875392066,
+          0.042526686782638226,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.03252935048855013,
+        "normal_speed": -0.00025088599158659686,
+        "tangential_speed": 0.0002753476862234234
+      },
+      "right_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.1303380727767944,
+          -0.3189869523048401,
+          0.9850248694419861
+        ],
+        "human_point_solver": [
+          -0.9612897343370649,
+          -0.27128068143791617,
+          0.8377089278565512
+        ],
+        "human_point_provenance": "Hand",
+        "surface_point_source": [
+          -1.1018944055840851,
+          -0.46139715556403943,
+          0.95
+        ],
+        "surface_point_solver": [
+          -0.9370999755933985,
+          -0.3923926476319064,
+          0.8079222222222221
+        ],
+        "surface_normal_source": [
+          -0.1904026710611851,
+          0.9532977201290004,
+          0.23445741542893536
+        ],
+        "surface_normal_solver": [
+          -0.1904026710611851,
+          0.9532977201290004,
+          0.23445741542893536
+        ],
+        "surface_id": "box_1:x-",
+        "surface_type": "obb",
+        "signed_distance": 0.12704525707616005,
+        "normal_speed": 0.005478004942443,
+        "tangential_speed": 0.03560274085762284
+      },
+      "right_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.1236339807510376,
+          0.06653498113155365,
+          0.5383747220039368
+        ],
+        "human_point_solver": [
+          -0.9555882765187156,
+          0.05658430506454573,
+          0.45785779135757015
+        ],
+        "human_point_provenance": "Leg",
+        "surface_point_source": [
+          -1.0826821251876693,
+          -0.45990262242123353,
+          0.5383747220039368
+        ],
+        "surface_point_solver": [
+          -0.9207609984651578,
+          -0.39112163022356905,
+          0.45785779135757015
+        ],
+        "surface_normal_source": [
+          -0.07755621465226188,
+          0.9969879806541363,
+          0.0
+        ],
+        "surface_normal_solver": [
+          -0.07755621465226188,
+          0.9969879806541363,
+          0.0
+        ],
+        "surface_id": "box_1:x-",
+        "surface_type": "obb",
+        "signed_distance": 0.4490584958976375,
+        "normal_speed": 0.0029258684514617073,
+        "tangential_speed": 0.003457131796038612
+      },
+      "right_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.1750626027584077,
+          0.06725500673055648,
+          0.3409191846847534
+        ],
+        "human_point_solver": [
+          -0.9993254623903168,
+          0.05719664683507547,
+          0.289932826619678
+        ],
+        "human_point_provenance": "Leg_Foot_proxy",
+        "surface_point_source": [
+          -1.1750626027584077,
+          0.06725500673055648,
+          0.0
+        ],
+        "surface_point_solver": [
+          -0.9993254623903168,
+          0.05719664683507547,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.289932826619678,
+        "normal_speed": 0.0008208746330590211,
+        "tangential_speed": 0.0030341764644880955
+      }
+    },
+    "flat_foot": {
+      "left": 0.0,
+      "right": 0.0
+    }
+  },
+  {
+    "contacts": {
+      "left_heel": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.2900480184555052,
+          0.23760389232635498,
+          0.1031046970486641
+        ],
+        "human_point_solver": [
+          -1.0971141703620484,
+          0.20206891020732454,
+          0.08768481680116387
+        ],
+        "human_point_provenance": "Foot_to_ToeBase_proxy",
+        "surface_point_source": [
+          -1.2900480184555052,
+          0.23760389232635498,
+          0.0
+        ],
+        "surface_point_solver": [
+          -1.0971141703620484,
+          0.20206891020732454,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.08768481680116387,
+        "normal_speed": 0.001946640851430842,
+        "tangential_speed": 0.0021136778474449822
+      },
+      "left_toe": {
+        "score": 0.3395853807409707,
+        "state": "STATIC",
+        "human_point_source": [
+          -1.1019777059555054,
+          0.2707970380783081,
+          0.03133152276277542
+        ],
+        "human_point_solver": [
+          -0.937170817931493,
+          0.2302978366057078,
+          0.026645719469587003
+        ],
+        "human_point_provenance": "ToeBase",
+        "surface_point_source": [
+          -1.1019777059555054,
+          0.2707970380783081,
+          0.0
+        ],
+        "surface_point_solver": [
+          -0.937170817931493,
+          0.2302978366057078,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.026645719469587003,
+        "normal_speed": -0.0009018779546022745,
+        "tangential_speed": 0.0010631084271433037
+      },
+      "left_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.1787883043289185,
+          0.6620763182640076,
+          0.9894062876701355
+        ],
+        "human_point_solver": [
+          -1.0024939645926156,
+          0.563059126665857,
+          0.8414350806474684
+        ],
+        "human_point_provenance": "Hand",
+        "surface_point_source": [
+          -0.5349922803885395,
+          0.5872437203357954,
+          0.47
+        ],
+        "surface_point_solver": [
+          -0.45498121267709796,
+          0.49941815949446416,
+          0.39970888888888884
+        ],
+        "surface_normal_source": [
+          -0.7751201489476622,
+          0.09009725486845817,
+          0.6253568895922728
+        ],
+        "surface_normal_solver": [
+          -0.7751201489476622,
+          0.09009725486845817,
+          0.6253568895922728
+        ],
+        "surface_id": "box_2:x-",
+        "surface_type": "obb",
+        "signed_distance": 0.7063585592450772,
+        "normal_speed": -0.031026929773365186,
+        "tangential_speed": 0.013213110177497272
+      },
+      "left_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.1709164142608643,
+          0.2547964692115784,
+          0.5339682340621948
+        ],
+        "human_point_solver": [
+          -0.9957993594169616,
+          0.21669024170504675,
+          0.4541103181680043
+        ],
+        "human_point_provenance": "Leg",
+        "surface_point_source": [
+          -1.1709164142608643,
+          0.2547964692115784,
+          0.0
+        ],
+        "surface_point_solver": [
+          -0.9957993594169616,
+          0.21669024170504675,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.4541103181680043,
+        "normal_speed": 0.0004901765452480777,
+        "tangential_speed": 0.006885280166537102
+      },
+      "left_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.206012464761734,
+          0.2503272598981857,
+          0.33301447056233885
+        ],
+        "human_point_solver": [
+          -1.025646600587368,
+          0.21288942747341258,
+          0.283210306409349
+        ],
+        "human_point_provenance": "Leg_Foot_proxy",
+        "surface_point_source": [
+          -1.2060124647617338,
+          0.2503272598981857,
+          0.0
+        ],
+        "surface_point_solver": [
+          -1.025646600587368,
+          0.21288942747341258,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.283210306409349,
+        "normal_speed": 0.0008651844130597164,
+        "tangential_speed": 0.004620600140869368
+      },
+      "right_heel": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.278775821685791,
+          0.07324367305636406,
+          0.11679420644044876
+        ],
+        "human_point_solver": [
+          -1.0875277932425602,
+          0.06228967484149005,
+          0.09932698401057719
+        ],
+        "human_point_provenance": "Foot_to_ToeBase_proxy",
+        "surface_point_source": [
+          -1.2787758216857907,
+          0.07324367305636405,
+          0.0
+        ],
+        "surface_point_solver": [
+          -1.0875277932425602,
+          0.06228967484149005,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.09932698401057719,
+        "normal_speed": 0.0015231120953952682,
+        "tangential_speed": 0.001671825988481444
+      },
+      "right_toe": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.091915225982666,
+          0.05001925155520439,
+          0.03826185017824173
+        ],
+        "human_point_solver": [
+          -0.9286132377412584,
+          0.04253859460039271,
+          0.03253957791825135
+        ],
+        "human_point_provenance": "ToeBase",
+        "surface_point_source": [
+          -1.091915225982666,
+          0.05001925155520439,
+          0.0
+        ],
+        "surface_point_solver": [
+          -0.9286132377412584,
+          0.04253859460039271,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.03253957791825135,
+        "normal_speed": 0.0005113714850610296,
+        "tangential_speed": 0.000735535748873053
+      },
+      "right_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.1295554637908936,
+          -0.3187163174152374,
+          0.9850210666656494
+        ],
+        "human_point_solver": [
+          -0.9606241688728331,
+          -0.27105052149958075,
+          0.8377056938065421
+        ],
+        "human_point_provenance": "Hand",
+        "surface_point_source": [
+          -1.1018944055840851,
+          -0.46139715556403943,
+          0.95
+        ],
+        "surface_point_solver": [
+          -0.9370999755933985,
+          -0.3923926476319064,
+          0.8079222222222221
+        ],
+        "surface_normal_source": [
+          -0.18502719152183086,
+          0.9544043676592183,
+          0.23425891955388028
+        ],
+        "surface_normal_solver": [
+          -0.18502719152183086,
+          0.9544043676592183,
+          0.23425891955388028
+        ],
+        "surface_id": "box_1:x-",
+        "surface_type": "obb",
+        "signed_distance": 0.12713910160371725,
+        "normal_speed": 0.004788016836293488,
+        "tangential_speed": 0.03488521898248101
+      },
+      "right_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.1234851837158204,
+          0.0666069209575653,
+          0.5383718848228455
+        ],
+        "human_point_solver": [
+          -0.9554617329067654,
+          0.05664548588991164,
+          0.4578553784926732
+        ],
+        "human_point_provenance": "Leg",
+        "surface_point_source": [
+          -1.082528660586643,
+          -0.4598906843312333,
+          0.5383718848228455
+        ],
+        "surface_point_solver": [
+          -0.9206304853477961,
+          -0.3911114775412511,
+          0.4578553784926732
+        ],
+        "surface_normal_source": [
+          -0.07755621465130477,
+          0.9969879806542107,
+          0.0
+        ],
+        "surface_normal_solver": [
+          -0.07755621465130477,
+          0.9969879806542107,
+          0.0
+        ],
+        "surface_id": "box_1:x-",
+        "surface_type": "obb",
+        "signed_distance": 0.44910967820517117,
+        "normal_speed": 0.002559115200257728,
+        "tangential_speed": 0.006546482412637591
+      },
+      "right_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.174971880912781,
+          0.06730730541050434,
+          0.340931400731206
+        ],
+        "human_point_solver": [
+          -0.9992483085007138,
+          0.057241123956888906,
+          0.2899432156885167
+        ],
+        "human_point_provenance": "Leg_Foot_proxy",
+        "surface_point_source": [
+          -1.174971880912781,
+          0.06730730541050434,
+          0.0
+        ],
+        "surface_point_solver": [
+          -0.9992483085007138,
+          0.057241123956888906,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.2899432156885167,
+        "normal_speed": 0.0005194534419356023,
+        "tangential_speed": 0.004452790430080747
+      }
+    },
+    "flat_foot": {
+      "left": 0.0,
+      "right": 0.0
+    }
+  },
+  {
+    "contacts": {
+      "left_heel": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.290010022163391,
+          0.23761026215553283,
+          0.10312258580327036
+        ],
+        "human_point_solver": [
+          -1.0970818566265104,
+          0.2020743273931609,
+          0.0877000301931368
+        ],
+        "human_point_provenance": "Foot_to_ToeBase_proxy",
+        "surface_point_source": [
+          -1.2900100221633908,
+          0.2376102621555328,
+          0.0
+        ],
+        "surface_point_solver": [
+          -1.0970818566265104,
+          0.2020743273931609,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.0877000301931368,
+        "normal_speed": 0.0007606695986463186,
+        "tangential_speed": 0.0016382333524310871
+      },
+      "left_toe": {
+        "score": 0.3642241209185479,
+        "state": "STATIC",
+        "human_point_source": [
+          -1.101959729194641,
+          0.27079811692237854,
+          0.03129465058445931
+        ],
+        "human_point_solver": [
+          -0.9371555296950869,
+          0.2302987541026539,
+          0.0266143617303835
+        ],
+        "human_point_provenance": "ToeBase",
+        "surface_point_source": [
+          -1.101959729194641,
+          0.27079811692237854,
+          0.0
+        ],
+        "surface_point_solver": [
+          -0.9371555296950869,
+          0.2302987541026539,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.0266143617303835,
+        "normal_speed": -0.001567886960175159,
+        "tangential_speed": 0.0007657871327222859
+      },
+      "left_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.1782607078552245,
+          0.6619378447532653,
+          0.989156985282898
+        ],
+        "human_point_solver": [
+          -1.0020452731026541,
+          0.5629413626379436,
+          0.8412230628172556
+        ],
+        "human_point_provenance": "Hand",
+        "surface_point_source": [
+          -0.5349922803885395,
+          0.5872437203357954,
+          0.47
+        ],
+        "surface_point_solver": [
+          -0.45498121267709796,
+          0.49941815949446416,
+          0.39970888888888884
+        ],
+        "surface_normal_source": [
+          -0.7750236320205889,
+          0.08999308706103633,
+          0.6254914980164316
+        ],
+        "surface_normal_solver": [
+          -0.7750236320205889,
+          0.08999308706103633,
+          0.6254914980164316
+        ],
+        "surface_id": "box_2:x-",
+        "surface_type": "obb",
+        "signed_distance": 0.7058675859166011,
+        "normal_speed": -0.02454799034247023,
+        "tangential_speed": 0.006910580261605797
+      },
+      "left_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.1707170248031615,
+          0.2548743307590485,
+          0.5339435338973999
+        ],
+        "human_point_solver": [
+          -0.9956297897603774,
+          0.21675645862552853,
+          0.4540893120500776
+        ],
+        "human_point_provenance": "Leg",
+        "surface_point_source": [
+          -1.1707170248031613,
+          0.2548743307590485,
+          0.0
+        ],
+        "surface_point_solver": [
+          -0.9956297897603774,
+          0.21675645862552853,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.4540893120500776,
+        "normal_speed": -0.0010503058963357015,
+        "tangential_speed": 0.009101998268536724
+      },
+      "left_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.2058876729011536,
+          0.25037242934107784,
+          0.33300354488193995
+        ],
+        "human_point_solver": [
+          -1.0255404720428254,
+          0.21292784157517883,
+          0.283201014725152
+        ],
+        "human_point_provenance": "Leg_Foot_proxy",
+        "surface_point_source": [
+          -1.2058876729011536,
+          0.2503724293410778,
+          0.0
+        ],
+        "surface_point_solver": [
+          -1.0255404720428254,
+          0.21292784157517883,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.283201014725152,
+        "normal_speed": -0.00046458420984996085,
+        "tangential_speed": 0.0056433392555335195
+      },
+      "right_heel": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.2787468919754028,
+          0.07327468299865723,
+          0.11680737632513047
+        ],
+        "human_point_solver": [
+          -1.0875031901310812,
+          0.062316047074635825,
+          0.09933818426583872
+        ],
+        "human_point_provenance": "Foot_to_ToeBase_proxy",
+        "surface_point_source": [
+          -1.2787468919754026,
+          0.07327468299865723,
+          0.0
+        ],
+        "surface_point_solver": [
+          -1.0875031901310812,
+          0.062316047074635825,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.09933818426583872,
+        "normal_speed": 0.0005600127630768503,
+        "tangential_speed": 0.0018033356423192261
+      },
+      "right_toe": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.091901707649231,
+          0.05001168251037598,
+          0.03824951499700546
+        ],
+        "human_point_solver": [
+          -0.9286017411496903,
+          0.04253215754826863,
+          0.03252908753189775
+        ],
+        "human_point_provenance": "ToeBase",
+        "surface_point_source": [
+          -1.0919017076492308,
+          0.05001168251037597,
+          0.0
+        ],
+        "surface_point_solver": [
+          -0.9286017411496903,
+          0.04253215754826863,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.03252908753189775,
+        "normal_speed": -0.0005245193176798418,
+        "tangential_speed": 0.0006588005345533456
+      },
+      "right_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.1287337779998778,
+          -0.31847938895225525,
+          0.9850405931472779
+        ],
+        "human_point_solver": [
+          -0.9599253707567849,
+          -0.2708490270045068,
+          0.8377222999943627
+        ],
+        "human_point_provenance": "Hand",
+        "surface_point_source": [
+          -1.1018944055840851,
+          -0.46139715556403943,
+          0.95
+        ],
+        "surface_point_solver": [
+          -0.9370999755933985,
+          -0.3923926476319064,
+          0.8079222222222221
+        ],
+        "surface_normal_source": [
+          -0.17943353589095906,
+          0.9554709330573569,
+          0.2342624645139972
+        ],
+        "surface_normal_solver": [
+          -0.17943353589095906,
+          0.9554709330573569,
+          0.2342624645139972
+        ],
+        "surface_id": "box_1:x-",
+        "surface_type": "obb",
+        "signed_distance": 0.12720806481073357,
+        "normal_speed": 0.0035512261431384883,
+        "tangential_speed": 0.03619910638274458
+      },
+      "right_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.123291826248169,
+          0.06668093055486679,
+          0.5383358836174011
+        ],
+        "human_point_solver": [
+          -0.9552972931226094,
+          0.05670842694077226,
+          0.4578247614675098
+        ],
+        "human_point_provenance": "Leg",
+        "surface_point_source": [
+          -1.0823307435425205,
+          -0.4598752882628925,
+          0.5383358836174011
+        ],
+        "surface_point_solver": [
+          -0.9204621678971613,
+          -0.3910983840404643,
+          0.4578247614675098
+        ],
+        "surface_normal_source": [
+          -0.07755621465037026,
+          0.9969879806542834,
+          0.0
+        ],
+        "surface_normal_solver": [
+          -0.07755621465037026,
+          0.9969879806542834,
+          0.0
+        ],
+        "surface_id": "box_1:x-",
+        "surface_type": "obb",
+        "signed_distance": 0.4491596763537223,
+        "normal_speed": 0.002499907200036017,
+        "tangential_speed": 0.00857898687536352
+      },
+      "right_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.1748540329933168,
+          0.06735816754400731,
+          0.34091501586139206
+        ],
+        "human_point_solver": [
+          -0.9991480853923161,
+          0.057284379375759094,
+          0.2899292812670105
+        ],
+        "human_point_provenance": "Leg_Foot_proxy",
+        "surface_point_source": [
+          -1.1748540329933166,
+          0.0673581675440073,
+          0.0
+        ],
+        "surface_point_solver": [
+          -0.9991480853923161,
+          0.057284379375759094,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.2899292812670105,
+        "normal_speed": -0.0006967210753106023,
+        "tangential_speed": 0.005457953535556937
+      }
+    },
+    "flat_foot": {
+      "left": 0.0,
+      "right": 0.0
+    }
+  },
+  {
+    "contacts": {
+      "left_heel": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.289968077659607,
+          0.23763659620285035,
+          0.103168211132288
+        ],
+        "human_point_solver": [
+          -1.0970461851562923,
+          0.2020967230374018,
+          0.0877388320007258
+        ],
+        "human_point_provenance": "Foot_to_ToeBase_proxy",
+        "surface_point_source": [
+          -1.2899680776596067,
+          0.23763659620285033,
+          0.0
+        ],
+        "surface_point_solver": [
+          -1.0970461851562923,
+          0.2020967230374018,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.0877388320007258,
+        "normal_speed": 0.0019400903794500324,
+        "tangential_speed": 0.002105955049666728
+      },
+      "left_toe": {
+        "score": 0.3857291398786603,
+        "state": "STATIC",
+        "human_point_source": [
+          -1.1019368886947631,
+          0.2708027720451355,
+          0.031280408054590224
+        ],
+        "human_point_solver": [
+          -0.9371361051188574,
+          0.23030271302594074,
+          0.026602249249981506
+        ],
+        "human_point_provenance": "ToeBase",
+        "surface_point_source": [
+          -1.1019368886947631,
+          0.2708027720451355,
+          0.0
+        ],
+        "surface_point_solver": [
+          -0.9371361051188574,
+          0.23030271302594074,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.026602249249981506,
+        "normal_speed": -0.0006056240200997057,
+        "tangential_speed": 0.0009911952825839153
+      },
+      "left_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.1775964021682739,
+          0.6616263270378113,
+          0.9887796521186829
+        ],
+        "human_point_solver": [
+          -1.0014803180217742,
+          0.5626764341274897,
+          0.8409021619240442
+        ],
+        "human_point_provenance": "Hand",
+        "surface_point_source": [
+          -0.5349922803885395,
+          0.5872437203357954,
+          0.47
+        ],
+        "surface_point_solver": [
+          -0.45498121267709796,
+          0.49941815949446416,
+          0.39970888888888884
+        ],
+        "surface_normal_source": [
+          -0.7749504669235634,
+          0.08970193909599178,
+          0.6256239572917346
+        ],
+        "surface_normal_solver": [
+          -0.7749504669235634,
+          0.08970193909599178,
+          0.6256239572917346
+        ],
+        "surface_id": "box_2:x-",
+        "surface_type": "obb",
+        "signed_distance": 0.7052052078264708,
+        "normal_speed": -0.03311700457688101,
+        "tangential_speed": 0.011580624494081666
+      },
+      "left_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.1705026149749755,
+          0.2549604058265686,
+          0.5339436531066895
+        ],
+        "human_point_solver": [
+          -0.9954474461131624,
+          0.2168296606885062,
+          0.4540894134309556
+        ],
+        "human_point_provenance": "Leg",
+        "surface_point_source": [
+          -1.1705026149749753,
+          0.2549604058265686,
+          0.0
+        ],
+        "surface_point_solver": [
+          -0.9954474461131624,
+          0.2168296606885062,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.4540894134309556,
+        "normal_speed": 5.0690439012957e-06,
+        "tangential_speed": 0.009824427172088411
+      },
+      "left_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.205752753019333,
+          0.2504294869303703,
+          0.3330182486027479
+        ],
+        "human_point_solver": [
+          -1.025425730178886,
+          0.212976365885006,
+          0.2832135194228258
+        ],
+        "human_point_provenance": "Leg_Foot_proxy",
+        "surface_point_source": [
+          -1.205752753019333,
+          0.2504294869303703,
+          0.0
+        ],
+        "surface_point_solver": [
+          -1.025425730178886,
+          0.212976365885006,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.2832135194228258,
+        "normal_speed": 0.0006252348836888189,
+        "tangential_speed": 0.0062290256028688686
+      },
+      "right_heel": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.2787002353668213,
+          0.07330199298262596,
+          0.1168644392490387
+        ],
+        "human_point_solver": [
+          -1.0874635112775166,
+          0.062339272698779896,
+          0.09938671311246024
+        ],
+        "human_point_provenance": "Foot_to_ToeBase_proxy",
+        "surface_point_source": [
+          -1.2787002353668213,
+          0.07330199298262596,
+          0.0
+        ],
+        "surface_point_solver": [
+          -1.0874635112775166,
+          0.062339272698779896,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.09938671311246024,
+        "normal_speed": 0.002426442331075751,
+        "tangential_speed": 0.002298826351142184
+      },
+      "right_toe": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.0918814182281493,
+          0.05000961646437645,
+          0.03825259804725647
+        ],
+        "human_point_solver": [
+          -0.9285844861242505,
+          0.042530400490926365,
+          0.03253170949485566
+        ],
+        "human_point_provenance": "ToeBase",
+        "surface_point_source": [
+          -1.0918814182281493,
+          0.05000961646437645,
+          0.0
+        ],
+        "surface_point_solver": [
+          -0.9285844861242505,
+          0.042530400490926365,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.03253170949485566,
+        "normal_speed": 0.00013109814789545593,
+        "tangential_speed": 0.0008672127095363235
+      },
+      "right_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.1279383659362794,
+          -0.31822041869163514,
+          0.9850553512573242
+        ],
+        "human_point_solver": [
+          -0.9592489169862535,
+          -0.2706287871850861,
+          0.8377348509470621
+        ],
+        "human_point_provenance": "Hand",
+        "surface_point_source": [
+          -1.1018944055840851,
+          -0.46139715556403943,
+          0.95
+        ],
+        "surface_point_solver": [
+          -0.9370999755933985,
+          -0.3923926476319064,
+          0.8079222222222221
+        ],
+        "surface_normal_source": [
+          -0.17398734228923213,
+          0.9564958473750546,
+          0.2341881693796807
+        ],
+        "surface_normal_solver": [
+          -0.17398734228923213,
+          0.9564958473750546,
+          0.2341881693796807
+        ],
+        "surface_id": "box_1:x-",
+        "surface_type": "obb",
+        "signed_distance": 0.127302014475012,
+        "normal_speed": 0.004795168181145785,
+        "tangential_speed": 0.035251076330520235
+      },
+      "right_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.1230599403381347,
+          0.06675667762756347,
+          0.5383313894271851
+        ],
+        "human_point_solver": [
+          -0.9551000870386758,
+          0.056772845617930084,
+          0.45782093940840823
+        ],
+        "human_point_provenance": "Leg",
+        "surface_point_source": [
+          -1.0820943954571283,
+          -0.45985690262414636,
+          0.5383313894271851
+        ],
+        "surface_point_solver": [
+          -0.9202611669809844,
+          -0.39108274807613513,
+          0.45782093940840823
+        ],
+        "surface_normal_source": [
+          -0.07755621464945547,
+          0.9969879806543546,
+          0.0
+        ],
+        "surface_normal_solver": [
+          -0.07755621464945547,
+          0.9969879806543546,
+          0.0
+        ],
+        "surface_id": "box_1:x-",
+        "surface_type": "obb",
+        "signed_distance": 0.4492086064486363,
+        "normal_speed": 0.0024465044740137167,
+        "tangential_speed": 0.010082219496025358
+      },
+      "right_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.1747080957889557,
+          0.06740922622382642,
+          0.3409329087287188
+        ],
+        "human_point_solver": [
+          -0.9990239739076295,
+          0.057327801946351925,
+          0.2899444981566237
+        ],
+        "human_point_provenance": "Leg_Foot_proxy",
+        "surface_point_source": [
+          -1.1747080957889555,
+          0.0674092262238264,
+          0.0
+        ],
+        "surface_point_solver": [
+          -0.9990239739076295,
+          0.057327801946351925,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.2899444981566237,
+        "normal_speed": 0.0007608444806600501,
+        "tangential_speed": 0.006574416374858525
+      }
+    },
+    "flat_foot": {
+      "left": 0.0,
+      "right": 0.0
+    }
+  },
+  {
+    "contacts": {
+      "left_heel": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.2899174127578734,
+          0.23764332938194274,
+          0.10320349508523942
+        ],
+        "human_point_solver": [
+          -1.0970030974720846,
+          0.2021024492321544,
+          0.08776883904249137
+        ],
+        "human_point_provenance": "Foot_to_ToeBase_proxy",
+        "surface_point_source": [
+          -1.2899174127578732,
+          0.23764332938194274,
+          0.0
+        ],
+        "surface_point_solver": [
+          -1.0970030974720846,
+          0.2021024492321544,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.08776883904249137,
+        "normal_speed": 0.0015003520882787835,
+        "tangential_speed": 0.0021733256985125194
+      },
+      "left_toe": {
+        "score": 0.40408740992258296,
+        "state": "STATIC",
+        "human_point_source": [
+          -1.1019073724746704,
+          0.2708051145076752,
+          0.03125831037759781
+        ],
+        "human_point_solver": [
+          -0.9371110032134585,
+          0.23030470516019397,
+          0.02658345640334818
+        ],
+        "human_point_provenance": "ToeBase",
+        "surface_point_source": [
+          -1.1019073724746704,
+          0.2708051145076752,
+          0.0
+        ],
+        "surface_point_solver": [
+          -0.9371110032134585,
+          0.23030470516019397,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.02658345640334818,
+        "normal_speed": -0.000939642331666303,
+        "tangential_speed": 0.0012590415536581087
+      },
+      "left_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.1769862651824952,
+          0.6616046786308288,
+          0.9886207342147827
+        ],
+        "human_point_solver": [
+          -1.0009614304118686,
+          0.5626580233600403,
+          0.8407670110755495
+        ],
+        "human_point_provenance": "Hand",
+        "surface_point_source": [
+          -0.5349922803885395,
+          0.5872437203357954,
+          0.47
+        ],
+        "surface_point_solver": [
+          -0.45498121267709796,
+          0.49941815949446416,
+          0.39970888888888884
+        ],
+        "surface_normal_source": [
+          -0.774751105938784,
+          0.08973796646433523,
+          0.6258656574868738
+        ],
+        "surface_normal_solver": [
+          -0.774751105938784,
+          0.08973796646433523,
+          0.6258656574868738
+        ],
+        "surface_id": "box_2:x-",
+        "surface_type": "obb",
+        "signed_distance": 0.7047169255869804,
+        "normal_speed": -0.024412358455864144,
+        "tangential_speed": 0.011120225016766565
+      },
+      "left_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.1703353881835938,
+          0.2550202012062073,
+          0.5339438557624817
+        ],
+        "human_point_solver": [
+          -0.9953052290174695,
+          0.21688051333692335,
+          0.45408958577844827
+        ],
+        "human_point_provenance": "Leg",
+        "surface_point_source": [
+          -1.1703353881835936,
+          0.2550202012062072,
+          0.0
+        ],
+        "surface_point_solver": [
+          -0.9953052290174695,
+          0.21688051333692335,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.45408958577844827,
+        "normal_speed": 8.617374633312913e-06,
+        "tangential_speed": 0.007551770348458821
+      },
+      "left_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.2056400609016418,
+          0.2504649721086025,
+          0.33302858933806423
+        ],
+        "human_point_solver": [
+          -1.0253298917934628,
+          0.21300654405769373,
+          0.283222313643727
+        ],
+        "human_point_provenance": "Leg_Foot_proxy",
+        "surface_point_source": [
+          -1.2056400609016418,
+          0.2504649721086025,
+          0.0
+        ],
+        "surface_point_solver": [
+          -1.0253298917934628,
+          0.21300654405769373,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.283222313643727,
+        "normal_speed": 0.00043971104506101977,
+        "tangential_speed": 0.0050238725668819715
+      },
+      "right_heel": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.2786516399383545,
+          0.07332449644804001,
+          0.11693277633190155
+        ],
+        "human_point_solver": [
+          -1.0874221835653515,
+          0.06235841064592202,
+          0.09944483000493048
+        ],
+        "human_point_provenance": "Foot_to_ToeBase_proxy",
+        "surface_point_source": [
+          -1.2786516399383543,
+          0.07332449644804001,
+          0.0
+        ],
+        "surface_point_solver": [
+          -1.0874221835653515,
+          0.06235841064592202,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.09944483000493048,
+        "normal_speed": 0.0029058446235123714,
+        "tangential_speed": 0.0022771916990118567
+      },
+      "right_toe": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.0918620586395265,
+          0.05001098364591598,
+          0.03825802505016327
+        ],
+        "human_point_solver": [
+          -0.9285680218696594,
+          0.04253156320287121,
+          0.03253632485932774
+        ],
+        "human_point_provenance": "ToeBase",
+        "surface_point_source": [
+          -1.0918620586395265,
+          0.050010983645915975,
+          0.0
+        ],
+        "surface_point_solver": [
+          -0.9285680218696594,
+          0.04253156320287121,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.03253632485932774,
+        "normal_speed": 0.00023076822360384996,
+        "tangential_speed": 0.0008252629555297628
+      },
+      "right_palm": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.1271664142608642,
+          -0.3179245710372925,
+          0.9851017832756043
+        ],
+        "human_point_solver": [
+          -0.958592414972517,
+          -0.2703771851910485,
+          0.8377743387990527
+        ],
+        "human_point_provenance": "Hand",
+        "surface_point_source": [
+          -1.1018944055840851,
+          -0.46139715556403943,
+          0.95
+        ],
+        "surface_point_solver": [
+          -0.9370999755933985,
+          -0.3923926476319064,
+          0.8079222222222221
+        ],
+        "surface_normal_source": [
+          -0.16864806957958633,
+          0.9574377220067425,
+          0.23424524991047077
+        ],
+        "surface_normal_solver": [
+          -0.16864806957958633,
+          0.9574377220067425,
+          0.23424524991047077
+        ],
+        "surface_id": "box_1:x-",
+        "surface_type": "obb",
+        "signed_distance": 0.12743956855881516,
+        "normal_speed": 0.006971264224496622,
+        "tangential_speed": 0.03451153205609198
+      },
+      "right_knee": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.1228265285491943,
+          0.0668210968375206,
+          0.5383360385894775
+        ],
+        "human_point_solver": [
+          -0.9549015832795036,
+          0.05682763057715363,
+          0.4578248932626512
+        ],
+        "human_point_provenance": "Leg",
+        "surface_point_source": [
+          -1.0818574065708,
+          -0.45983846713716686,
+          0.5383360385894775
+        ],
+        "surface_point_solver": [
+          -0.9200596210992115,
+          -0.3910670697186528,
+          0.4578248932626512
+        ],
+        "surface_normal_source": [
+          -0.07755621464872256,
+          0.9969879806544116,
+          0.0
+        ],
+        "surface_normal_solver": [
+          -0.07755621464872256,
+          0.9969879806544116,
+          0.0
+        ],
+        "surface_id": "box_1:x-",
+        "surface_type": "obb",
+        "signed_distance": 0.44924783119979633,
+        "normal_speed": 0.001961237285578903,
+        "tangential_speed": 0.010109671909840977
+      },
+      "right_shin": {
+        "score": 0.0,
+        "state": "NONE",
+        "human_point_source": [
+          -1.1745607292652132,
+          0.06745270274579525,
+          0.3409600247442722
+        ],
+        "human_point_solver": [
+          -0.9988986468662155,
+          0.05736477631292408,
+          0.28996755882140657
+        ],
+        "human_point_provenance": "Leg_Foot_proxy",
+        "surface_point_source": [
+          -1.174560729265213,
+          0.06745270274579523,
+          0.0
+        ],
+        "surface_point_solver": [
+          -0.9988986468662155,
+          0.05736477631292408,
+          0.0
+        ],
+        "surface_normal_source": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_normal_solver": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "surface_id": "floor",
+        "surface_type": "floor",
+        "signed_distance": 0.28996755882140657,
+        "normal_speed": 0.0011530332391429532,
+        "tangential_speed": 0.006533370319558777
+      }
+    },
+    "flat_foot": {
+      "left": 0.0,
+      "right": 0.0
+    }
+  }
+]
