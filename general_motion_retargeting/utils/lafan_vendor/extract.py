@@ -25,7 +25,7 @@ class Anim(object):
     """
     A very basic animation object
     """
-    def __init__(self, quats, pos, offsets, parents, bones):
+    def __init__(self, quats, pos, offsets, parents, bones, frametime=1.0 / 30.0):
         """
         :param quats: local quaternions tensor
         :param pos: local positions tensor
@@ -38,6 +38,8 @@ class Anim(object):
         self.offsets = offsets
         self.parents = parents
         self.bones = bones
+        self.frametime = float(frametime)
+        self.fps = 1.0 / self.frametime if self.frametime > 0.0 else 30.0
 
 
 def read_bvh(filename, start=None, end=None, order=None):
@@ -54,6 +56,7 @@ def read_bvh(filename, start=None, end=None, order=None):
     f = open(filename, "r")
 
     i = 0
+    frametime = 1.0 / 30.0
     active = -1
     end_site = False
 
@@ -163,7 +166,7 @@ def read_bvh(filename, start=None, end=None, order=None):
     rotations = utils.euler_to_quat(np.radians(rotations), order=order)
     rotations = utils.remove_quat_discontinuities(rotations)
 
-    return Anim(rotations, positions, offsets, parents, names)
+    return Anim(rotations, positions, offsets, parents, names, frametime=frametime)
 
 
 def get_lafan1_set(bvh_path, actors, window=50, offset=20):

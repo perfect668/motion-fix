@@ -76,6 +76,7 @@ def _config_for_smplx(config: dict) -> dict:
         config = base
     labels = {
         "Spine1": "pelvis",
+        "pelvis": "pelvis",
         "LeftUpLeg": "left_hip", "RightUpLeg": "right_hip",
         "LeftLeg": "left_knee", "RightLeg": "right_knee",
         "LeftFoot": "left_foot", "RightFoot": "right_foot",
@@ -83,6 +84,13 @@ def _config_for_smplx(config: dict) -> dict:
         "LeftArm": "left_shoulder", "RightArm": "right_shoulder",
         "LeftForeArm": "left_elbow", "RightForeArm": "right_elbow",
         "LeftHandMiddle3": "left_wrist", "RightHandMiddle3": "right_wrist",
+        "left_hip": "left_hip", "right_hip": "right_hip",
+        "left_knee": "left_knee", "right_knee": "right_knee",
+        "left_foot": "left_foot", "right_foot": "right_foot",
+        "left_toe": "left_toe", "right_toe": "right_toe",
+        "left_shoulder": "left_shoulder", "right_shoulder": "right_shoulder",
+        "left_elbow": "left_elbow", "right_elbow": "right_elbow",
+        "left_wrist": "left_wrist", "right_wrist": "right_wrist",
     }
     adapted = copy.deepcopy(config)
     for item in adapted["semantic_points"].values():

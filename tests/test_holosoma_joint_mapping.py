@@ -53,3 +53,17 @@ def test_duplicate_npz_joint_names_fail(tmp_path):
     np.savez(path, joint_positions=np.zeros((2, 53, 3)), joint_names=np.asarray(names))
     with pytest.raises(ValueError, match="Duplicate"):
         load_holosoma_positions(path, mapping)
+
+
+def test_canonical_semantic_view_has_independent_pelvis_and_spine():
+    from general_motion_retargeting.motion_adapters import CanonicalMotion
+    names = ["pelvis", "spine3", "left_hip", "right_hip", "left_knee", "right_knee",
+             "left_foot", "right_foot", "left_shoulder", "right_shoulder",
+             "left_elbow", "right_elbow", "left_wrist", "right_wrist"]
+    positions = np.zeros((1, len(names), 3), dtype=float)
+    positions[0, names.index("pelvis")] = [0, 0, 1]
+    positions[0, names.index("spine3")] = [0, 0, 1.4]
+    motion = CanonicalMotion(positions, names, fps=50)
+    frame = motion.canonical_named_positions()[0]
+    np.testing.assert_allclose(frame["pelvis"], [0, 0, 1])
+    np.testing.assert_allclose(frame["spine3"], [0, 0, 1.4])

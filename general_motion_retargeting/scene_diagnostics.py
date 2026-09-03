@@ -88,8 +88,15 @@ def summarize_scene_diagnostics(
             "state_counts": dict(Counter(states)),
             "surface_ids": sorted({str(item.get("surface_id", "")) for item in items if item.get("surface_id")}),
             "median_signed_distance": float(np.median(distances)) if distances else np.inf,
+            "max_signed_distance": float(np.max(distances)) if distances else np.inf,
         }
     summary["contact_channels"] = channel_summary
     for name in ("left_butt", "right_butt", "lower_back"):
         summary[f"{name}_contact_ratio"] = channel_summary.get(name, {}).get("contact_ratio", 0.0)
+    # Chair-agnostic contact distances are reported for every surface type;
+    # the familiar butt/back keys are retained for seated-sequence reports.
+    for name in ("left_butt", "right_butt", "lower_back", "upper_back"):
+        item = channel_summary.get(name, {})
+        summary[f"median_{name}_surface_distance"] = item.get("median_signed_distance", np.inf)
+        summary[f"max_{name}_surface_distance"] = item.get("max_signed_distance", np.inf)
     return summary

@@ -58,3 +58,15 @@ def test_two_feet_can_use_floor_and_step():
     terrain = TerrainField([box], floor_z=0.0)
     assert terrain.support_surface([0, 0, 0.52]).surface_id == "step:z+"
     assert terrain.support_surface([1, 0, 0.02]).surface_id == "floor"
+
+
+def test_vectorized_array_query_matches_scalar_fields():
+    box = BoxPrimitive("step", [0, 0, 0.25], [0.5, 0.5, 0.25], np.eye(3))
+    terrain = TerrainField([box], floor_z=0.0)
+    points = np.array([[0.0, 0.0, 0.8], [0.7, 0.0, 0.5], [2.0, 2.0, -0.1]])
+    arrays = terrain.nearest_surface_batch_arrays(points)
+    scalar = terrain.nearest_surface_batch(points)
+    np.testing.assert_allclose(arrays["signed_distance"], [item.signed_distance for item in scalar])
+    np.testing.assert_allclose(arrays["closest_point"], [item.closest_point for item in scalar])
+    np.testing.assert_allclose(arrays["normal"], [item.normal for item in scalar])
+    assert arrays["surface_id"].tolist() == [item.surface_id for item in scalar]

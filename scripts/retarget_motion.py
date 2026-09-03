@@ -65,6 +65,10 @@ def _solver_inputs(motion: CanonicalMotion, transform: SceneTransform, config: d
         mapping = load_joint_map(joint_map)
         solver_frames, orientation_valid = build_solver_frames(transformed, motion.joint_names, mapping)
         source_frames = named_source_frames(transformed, motion.joint_names)
+        for index, frame in enumerate(solver_frames):
+            for solver_name, source_name in mapping["solver_joint_mapping"].items():
+                source_frames[index][solver_name] = transformed[index, motion.joint_names.index(source_name)].copy()
+            source_frames[index]["pelvis"] = frame["pelvis"][0].copy()
         return source_frames, solver_frames, orientation_valid
 
     # Blender FBX export carries bone rotations in the FBX author's local
@@ -83,7 +87,23 @@ def _solver_inputs(motion: CanonicalMotion, transform: SceneTransform, config: d
         if missing:
             raise ValueError(f"FBX canonical motion is missing required landmarks: {missing}")
         solver_frames, orientation_info = build_frames_from_landmarks(transformed, motion.joint_names, mapping)
-        return named_source_frames(transformed, motion.joint_names), solver_frames, orientation_info
+        source_frames = named_source_frames(transformed, motion.joint_names)
+        for index, frame in enumerate(solver_frames):
+            aliases = {
+                "Hips": "pelvis", "Spine1": "spine3", "Spine": "spine3",
+                "LeftUpLeg": "left_hip", "RightUpLeg": "right_hip",
+                "LeftLeg": "left_knee", "RightLeg": "right_knee",
+                "LeftFoot": "left_foot", "RightFoot": "right_foot",
+                "LeftToeBase": "left_toe", "RightToeBase": "right_toe",
+                "LeftArm": "left_shoulder", "RightArm": "right_shoulder",
+                "LeftForeArm": "left_elbow", "RightForeArm": "right_elbow",
+                "LeftHandMiddle3": "left_wrist", "RightHandMiddle3": "right_wrist",
+            }
+            for legacy, canonical in aliases.items():
+                if legacy in source_frames[index]:
+                    source_frames[index][canonical] = source_frames[index][legacy].copy()
+            source_frames[index]["pelvis"] = frame["pelvis"][0].copy()
+        return source_frames, solver_frames, orientation_info
 
     # Position/rotation canonical names are adapted to the stable semantic
     # names expected by V4.  Both SMPL-X FK names and BVH names are accepted.
@@ -110,6 +130,10 @@ def _solver_inputs(motion: CanonicalMotion, transform: SceneTransform, config: d
                 source["LeftHandMiddle3"] = source["LeftHand"].copy()
             if "RightHandMiddle3" not in source and "RightHand" in source:
                 source["RightHandMiddle3"] = source["RightHand"].copy()
+            source["pelvis"] = source["Hips"].copy()
+            # V4 consumes canonical names; retain BVH labels above only for
+            # compatibility with the legacy contact utilities.
+            source.update({name: source[source_name].copy() for name, source_name in source_labels.items()})
             source_frames.append(source)
             solver_frame = {}
             identity = np.array([1.0, 0.0, 0.0, 0.0])
@@ -139,7 +163,7 @@ def _solver_inputs(motion: CanonicalMotion, transform: SceneTransform, config: d
     solver_frames = []
     source_frames = []
     source_labels = {
-        "pelvis": "Spine1", "left_hip": "LeftUpLeg", "right_hip": "RightUpLeg",
+        "pelvis": "pelvis", "left_hip": "LeftUpLeg", "right_hip": "RightUpLeg",
         "spine3": "Spine1", "left_knee": "LeftLeg", "right_knee": "RightLeg",
         "left_foot": "LeftFoot", "right_foot": "RightFoot", "left_toe": "LeftToeBase", "right_toe": "RightToeBase",
         "left_shoulder": "LeftArm", "right_shoulder": "RightArm", "left_elbow": "LeftForeArm", "right_elbow": "RightForeArm",
@@ -160,6 +184,10 @@ def _solver_inputs(motion: CanonicalMotion, transform: SceneTransform, config: d
                 semantic_frame[toe_name] = foot + 0.16 * direction
                 index.setdefault(toe_name, index.get(f"{side}_foot", 0))
         frame = {source_labels[name]: point for name, point in semantic_frame.items()}
+        # Keep canonical semantic names for contact inference while retaining
+        # the legacy aliases consumed by inherited interaction configuration.
+        frame.update({name: point.copy() for name, point in semantic_frame.items()})
+        frame["pelvis"] = semantic_frame["pelvis"].copy()
         source_frames.append(frame)
         oriented = {}
         for name, point in semantic_frame.items():
@@ -181,6 +209,25 @@ def _jsonable(value):
     return value
 
 
+def _contact_frames(motion: CanonicalMotion) -> list[dict[str, np.ndarray]]:
+    """Return one stable semantic frame per source frame for contacts."""
+    frames = motion.canonical_named_positions()
+    for frame in frames:
+        for side in ("left", "right"):
+            toe = f"{side}_toe"
+            if toe in frame:
+                continue
+            foot = frame.get(f"{side}_foot")
+            ankle = frame.get(f"{side}_ankle")
+            if foot is None or ankle is None:
+                continue
+            direction = np.asarray(foot) - np.asarray(ankle)
+            norm = float(np.linalg.norm(direction))
+            if norm > 1e-9:
+                frame[toe] = np.asarray(foot) + 0.16 * direction / norm
+    return frames
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--motion", required=True, type=Path)
@@ -195,6 +242,9 @@ def main() -> None:
     parser.add_argument("--save_path", required=True, type=Path)
     parser.add_argument("--max_frames", type=int, default=None)
     parser.add_argument("--solver", choices=("daqp", "proxqp"), default="daqp")
+    parser.add_argument("--checkpoint_every", type=int, default=0,
+                        help="Write a resumable partial checkpoint every N frames")
+    parser.add_argument("--resume", action="store_true", help="Resume from <save_path>.partial.pkl")
     args = parser.parse_args()
     if args.robot.lower() != "ne01":
         raise ValueError("The current unified WholeBody V4 entry is configured for NE01")
@@ -217,8 +267,11 @@ def main() -> None:
     terrain = source_terrain.transform(transform)
     source_frames, solver_frames, orientation_valid = _solver_inputs(motion, transform, config, args.joint_map)
     contact_cfg = config.get("terrain_contact", {})
+    # Contact inference owns the source-to-solver transform and must receive
+    # raw canonical points.  Passing already transformed solver points here
+    # applies the similarity transform twice for HoloSoMo inputs.
     contacts = build_terrain_contact_schedule(
-        source_frames, source_terrain, transform if motion.source_format == "holosoma_global_positions" else SceneTransform(np.eye(3), 1.0, np.zeros(3)),
+        _contact_frames(motion), source_terrain, transform,
         {}, args.tgt_fps, contact_cfg,
     )
     points = np.asarray(motion.positions, dtype=float).reshape(-1, 3)
@@ -269,7 +322,13 @@ def main() -> None:
         effective_config = temporary_config
     try:
         retargeter = WholeBodyOmniGMRV4(effective_config, terrain, pool, fps=args.tgt_fps, solver=args.solver)
-        qpos = retargeter.retarget_canonical(motion, solver_frames, contacts, source_frames=source_frames)
+        checkpoint_path = args.save_path.with_suffix(".partial.pkl") if args.checkpoint_every > 0 or args.resume else None
+        qpos = retargeter.retarget_canonical(
+            motion, solver_frames, contacts, source_frames=source_frames,
+            checkpoint_path=checkpoint_path,
+            checkpoint_every=args.checkpoint_every,
+            resume=args.resume,
+        )
     finally:
         if temporary_config is not None:
             temporary_config.unlink(missing_ok=True)
@@ -279,6 +338,11 @@ def main() -> None:
         "root_pos": qpos[:, :3], "root_rot": qpos[:, 3:7][:, [1, 2, 3, 0]], "dof_pos": qpos[:, 7:],
         "algorithm": "wholebody_omni_gmr_v4", "source_format": motion.source_format,
         "source_motion": motion.source_path, "source_joint_names": motion.joint_names,
+        "canonical_joint_names": sorted(motion.canonical_named_positions()[0].keys()) if motion.frame_count else [],
+        "canonical_provenance": motion.metadata.get("canonical_provenance", []),
+        "source_to_canonical": motion.source_to_canonical,
+        "human_height": motion.human_height,
+        "orientation_valid_mask": motion.orientation_valid_mask,
         "orientation_valid": orientation_valid, "scene": motion.scene,
         "scene_transform": transform.to_dict(), "terrain_primitives": terrain.to_spec(),
         "contact_schedule": contacts, "terrain_diagnostics": retargeter.diagnostics,

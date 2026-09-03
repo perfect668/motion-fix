@@ -11,6 +11,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 import pickle
+import subprocess
+import tempfile
 from typing import Any
 
 import numpy as np
@@ -29,12 +31,18 @@ class CanonicalMotion:
     fps: float
     orientations: np.ndarray | None = None  # quaternion order wxyz
     orientation_valid: bool = False
+    orientation_valid_mask: np.ndarray | None = None
     root_name: str | None = None
     scene: dict[str, Any] = field(default_factory=dict)
     contacts: dict[str, Any] = field(default_factory=dict)
     source_format: str = "unknown"
     source_path: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
+    # Adapter provenance is explicit so solver code never has to infer units
+    # or scene ownership from a dataset-specific filename.
+    human_height: float | None = None
+    source_to_canonical: dict[str, Any] = field(default_factory=dict)
+    scene_objects: list[dict[str, Any]] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         self.positions = np.asarray(self.positions, dtype=np.float64)
@@ -61,6 +69,29 @@ class CanonicalMotion:
                 )
             if not np.isfinite(self.orientations).all():
                 raise MotionFormatError("Canonical orientations contain NaN or Inf")
+        if self.orientation_valid_mask is None:
+            self.orientation_valid_mask = np.full(
+                (self.positions.shape[0], self.positions.shape[1]),
+                bool(self.orientation_valid and self.orientations is not None),
+                dtype=bool,
+            )
+        else:
+            self.orientation_valid_mask = np.asarray(self.orientation_valid_mask, dtype=bool)
+            expected_mask = self.positions.shape[:2]
+            if self.orientation_valid_mask.shape != expected_mask:
+                raise MotionFormatError(
+                    f"orientation_valid_mask must have shape {expected_mask}, got {self.orientation_valid_mask.shape}"
+                )
+        if self.human_height is not None:
+            self.human_height = float(self.human_height)
+            if not np.isfinite(self.human_height) or self.human_height <= 0.0:
+                raise MotionFormatError("human_height must be finite and positive")
+        if not self.source_to_canonical:
+            self.source_to_canonical = {name: name for name in self.joint_names}
+        # A read-only alias used by generic scene-aware consumers.  Keep the
+        # legacy ``scene`` field for V3/V4 compatibility.
+        if not self.scene_objects and self.scene:
+            self.scene_objects = [self.scene]
 
     @property
     def frame_count(self) -> int:
@@ -75,6 +106,71 @@ class CanonicalMotion:
             {name: frame[index].copy() for index, name in enumerate(self.joint_names)}
             for frame in self.positions
         ]
+
+    def canonical_named_positions(self) -> list[dict[str, np.ndarray]]:
+        """Return the small, format-independent semantic skeleton.
+
+        Adapters may retain extra source landmarks for contact inference, but
+        this view has stable names and deterministic fallbacks.  The fallback
+        points are marked in ``metadata['canonical_provenance']`` and never
+        fabricate orientations.
+        """
+        frames = self.named_positions()
+        aliases = {
+            "pelvis": ("pelvis", "Hips", "hips", "Pelvis"),
+            "spine3": ("spine3", "Spine1", "spine", "Spine"),
+            "left_hip": ("left_hip", "LeftUpLeg"), "right_hip": ("right_hip", "RightUpLeg"),
+            "left_knee": ("left_knee", "LeftLeg"), "right_knee": ("right_knee", "RightLeg"),
+            "left_ankle": ("left_ankle", "LeftFoot"), "right_ankle": ("right_ankle", "RightFoot"),
+            "left_foot": ("left_foot", "LeftFoot"), "right_foot": ("right_foot", "RightFoot"),
+            "left_toe": ("left_toe", "LeftToeBase", "LeftToe"),
+            "right_toe": ("right_toe", "RightToeBase", "RightToe"),
+            "left_shoulder": ("left_shoulder", "LeftArm"), "right_shoulder": ("right_shoulder", "RightArm"),
+            "left_elbow": ("left_elbow", "LeftForeArm"), "right_elbow": ("right_elbow", "RightForeArm"),
+            "left_wrist": ("left_wrist", "LeftHandMiddle3", "LeftHand"),
+            "right_wrist": ("right_wrist", "RightHandMiddle3", "RightHand"),
+        }
+        result = []
+        provenance = []
+        for frame in frames:
+            semantic, frame_provenance = {}, {}
+            for canonical, choices in aliases.items():
+                value = next((frame[name] for name in choices if name in frame), None)
+                if value is None:
+                    continue
+                semantic[canonical] = value.copy()
+                frame_provenance[canonical] = next(name for name in choices if name in frame)
+            for side in ("left", "right"):
+                foot, toe = semantic.get(f"{side}_foot"), semantic.get(f"{side}_toe")
+                ankle = semantic.get(f"{side}_ankle", foot)
+                if foot is not None and toe is None:
+                    # SMPL-X FK exposes a foot orientation but no ToeBase.
+                    # Use its anatomical forward axis when available; the
+                    # positional fallback is only used by position-only data.
+                    direction = None
+                    foot_name = next((name for name in aliases[f"{side}_foot"] if name in frame), None)
+                    if self.orientations is not None and foot_name in self.joint_names:
+                        from scipy.spatial.transform import Rotation
+                        joint_index = self.joint_names.index(foot_name)
+                        direction = Rotation.from_quat(
+                            self.orientations[len(result), joint_index][[1, 2, 3, 0]]
+                        ).apply([1.0, 0.0, 0.0])
+                        direction = np.asarray(direction, dtype=float)
+                    if direction is None or np.linalg.norm(direction) < 1e-8:
+                        direction = foot - semantic.get(f"{side}_knee", foot)
+                    direction = direction / max(float(np.linalg.norm(direction)), 1e-12)
+                    semantic[f"{side}_toe"] = foot + 0.16 * direction
+                    frame_provenance[f"{side}_toe"] = "foot_orientation_surface_proxy"
+                if foot is not None and toe is not None:
+                    semantic[f"{side}_heel"] = foot - 0.28 * (toe - foot)
+                    frame_provenance[f"{side}_heel"] = "foot_to_toe_surface_proxy"
+                if foot is not None and f"{side}_ankle" not in semantic:
+                    semantic[f"{side}_ankle"] = ankle.copy()
+                    frame_provenance[f"{side}_ankle"] = "foot_alias"
+            result.append(semantic)
+            provenance.append(frame_provenance)
+        self.metadata["canonical_provenance"] = provenance
+        return result
 
 
 def _as_scalar(value: Any, name: str) -> float:
@@ -91,6 +187,39 @@ def _continuous_quaternions(quaternions: np.ndarray) -> np.ndarray:
         dots = np.sum(result[frame - 1] * result[frame], axis=-1)
         result[frame][dots < 0.0] *= -1.0
     return result
+
+
+def _resample_motion(motion: "CanonicalMotion", target_fps: float | None) -> "CanonicalMotion":
+    """Resample every adapter to the solver clock (positions + world quats)."""
+    if target_fps is None or np.isclose(float(target_fps), motion.fps) or motion.frame_count <= 1:
+        return motion
+    target_fps = float(target_fps)
+    if target_fps <= 0.0:
+        raise MotionFormatError(f"target_fps must be positive, got {target_fps}")
+    count = max(1, int(np.floor((motion.frame_count - 1) * target_fps / motion.fps)) + 1)
+    source_time = np.arange(motion.frame_count, dtype=float) / motion.fps
+    target_time = np.arange(count, dtype=float) / target_fps
+    from scipy.interpolate import interp1d
+    positions = np.asarray(interp1d(source_time, motion.positions, axis=0, kind="linear")(target_time))
+    orientations = None
+    if motion.orientations is not None:
+        from scipy.spatial.transform import Rotation, Slerp
+        orientations = np.empty((count, motion.joint_count, 4), dtype=float)
+        for joint in range(motion.joint_count):
+            rotations = Rotation.from_quat(motion.orientations[:, joint][:, [1, 2, 3, 0]])
+            orientations[:, joint] = Slerp(source_time, rotations)(target_time).as_quat(scalar_first=True)
+        orientations = _continuous_quaternions(orientations)
+    if motion.orientation_valid_mask is not None:
+        mask_source = motion.orientation_valid_mask.astype(float)
+        mask = interp1d(source_time, mask_source, axis=0, kind="nearest")(target_time) > 0.5
+    else:
+        mask = None
+    motion.positions = positions
+    motion.orientations = orientations
+    motion.orientation_valid_mask = mask
+    motion.fps = target_fps
+    motion.metadata["resampled_from_fps"] = float(source_time.size - 1) / max(source_time[-1], 1e-12) if len(source_time) > 1 else float(motion.fps)
+    return motion
 
 
 def _load_pickle(path: Path) -> Any:
@@ -213,7 +342,7 @@ def _load_smplx(path: Path, human: dict[str, Any], body_models: str | Path, targ
         mocap_frame_rate=np.asarray(source_fps),
     )
     try:
-        data, model, output, _ = load_smplx_file(temporary, Path(body_models))
+        data, model, output, human_height = load_smplx_file(temporary, Path(body_models))
         frames, fps = get_smplx_data_offline_fast(data, model, output, tgt_fps=target_fps or source_fps)
     finally:
         temporary.unlink(missing_ok=True)
@@ -233,17 +362,30 @@ def _load_smplx(path: Path, human: dict[str, Any], body_models: str | Path, targ
         source_format=source_format,
         source_path=str(path),
         metadata=dict(metadata or {}),
+        human_height=float(human_height),
+        source_to_canonical={name: name for name in names},
+        scene_objects=list((scene or {}).get("objects", [])) if isinstance(scene, dict) else [],
     )
 
 
-def _load_bvh(path: Path, bvh_format: str, fps: float) -> CanonicalMotion:
+_BVH_PROFILES = {
+    # LAFAN1 and the bundled samples are centimetres, Y-up, right-handed.
+    "lafan1": {"unit_scale": 0.01, "axis_matrix": [[1, 0, 0], [0, 0, -1], [0, 1, 0]]},
+    "nokov": {"unit_scale": 0.001, "axis_matrix": [[1, 0, 0], [0, 0, -1], [0, 1, 0]]},
+    "xsens": {"unit_scale": 0.001, "axis_matrix": [[1, 0, 0], [0, 0, -1], [0, 1, 0]]},
+}
+
+
+def _load_bvh(path: Path, bvh_format: str, fps: float | None) -> CanonicalMotion:
     from scipy.spatial.transform import Rotation as R
     from .utils.lafan_vendor.extract import read_bvh
     from .utils.lafan_vendor import utils
 
     data = read_bvh(path)
     global_rot, global_pos = utils.quat_fk(data.quats, data.pos, data.parents)
-    rotation_matrix = np.array([[1, 0, 0], [0, 0, -1], [0, 1, 0]], dtype=float)
+    profile = _BVH_PROFILES.get(str(bvh_format).lower(), _BVH_PROFILES["lafan1"])
+    rotation_matrix = np.asarray(profile["axis_matrix"], dtype=float)
+    unit_scale = float(profile["unit_scale"])
     rotation_quat = R.from_matrix(rotation_matrix).as_quat(scalar_first=True)
     names = list(data.bones)
     toe_name = "LeftToe" if "LeftToe" in names else "LeftToeBase" if "LeftToeBase" in names else None
@@ -255,7 +397,7 @@ def _load_bvh(path: Path, bvh_format: str, fps: float) -> CanonicalMotion:
         result = {}
         for joint_index, bone in enumerate(names):
             orientation = utils.quat_mul(rotation_quat, global_rot[frame_index, joint_index])
-            position = global_pos[frame_index, joint_index] @ rotation_matrix.T / 100.0
+            position = global_pos[frame_index, joint_index] @ rotation_matrix.T * unit_scale
             result[bone] = [position, orientation]
         result.setdefault("LeftFootMod", [result["LeftFoot"][0], result[toe_name][1]])
         result.setdefault("RightFootMod", [result["RightFoot"][0], result[right_toe_name][1]])
@@ -270,11 +412,12 @@ def _load_bvh(path: Path, bvh_format: str, fps: float) -> CanonicalMotion:
         joint_names=names,
         orientations=orientations,
         orientation_valid=True,
-        fps=fps,
+        fps=float(data.fps if fps is None else fps),
         root_name="Hips" if "Hips" in names else names[0],
         source_format=f"bvh_{bvh_format}",
         source_path=str(path),
-        metadata={"bvh_format": bvh_format},
+        metadata={"bvh_format": bvh_format, "unit_scale": unit_scale,
+                  "axis_matrix": rotation_matrix.tolist(), "frametime": float(data.frametime)},
     )
 
 
@@ -333,15 +476,15 @@ def load_canonical_motion(
                     orientations = None
                     if "global_joint_orientations" in data.files:
                         orientations = _continuous_quaternions(np.asarray(data["global_joint_orientations"], dtype=float))
-                    return CanonicalMotion(
+                    return _resample_motion(CanonicalMotion(
                         positions, names, fps=fps, orientations=orientations,
                         orientation_valid=orientations is not None,
                         source_format=source_format, source_path=str(source),
                         metadata={"source_unit": str(np.asarray(data["source_unit"]).item()) if "source_unit" in data.files else "unknown"},
-                    )
+                    ), target_fps)
         if joint_map is None:
             raise MotionFormatError("HoloSoMo input requires an explicit joint_map")
-        return _load_holosoma(source, joint_map, default_holosoma_fps)
+        return _resample_motion(_load_holosoma(source, joint_map, default_holosoma_fps), target_fps)
     if kind == "smplx_npz":
         with np.load(source, allow_pickle=False) as data:
             human = {key: data[key] for key in data.files}
@@ -364,9 +507,38 @@ def load_canonical_motion(
             metadata={"record_keys": sorted(record.keys())},
         )
     if kind == "bvh":
-        return _load_bvh(source, bvh_format, default_bvh_fps)
+        return _resample_motion(_load_bvh(source, bvh_format, None), target_fps)
     if kind == "fbx":
-        return _load_fbx_pickle(source, default_fbx_fps)
+        if source.suffix.lower() == ".fbx":
+            # Binary FBX is parsed by Blender, then enters the same canonical
+            # loader as every other format.  The adapter remains deterministic
+            # and records the exporter metadata in the resulting motion.
+            exporter = Path(__file__).resolve().parents[1] / "scripts" / "fbx_to_canonical_npz.py"
+            with tempfile.TemporaryDirectory(prefix="gmr_fbx_") as directory:
+                output = Path(directory) / "canonical.npz"
+                expression = (
+                    "import sys; sys.argv=['fbx_to_canonical_npz.py','--input',%r,'--output',%r]; "
+                    "exec(compile(open(%r).read(),%r,'exec'))"
+                    % (str(source), str(output), str(exporter), str(exporter))
+                )
+                try:
+                    subprocess.run(["blender", "-b", "--python-expr", expression],
+                                   check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+                except (OSError, subprocess.CalledProcessError) as error:
+                    raise MotionFormatError(f"Binary FBX conversion failed for {source}: {error}") from error
+                with np.load(output, allow_pickle=False) as data:
+                    positions = np.asarray(data["global_joint_positions"], dtype=float)
+                    orientations = _continuous_quaternions(np.asarray(data["global_joint_orientations"], dtype=float))
+                    names = [str(item) for item in np.asarray(data["joint_names"]).tolist()]
+                    fps = _as_scalar(data["fps"], "fps")
+                    metadata = {"source_unit": str(np.asarray(data["source_unit"]).item()),
+                                "coordinate_transform": str(np.asarray(data["coordinate_transform"]).item())}
+                return _resample_motion(CanonicalMotion(
+                    positions, names, fps=fps, orientations=orientations,
+                    orientation_valid=True, root_name="Hips",
+                    source_format="fbx_binary_blender_global_positions_meters_zup",
+                    source_path=str(source), metadata=metadata), target_fps)
+        return _resample_motion(_load_fbx_pickle(source, default_fbx_fps), target_fps)
     raise MotionFormatError(
         f"Detected {kind!r}, but no CanonicalMotion adapter is registered yet. "
         "Use the existing BVH/FBX entry point or add a format adapter explicitly."

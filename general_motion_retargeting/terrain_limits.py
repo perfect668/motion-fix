@@ -36,13 +36,26 @@ class TerrainNonPenetrationLimit(Limit):
         for name, spec in regions.items():
             self.entries.append(self._body_entry(name, spec, str(name)))
         for name, margin in guard_sites.items():
-            self.entries.append({
-                "name": name,
-                "kind": "site",
-                "site_id": model.site(name).id,
-                "region": self._region(name),
-                "margin": float(margin),
-            })
+            # Accept both the compact ``name: margin`` form and the richer
+            # site specification used by the V4 JSON files.
+            if isinstance(margin, dict):
+                site_names = margin.get("sites", [name])
+                point_margin = float(margin.get("margin", self.default_margin))
+            elif isinstance(margin, (list, tuple)) and not np.isscalar(margin):
+                site_names = margin
+                point_margin = self.default_margin
+            else:
+                site_names = [name]
+                point_margin = float(margin)
+            for site_name in site_names:
+                site_name = str(site_name)
+                self.entries.append({
+                    "name": site_name,
+                    "kind": "site",
+                    "site_id": model.site(site_name).id,
+                    "region": self._region(site_name),
+                    "margin": point_margin,
+                })
         for name, margin in collision_geoms.items():
             geom_id = model.geom(name).id
             self.entries.append({
@@ -227,7 +240,8 @@ class TerrainNonPenetrationLimit(Limit):
             "closest_point": hit.closest_point.copy(),
         }
 
-    def prepare_active_set(self, configuration, dt: float, contact_scores: dict) -> list[int]:
+    def prepare_active_set(self, configuration, dt: float, contact_scores: dict | None = None) -> list[int]:
+        contact_scores = contact_scores or {}
         measurements = self.measure_all_candidates(configuration)
         valid_dt = np.isfinite(dt) and dt > 1e-8
         active = []

@@ -128,6 +128,10 @@ class TerrainField:
         self.floor_z = None if floor_z is None else float(floor_z)
         self.floor_id = str(floor_id)
         self.support_normal_min_z = float(support_normal_min_z)
+        # Cached arrays keep the hot batch query out of the Python box loop.
+        self._box_centers = np.asarray([b.center for b in self.boxes], dtype=float).reshape((-1, 3))
+        self._box_half_extents = np.asarray([b.half_extents for b in self.boxes], dtype=float).reshape((-1, 3))
+        self._box_rotations = np.asarray([b.rotation for b in self.boxes], dtype=float).reshape((-1, 3, 3))
 
     @staticmethod
     def _box_hit(box: BoxPrimitive, point: np.ndarray, support_min_z: float) -> TerrainSurfaceHit:
@@ -189,7 +193,121 @@ class TerrainField:
         points = np.asarray(points, dtype=float)
         if points.ndim != 2 or points.shape[1] != 3:
             raise ValueError(f"Expected (N,3) points, got {points.shape}")
-        return [self.nearest_surface(point) for point in points]
+        if not len(points):
+            return []
+        if not self.boxes:
+            if self.floor_z is None:
+                raise ValueError("TerrainField has no surfaces")
+            return [TerrainSurfaceHit(float(p[2] - self.floor_z),
+                                      np.array([p[0], p[1], self.floor_z]),
+                                      np.array([0., 0., 1.]), self.floor_id,
+                                      "floor", True) for p in points]
+
+        # Batched OBB SDF.  Only the winning box is materialized into a
+        # TerrainSurfaceHit below; this removes the O(N*B) dataclass and
+        # normalization overhead from every IK substep.
+        local = np.einsum("bji,nbj->nbi", self._box_rotations,
+                          points[:, None, :] - self._box_centers[None, :, :])
+        delta = np.abs(local) - self._box_half_extents[None, :, :]
+        outside = np.maximum(delta, 0.0)
+        sdf = np.linalg.norm(outside, axis=-1)
+        inside = np.max(delta, axis=-1) <= 0.0
+        sdf[inside] = np.max(delta, axis=-1)[inside]
+        box_index = np.argmin(sdf, axis=1)
+        box_distance = sdf[np.arange(len(points)), box_index]
+
+        hits: list[TerrainSurfaceHit] = []
+        for i, point in enumerate(points):
+            box = self.boxes[int(box_index[i])]
+            candidate = self._box_hit(box, point, self.support_normal_min_z)
+            if self.floor_z is not None:
+                floor_distance = float(point[2] - self.floor_z)
+                floor_hit = TerrainSurfaceHit(
+                    floor_distance, np.array([point[0], point[1], self.floor_z]),
+                    np.array([0., 0., 1.]), self.floor_id, "floor", True)
+                if (floor_distance, self.floor_id) < (candidate.signed_distance, candidate.surface_id):
+                    candidate = floor_hit
+            hits.append(candidate)
+        return hits
+
+    def nearest_surface_batch_arrays(self, points: np.ndarray) -> dict[str, np.ndarray]:
+        """Vectorized SDF query for hot IK loops.
+
+        The returned arrays intentionally contain only numeric data.  Callers
+        that need the richer ``TerrainSurfaceHit`` object can materialize it
+        for the small active subset after this query.
+        """
+        points = np.asarray(points, dtype=float)
+        if points.ndim != 2 or points.shape[1] != 3:
+            raise ValueError(f"Expected (N,3) points, got {points.shape}")
+        n = len(points)
+        if n == 0:
+            return {
+                "signed_distance": np.empty(0),
+                "closest_point": np.empty((0, 3)),
+                "normal": np.empty((0, 3)),
+                "surface_id": np.empty(0, dtype=object),
+                "supportable": np.empty(0, dtype=bool),
+            }
+        # The scalar path is used only for the floor-only case and preserves
+        # the exact floor semantics without allocating box arrays.
+        if not self.boxes:
+            if self.floor_z is None:
+                raise ValueError("TerrainField has no surfaces")
+            closest = points.copy()
+            closest[:, 2] = self.floor_z
+            return {
+                "signed_distance": points[:, 2] - self.floor_z,
+                "closest_point": closest,
+                "normal": np.tile([0.0, 0.0, 1.0], (n, 1)),
+                "surface_id": np.full(n, self.floor_id, dtype=object),
+                "supportable": np.ones(n, dtype=bool),
+            }
+        local = np.einsum(
+            "bji,nbj->nbi", self._box_rotations,
+            points[:, None, :] - self._box_centers[None, :, :],
+        )
+        delta = np.abs(local) - self._box_half_extents[None, :, :]
+        outside = np.maximum(delta, 0.0)
+        sdf = np.linalg.norm(outside, axis=-1)
+        inside = np.max(delta, axis=-1) <= 0.0
+        sdf[inside] = np.max(delta, axis=-1)[inside]
+        winner = np.argmin(sdf, axis=1)
+        distance = sdf[np.arange(n), winner]
+        closest = np.empty((n, 3), dtype=float)
+        normals = np.empty((n, 3), dtype=float)
+        surface_ids = np.empty(n, dtype=object)
+        supportable = np.zeros(n, dtype=bool)
+        # Only one scalar face query per point is needed after the vectorized
+        # winner selection; no point-box dataclass allocation is performed.
+        for box_index, box in enumerate(self.boxes):
+            indices = np.flatnonzero(winner == box_index)
+            for index in indices:
+                hit = self._box_hit(box, points[index], self.support_normal_min_z)
+                closest[index] = hit.closest_point
+                normals[index] = hit.normal
+                surface_ids[index] = hit.surface_id
+                supportable[index] = hit.supportable
+        if self.floor_z is not None:
+            floor_distance = points[:, 2] - self.floor_z
+            use_floor = (floor_distance, np.full(n, self.floor_id, dtype=object))
+            # Stable lexicographic tie-break is equivalent to nearest_surface.
+            replace = floor_distance < distance
+            replace |= (floor_distance == distance) & (np.asarray(surface_ids, dtype=str) > self.floor_id)
+            if np.any(replace):
+                closest[replace] = points[replace]
+                closest[replace, 2] = self.floor_z
+                normals[replace] = [0.0, 0.0, 1.0]
+                surface_ids[replace] = self.floor_id
+                supportable[replace] = True
+                distance[replace] = floor_distance[replace]
+        return {
+            "signed_distance": distance,
+            "closest_point": closest,
+            "normal": normals,
+            "surface_id": surface_ids,
+            "supportable": supportable,
+        }
 
     def support_surface(self, point: np.ndarray) -> TerrainSurfaceHit:
         point = np.asarray(point, dtype=float).reshape(3)

@@ -12,7 +12,43 @@
     "max_active_per_robot_geom": 5,
     "prediction_horizon": 2.0,
     "hold_steps": 3,
+    "debug_collision_jacobian": false,
     "scene_body_prefix": "scene_"
+  },
+  "semantic_points": {
+    "pelvis": {"source": "pelvis", "robot": {"body": "base_link", "offsets": [[0.0, 0.0, 0.0]]}}
+  },
+  "global_anchor": {
+    "source": "pelvis",
+    "robot_body": "base_link",
+    "cost": [4.0, 4.0, 1.5, 2.0]
+  },
+  "root_se3": {
+    "enabled": true,
+    "cost": [4.0, 4.0, 1.5, 0.8, 0.8, 0.8],
+    "gain": 0.30
+  },
+  "bone_direction": {
+    "cost": 1.5,
+    "gain": 0.30,
+    "edges": [
+      ["pelvis", "left_hip"], ["left_hip", "left_knee"],
+      ["left_knee", "left_foot"], ["left_foot", "left_toe"],
+      ["pelvis", "right_hip"], ["right_hip", "right_knee"],
+      ["right_knee", "right_foot"], ["right_foot", "right_toe"],
+      ["left_shoulder", "left_elbow"], ["left_elbow", "left_hand"],
+      ["right_shoulder", "right_elbow"], ["right_elbow", "right_hand"]
+    ]
+  },
+  "limb_plane": {
+    "cost": 0.8,
+    "gain": 0.20,
+    "triples": [
+      ["left_hip", "left_knee", "left_foot"],
+      ["right_hip", "right_knee", "right_foot"],
+      ["left_shoulder", "left_elbow", "left_hand"],
+      ["right_shoulder", "right_elbow", "right_hand"]
+    ]
   },
   "contact_channels": {
     "left_butt": {"query_type": "support", "provenance": "pelvis_surface_proxy"},
@@ -21,7 +57,7 @@
     "upper_back": {"query_type": "nearest", "provenance": "spine_surface_proxy"}
   },
   "terrain_contact": {
-    "object_contact_distance": 0.18,
+    "object_contact_distance": 0.05,
     "channels": ["left_heel", "right_heel", "left_toe", "right_toe", "left_palm", "right_palm", "left_knee", "right_knee", "left_shin", "right_shin", "left_butt", "right_butt", "lower_back", "upper_back"]
   },
   "contact_tasks": {

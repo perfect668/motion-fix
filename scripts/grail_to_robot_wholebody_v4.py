@@ -29,6 +29,50 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 
+def _closest_point_triangle(point: np.ndarray, triangle: np.ndarray) -> np.ndarray:
+    """Closest point on one triangle (Ericson region test)."""
+    a, b, c = np.asarray(triangle, dtype=float)
+    ab, ac, ap = b - a, c - a, np.asarray(point, dtype=float) - a
+    d1, d2 = float(ab @ ap), float(ac @ ap)
+    if d1 <= 0.0 and d2 <= 0.0:
+        return a.copy()
+    bp = np.asarray(point, dtype=float) - b
+    d3, d4 = float(ab @ bp), float(ac @ bp)
+    if d3 >= 0.0 and d4 <= d3:
+        return b.copy()
+    vc = d1 * d4 - d3 * d2
+    if vc <= 0.0 and d1 >= 0.0 and d3 <= 0.0:
+        return a + (d1 / max(d1 - d3, 1e-12)) * ab
+    cp = np.asarray(point, dtype=float) - c
+    d5, d6 = float(ab @ cp), float(ac @ cp)
+    if d6 >= 0.0 and d5 <= d6:
+        return c.copy()
+    vb = d5 * d2 - d1 * d6
+    if vb <= 0.0 and d2 >= 0.0 and d6 <= 0.0:
+        return a + (d2 / max(d2 - d6, 1e-12)) * ac
+    va = d3 * d6 - d5 * d4
+    if va <= 0.0 and (d4 - d3) >= 0.0 and (d5 - d6) >= 0.0:
+        return b + ((d4 - d3) / max((d4 - d3) + (d5 - d6), 1e-12)) * (c - b)
+    denominator = max(va + vb + vc, 1e-12)
+    v, w = vb / denominator, vc / denominator
+    return a + ab * v + ac * w
+
+
+def _closest_mesh_surface(point: np.ndarray, triangles: np.ndarray, centers: np.ndarray, normals: np.ndarray, candidate_count: int = 64):
+    count = min(int(candidate_count), len(triangles))
+    candidates = np.argsort(np.sum((centers - point[None, :]) ** 2, axis=1), kind="stable")[:count]
+    best_index, best_point, best_distance = int(candidates[0]), None, float("inf")
+    for index in candidates:
+        closest = _closest_point_triangle(point, triangles[int(index)])
+        distance = float(np.sum((closest - point) ** 2))
+        if distance < best_distance:
+            best_index, best_point, best_distance = int(index), closest, distance
+    normal = normals[best_index].copy()
+    if float(normal @ (point - best_point)) < 0.0:
+        normal = -normal
+    return best_index, best_point, normal, float(np.sqrt(best_distance))
+
+
 def _asset_path(record: dict, motion: Path, override: Path | None = None) -> Path:
     if override is not None:
         if not override.is_file():
@@ -113,12 +157,10 @@ def main() -> None:
     from general_motion_retargeting.terrain_geometry import SceneTransform
     scene_transform = SceneTransform(np.asarray(scene_cfg.get("rotation", np.eye(3))), float(scene_cfg["robot_height"]) / float(human_height), np.asarray(scene_cfg.get("translation", [0, 0, 0])))
     scene_pose = np.eye(4)
-    # GRAIL USD assets are already expressed in metric object units; their
-    # recorded obj_scale is the object-size calibration.  Applying the human
-    # height scale a second time shrinks the chair by ~0.79 and caused the
-    # visibly undersized scene.  Rotate/translate into solver coordinates,
-    # while preserving the metadata object scale.
-    scene_pose[:3, :3] = scene_transform.rotation @ pose[:3, :3]
+    # Motion and object originate in the same GRAIL reconstruction world, so
+    # the complete similarity transform must be shared by both.  This keeps
+    # visual, interaction and collision geometry metrically aligned.
+    scene_pose[:3, :3] = scene_transform.scale * scene_transform.rotation @ pose[:3, :3]
     # Object pose is a static reconstruction-world pose.  Human root
     # translation changes through the sequence (approach, sit, stand) and
     # must not be baked into the object transform.
@@ -172,18 +214,32 @@ def main() -> None:
     def _object_contact_schedule(schedule, source_frames, config):
         samples = scene.objects[0].transformed_samples()
         object_id = scene.objects[0].object_id
-        threshold = float(config.get("terrain_contact", {}).get("object_contact_distance", 0.18))
+        threshold = float(config.get("terrain_contact", {}).get("object_contact_distance", 0.05))
+        # Keep contact normals tied to the same source mesh used by visual and
+        # collision construction.  Centroid lookup is deterministic and
+        # avoids hard-coding +Z for a vertical chair back.
+        triangles = scene_mesh.vertices[scene_mesh.faces]
+        centers = np.mean(triangles, axis=1)
+        normals = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
+        normals /= np.maximum(np.linalg.norm(normals, axis=1, keepdims=True), 1e-12)
+        linear = scene_mesh.object_pose[:3, :3]
+        transformed_centers = (np.c_[centers, np.ones(len(centers))] @ scene_mesh.object_pose.T)[:, :3]
+        transformed_triangles = (np.c_[triangles.reshape(-1, 3), np.ones(len(triangles) * 3)] @ scene_mesh.object_pose.T)[:, :3].reshape((-1, 3, 3))
+        transformed_normals = normals @ np.linalg.inv(linear)
+        transformed_normals /= np.maximum(np.linalg.norm(transformed_normals, axis=1, keepdims=True), 1e-12)
         for frame, record_frame in zip(source_frames, schedule):
             for channel in ("left_butt", "right_butt", "lower_back", "upper_back", "left_palm", "right_palm"):
                 item = record_frame.get("contacts", {}).get(channel)
                 if not item or not np.all(np.isfinite(item.get("human_point_solver", [np.nan] * 3))):
                     continue
                 point = np.asarray(item["human_point_solver"], dtype=float)
-                index = int(np.argmin(np.linalg.norm(samples - point[None, :], axis=1)))
-                distance = float(np.linalg.norm(samples[index] - point))
+                index, surface_point, normal, distance = _closest_mesh_surface(
+                    point, transformed_triangles, transformed_centers,
+                    transformed_normals, candidate_count=64,
+                )
                 if distance > threshold:
                     continue
-                item.update({"score": float(np.clip(1.0 - distance / threshold, 0.0, 1.0)), "state": "STATIC", "source_state": "STATIC", "object_id": object_id, "surface_id": f"{object_id}:sample_{index:04d}", "surface_type": "mesh", "surface_point_solver": samples[index].copy(), "surface_normal_solver": np.array([0., 0., 1.]), "signed_distance": distance, "normal_error": distance, "tangent_error": float(item.get("tangential_speed", 0.0))})
+                item.update({"score": float(np.clip(1.0 - distance / threshold, 0.0, 1.0)), "state": "STATIC", "source_state": "STATIC", "object_id": object_id, "surface_id": f"{object_id}:face_{index:05d}", "surface_type": "mesh", "surface_point_solver": surface_point.copy(), "surface_normal_solver": normal.copy(), "signed_distance": distance, "normal_error": distance, "tangent_error": float(item.get("tangential_speed", 0.0))})
         return schedule
     impl.SCENE_CONTACT_POSTPROCESS = _object_contact_schedule
     try:

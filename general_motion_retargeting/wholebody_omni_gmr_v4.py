@@ -3,10 +3,14 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 import json
+import os
+import pickle
 from time import perf_counter
 import mujoco as mj
 import mink
 import numpy as np
+from mink.tasks.task import Task
+from scipy.spatial.transform import Rotation
 from .wholebody_omni_gmr_v3 import WholeBodyOmniGMRV3
 from .scene_limits import AutomaticSceneCollisionLimit
 from .terrain_tasks import TerrainPointContactTask
@@ -21,6 +25,114 @@ def _deep_merge(base: dict, override: dict) -> dict:
         else:
             result[key] = value
     return result
+
+
+class RootSE3Task(Task):
+    """Full pelvis position/orientation gauge for V4 (V3 remains yaw-only)."""
+
+    def __init__(self, model: mj.MjModel, body_name: str, costs: list[float], gain: float = 0.45) -> None:
+        self.model = model
+        self.body_id = model.body(body_name).id
+        self.target_position = np.zeros(3)
+        self.target_rotation = np.eye(3)
+        super().__init__(cost=np.asarray(costs, dtype=float), gain=float(gain), lm_damping=1.0)
+
+    def set_target(self, position: np.ndarray, quaternion_wxyz: np.ndarray) -> None:
+        self.target_position = np.asarray(position, dtype=float).reshape(3)
+        quat = np.asarray(quaternion_wxyz, dtype=float).reshape(4)
+        quat /= max(float(np.linalg.norm(quat)), 1e-12)
+        self.target_rotation = Rotation.from_quat(quat, scalar_first=True).as_matrix()
+
+    def compute_error(self, configuration: mink.Configuration) -> np.ndarray:
+        current = configuration.data.xmat[self.body_id].reshape(3, 3)
+        rotation_error = Rotation.from_matrix(self.target_rotation.T @ current).as_rotvec()
+        return np.r_[configuration.data.xpos[self.body_id] - self.target_position, rotation_error]
+
+    def compute_jacobian(self, configuration: mink.Configuration) -> np.ndarray:
+        jacp = np.zeros((3, self.model.nv), dtype=float)
+        jacr = np.zeros((3, self.model.nv), dtype=float)
+        mj.mj_jacBody(self.model, configuration.data, jacp, jacr, self.body_id)
+        return np.vstack((jacp, jacr))
+
+
+class BoneDirectionTask(Task):
+    """Soft normalized bone-direction constraints that remove limb mirror modes."""
+
+    def __init__(self, model: mj.MjModel, robot_points: dict, edges: list[tuple[str, str]], cost: float, gain: float = 0.35) -> None:
+        self.model = model
+        self.robot_points = robot_points
+        self.edges = [(a, b) for a, b in edges if a in robot_points and b in robot_points]
+        self.sources: dict[str, np.ndarray] = {}
+        super().__init__(cost=np.full(3 * len(self.edges), float(cost)), gain=float(gain), lm_damping=1.0)
+
+    def set_source(self, source: dict[str, np.ndarray]) -> None:
+        self.sources = source
+
+    @staticmethod
+    def _unit(value: np.ndarray) -> tuple[np.ndarray, float]:
+        norm = float(np.linalg.norm(value))
+        return value / max(norm, 1e-9), norm
+
+    def _edge(self, configuration: mink.Configuration, a: str, b: str):
+        pa = self.robot_points[a].point(configuration)
+        pb = self.robot_points[b].point(configuration)
+        ja = self.robot_points[a].jacobian(configuration)
+        jb = self.robot_points[b].jacobian(configuration)
+        current, length = self._unit(pb - pa)
+        target, _ = self._unit(self.sources[b] - self.sources[a])
+        projector = np.eye(3) - np.outer(current, current)
+        return current, target, projector @ ((jb - ja) / max(length, 1e-9))
+
+    def compute_error(self, configuration: mink.Configuration) -> np.ndarray:
+        values = []
+        for a, b in self.edges:
+            current, target, _ = self._edge(configuration, a, b)
+            values.append(current - target)
+        return np.concatenate(values) if values else np.empty(0)
+
+    def compute_jacobian(self, configuration: mink.Configuration) -> np.ndarray:
+        values = []
+        for a, b in self.edges:
+            values.append(self._edge(configuration, a, b)[2])
+        return np.vstack(values) if values else np.empty((0, self.model.nv))
+
+
+class LimbPlaneTask(Task):
+    """Weak plane-normal task selecting the anatomical elbow/knee branch."""
+
+    def __init__(self, model: mj.MjModel, robot_points: dict, triples: list[tuple[str, str, str]], cost: float, gain: float = 0.25) -> None:
+        self.model = model
+        self.robot_points = robot_points
+        self.triples = [(a, b, c) for a, b, c in triples if a in robot_points and b in robot_points and c in robot_points]
+        self.sources: dict[str, np.ndarray] = {}
+        super().__init__(cost=np.full(3 * len(self.triples), float(cost)), gain=float(gain), lm_damping=1.0)
+
+    def set_source(self, source: dict[str, np.ndarray]) -> None:
+        self.sources = source
+
+    @staticmethod
+    def _normal(first: np.ndarray, second: np.ndarray) -> tuple[np.ndarray, float]:
+        cross = np.cross(first, second)
+        norm = float(np.linalg.norm(cross))
+        return cross / max(norm, 1e-9), norm
+
+    def _triple(self, configuration: mink.Configuration, names: tuple[str, str, str]):
+        a, b, c = names
+        pa, pb, pc = (self.robot_points[n].point(configuration) for n in names)
+        ja, jb, jc = (self.robot_points[n].jacobian(configuration) for n in names)
+        u, v = pb - pa, pc - pa
+        normal, norm = self._normal(u, v)
+        target, _ = self._normal(self.sources[b] - self.sources[a], self.sources[c] - self.sources[a])
+        # d(u x v) = du x v + u x dv, then project through normalized cross.
+        cross_j = np.cross(jb - ja, v[:, None], axis=0) + np.cross(u[:, None], jc - ja, axis=0)
+        projector = (np.eye(3) - np.outer(normal, normal)) / max(norm, 1e-9)
+        return normal, target, projector @ cross_j
+
+    def compute_error(self, configuration: mink.Configuration) -> np.ndarray:
+        return np.concatenate([self._triple(configuration, triple)[0] - self._triple(configuration, triple)[1] for triple in self.triples]) if self.triples else np.empty(0)
+
+    def compute_jacobian(self, configuration: mink.Configuration) -> np.ndarray:
+        return np.vstack([self._triple(configuration, triple)[2] for triple in self.triples]) if self.triples else np.empty((0, self.model.nv))
 
 
 class WholeBodyOmniGMRV4(WholeBodyOmniGMRV3):
@@ -44,6 +156,35 @@ class WholeBodyOmniGMRV4(WholeBodyOmniGMRV3):
         else:
             self._merged_config_path = None
         super().__init__(config_path, terrain, environment_pool, fps=fps, solver=solver)
+        # V4 consumes only canonical semantic names.  The adapters may retain
+        # dataset aliases in their source frame for legacy contact code, but
+        # no dataset-specific label is allowed to select a V4 target.
+        source_aliases = {
+            "Hips": "pelvis", "Spine1": "spine3", "Spine": "spine3",
+            "LeftUpLeg": "left_hip", "RightUpLeg": "right_hip",
+            "LeftLeg": "left_knee", "RightLeg": "right_knee",
+            "LeftFoot": "left_foot", "RightFoot": "right_foot",
+            "LeftToeBase": "left_toe", "RightToeBase": "right_toe",
+            "LeftArm": "left_shoulder", "RightArm": "right_shoulder",
+            "LeftForeArm": "left_elbow", "RightForeArm": "right_elbow",
+            "LeftHandMiddle3": "left_wrist", "RightHandMiddle3": "right_wrist",
+            "LeftHand": "left_wrist", "RightHand": "right_wrist",
+        }
+        for specification in self.semantic_mapping.values():
+            specification["source"] = source_aliases.get(
+                specification.get("source"), specification.get("source")
+            )
+        self.config["global_anchor"]["source"] = "pelvis"
+        # V4 adds orientation/direction stabilization after the V3 objects
+        # have been constructed; the original V3 class and entry remain intact.
+        root_cfg = self.config.get("root_se3", {})
+        if bool(root_cfg.get("enabled", True)):
+            self.root_task = RootSE3Task(
+                self.model,
+                self.config["global_anchor"]["robot_body"],
+                root_cfg.get("cost", [4.0, 4.0, 1.5, 1.0, 1.0, 1.0]),
+                root_cfg.get("gain", 0.35),
+            )
         # V4 may add generic body-surface channels without changing the V3
         # contact task.  Rebuild the task from the fully merged configuration
         # so inherited foot/palm/knee channels and costs remain intact.
@@ -57,6 +198,31 @@ class WholeBodyOmniGMRV4(WholeBodyOmniGMRV3):
                 contact_cfg.get("tangent_cost", 12.0),
                 contact_cfg.get("clearance", 0.004),
             )
+        direction_cfg = self.config.get("bone_direction", {})
+        default_edges = [
+            ("pelvis", "left_hip"), ("left_hip", "left_knee"), ("left_knee", "left_foot"),
+            ("left_foot", "left_toe"), ("pelvis", "right_hip"), ("right_hip", "right_knee"),
+            ("right_knee", "right_foot"), ("right_foot", "right_toe"),
+            ("left_shoulder", "left_elbow"), ("left_elbow", "left_hand"),
+            ("right_shoulder", "right_elbow"), ("right_elbow", "right_hand"),
+        ]
+        edges = [tuple(edge) for edge in direction_cfg.get("edges", default_edges)]
+        self.bone_direction_task = BoneDirectionTask(
+            self.model, self.interaction_task.robot_points, edges,
+            float(direction_cfg.get("cost", 1.5)), float(direction_cfg.get("gain", 0.3)),
+        )
+        plane_cfg = self.config.get("limb_plane", {})
+        default_triples = [
+            ("left_hip", "left_knee", "left_foot"),
+            ("right_hip", "right_knee", "right_foot"),
+            ("left_shoulder", "left_elbow", "left_hand"),
+            ("right_shoulder", "right_elbow", "right_hand"),
+        ]
+        self.limb_plane_task = LimbPlaneTask(
+            self.model, self.interaction_task.robot_points,
+            [tuple(item) for item in plane_cfg.get("triples", default_triples)],
+            float(plane_cfg.get("cost", 0.8)), float(plane_cfg.get("gain", 0.2)),
+        )
         cfg = self.config.get("scene_collision", {})
         backend = str(cfg.get("backend", "analytic"))
         self.scene_collision = AutomaticSceneCollisionLimit(self.model, cfg) if backend in {"mujoco", "hybrid"} else None
@@ -103,6 +269,8 @@ class WholeBodyOmniGMRV4(WholeBodyOmniGMRV3):
             self._initialize(source_frame, root_quaternion)
         semantics = self._source_semantics(source_frame)
         self.interaction_task.set_source(semantics)
+        self.bone_direction_task.set_source(semantics)
+        self.limb_plane_task.set_source(semantics)
         root_name = self.config["global_anchor"]["source"]
         self.root_task.set_target(source_frame[root_name], root_quaternion)
         if chest_quaternion is not None:
@@ -126,6 +294,8 @@ class WholeBodyOmniGMRV4(WholeBodyOmniGMRV3):
         )
         tasks = [
             self.interaction_task,
+            self.bone_direction_task,
+            self.limb_plane_task,
             self.contact_task,
             self.foot_orientation_task,
             self.root_task,
@@ -195,7 +365,8 @@ class WholeBodyOmniGMRV4(WholeBodyOmniGMRV3):
             self.scene_collision.prepare_active_set(self.configuration, self.dt)
             scene_query_runtime += self.scene_collision.query_runtime_seconds
             scene_diagnostics.update(self.scene_collision.diagnostics())
-            scene_diagnostics["jacobian_finite_difference"] = self.scene_collision.finite_difference_check(self.configuration)
+            if bool(self.config.get("scene_collision", {}).get("debug_collision_jacobian", False)):
+                scene_diagnostics["jacobian_finite_difference"] = self.scene_collision.finite_difference_check(self.configuration)
             scene_diagnostics.update(
                 self.scene_collision.measure_current_distances(self.configuration)
             )
@@ -215,8 +386,13 @@ class WholeBodyOmniGMRV4(WholeBodyOmniGMRV3):
         self.diagnostics.append(
             {
                 "frame": self.frame_index,
+                "passes": int(passes),
                 "qp_failures": failures,
+                "qp_failure": bool(failures),
+                "qp_iterations": int(passes - len(failures)),
                 "qp_solve_runtime_seconds": float(qp_runtime),
+                "qp_solve_time": float(qp_runtime),
+                "collision_query_time": float(scene_query_runtime),
                 "active_collision_shells": sorted(self.terrain_limit.selected),
                 "active_collision_points": int(
                     sum(len(value) for value in self.terrain_limit.selected.values())
@@ -234,7 +410,10 @@ class WholeBodyOmniGMRV4(WholeBodyOmniGMRV3):
                     )
                 ),
                 "minimum_terrain_slack": float(minimum_slack),
+                "min_slack_after": float(minimum_slack),
+                "active_constraints": int(getattr(self.terrain_limit, "active_count", sum(len(v) for v in getattr(self.terrain_limit, "selected", {}).values())) + len(self.self_collision_limit.active_pairs) + len(getattr(self.scene_collision, "active_pairs", []))),
                 "max_velocity": float(np.max(np.abs(delta), initial=0.0)),
+                "interaction_error": float(np.linalg.norm(self.interaction_task.compute_error(self.configuration))),
                 "torso_pelvis_targets": {
                     key: float(value)
                     for key, value in self.torso_task.targets.items()
@@ -255,6 +434,15 @@ class WholeBodyOmniGMRV4(WholeBodyOmniGMRV3):
                 **scene_diagnostics,
             }
         )
+        # Keep a stable diagnostic vocabulary for downstream dataset tools.
+        self.diagnostics[-1]["scene_collision_candidate_pairs"] = int(
+            len(getattr(self.scene_collision, "robot_geoms", ())) *
+            len(getattr(self.scene_collision, "scene_geoms", ()))
+            if self.scene_collision is not None else 0
+        )
+        self.diagnostics[-1]["scene_collision_active_pairs"] = int(
+            len(getattr(self.scene_collision, "active_pairs", ()))
+        )
         self.previous_q = output.copy()
         self.frame_index += 1
         return output
@@ -265,12 +453,57 @@ class WholeBodyOmniGMRV4(WholeBodyOmniGMRV3):
         solver_frames: list[dict[str, tuple[np.ndarray, np.ndarray]]],
         contact_schedule: list[dict],
         source_frames: list[dict[str, np.ndarray]] | None = None,
+        checkpoint_path: str | Path | None = None,
+        checkpoint_every: int = 0,
+        resume: bool = False,
     ) -> np.ndarray:
-        """Retarget a validated canonical motion without changing V4 IK semantics."""
+        """Retarget canonical motion, optionally with resumable checkpoints."""
         if len(solver_frames) != motion.frame_count or len(contact_schedule) != motion.frame_count:
             raise ValueError("Canonical frame count, solver frames, and contact schedule must match")
-        outputs = []
-        for index, (frame, contacts) in enumerate(zip(solver_frames, contact_schedule)):
+        checkpoint = Path(checkpoint_path) if checkpoint_path is not None else None
+        outputs: list[np.ndarray] = []
+        start = 0
+        if resume and checkpoint is not None and checkpoint.is_file():
+            with checkpoint.open("rb") as stream:
+                state = pickle.load(stream)
+            if state.get("frame_count") != motion.frame_count:
+                raise ValueError("Checkpoint frame count does not match canonical motion")
+            outputs = [np.asarray(value, dtype=float) for value in state.get("outputs", [])]
+            start = int(state.get("next_frame", len(outputs)))
+            if start != len(outputs) or start > motion.frame_count:
+                raise ValueError("Checkpoint output sequence is inconsistent")
+            if outputs:
+                self.configuration.update(np.asarray(outputs[-1], dtype=float))
+                self.previous_q = np.asarray(state.get("previous_q", outputs[-1]), dtype=float)
+                self.frame_index = start
+                self.diagnostics = list(state.get("diagnostics", []))
+                for attr in ("selected", "previous", "active", "release_count"):
+                    value = state.get(f"terrain_{attr}")
+                    if value is not None and hasattr(self.terrain_limit, attr):
+                        setattr(self.terrain_limit, attr, value)
+
+        def save_checkpoint(next_frame: int) -> None:
+            if checkpoint is None:
+                return
+            checkpoint.parent.mkdir(parents=True, exist_ok=True)
+            state = {
+                "frame_count": motion.frame_count,
+                "next_frame": next_frame,
+                "outputs": outputs,
+                "previous_q": self.previous_q,
+                "diagnostics": self.diagnostics,
+                "terrain_selected": getattr(self.terrain_limit, "selected", None),
+                "terrain_previous": getattr(self.terrain_limit, "previous", None),
+                "terrain_active": getattr(self.terrain_limit, "active", None),
+                "terrain_release_count": getattr(self.terrain_limit, "release_count", None),
+            }
+            temporary = checkpoint.with_name(f".{checkpoint.name}.tmp")
+            with temporary.open("wb") as stream:
+                pickle.dump(state, stream, protocol=pickle.HIGHEST_PROTOCOL)
+            os.replace(temporary, checkpoint)
+
+        for index in range(start, motion.frame_count):
+            frame, contacts = solver_frames[index], contact_schedule[index]
             root = frame.get("pelvis") or frame.get("root")
             chest = frame.get("spine3") or frame.get("chest")
             if root is None:
@@ -283,4 +516,8 @@ class WholeBodyOmniGMRV4(WholeBodyOmniGMRV3):
                     chest_quaternion=None if chest is None else chest[1],
                 ).copy()
             )
+            if checkpoint_every > 0 and (len(outputs) % checkpoint_every == 0):
+                save_checkpoint(index + 1)
+        if checkpoint is not None:
+            save_checkpoint(motion.frame_count)
         return np.asarray(outputs, dtype=float)
