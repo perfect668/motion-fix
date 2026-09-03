@@ -161,6 +161,69 @@ class TerrainFootOrientationTask(Task):
         return jacobian
 
 
+class FootFrameTask(TerrainFootOrientationTask):
+    """Foot-frame orientation using measured heel-to-toe forward direction."""
+
+    def __init__(self, model, foot_bodies: dict[str, str], local_normal: np.ndarray, cost: float) -> None:
+        # TerrainFootOrientationTask has two residuals per foot; this task
+        # adds two forward-direction residuals, so allocate the matching cost
+        # vector before Mink validates task dimensions.
+        self.model = model
+        self.body_ids = {side: model.body(name).id for side, name in foot_bodies.items()}
+        self.local_normal = np.asarray(local_normal, dtype=float)
+        self.local_normal /= max(float(np.linalg.norm(self.local_normal)), 1e-12)
+        self.targets = {side: {"activation": 0.0, "normal": np.array([0, 0, 1.0]), "forward": np.array([1.0, 0.0, 0.0])} for side in foot_bodies}
+        super(TerrainFootOrientationTask, self).__init__(cost=np.full(4 * len(foot_bodies), float(cost)), gain=0.45, lm_damping=1.0)
+
+    def set_contacts(self, contacts: dict, flat_foot: dict) -> None:
+        super().set_contacts(contacts, flat_foot)
+        for side in self.body_ids:
+            heel = contacts.get(f"{side}_heel", {})
+            toe = contacts.get(f"{side}_toe", {})
+            if str(heel.get("state", "NONE")) == "NONE":
+                self.targets[side]["activation"] = float(heel.get("airborne_activation", 0.15))
+                self.targets[side]["normal"] = np.asarray(heel.get("human_foot_normal_solver", [0, 0, 1]), dtype=float)
+                self.targets[side]["normal"] /= max(float(np.linalg.norm(self.targets[side]["normal"])), 1e-12)
+            forward = np.asarray(toe.get("human_point_solver", [1, 0, 0]), dtype=float) - np.asarray(heel.get("human_point_solver", [0, 0, 0]), dtype=float)
+            source_forward = np.asarray(heel.get("human_foot_forward_solver", forward), dtype=float)
+            normal = self.targets[side]["normal"]
+            if str(heel.get("state", "NONE")) == "NONE":
+                forward = source_forward
+            forward = forward - normal * float(forward @ normal)
+            if np.linalg.norm(forward) > 1e-8:
+                self.targets[side]["forward"] = forward / np.linalg.norm(forward)
+            else:
+                self.targets[side]["forward"] = np.array([1.0, 0.0, 0.0])
+
+    def compute_error(self, configuration) -> np.ndarray:
+        residual = []
+        for side, body_id in self.body_ids.items():
+            target = self.targets[side]
+            activation = float(target["activation"])
+            rotation = configuration.data.xmat[body_id].reshape(3, 3)
+            axis = rotation @ self.local_normal
+            tangent = tangent_basis(target["normal"])
+            actual_forward = rotation[:, 0]
+            residual.extend(activation * np.r_[tangent.T @ axis, tangent.T @ (actual_forward - target["forward"])])
+        return np.asarray(residual)
+
+    def compute_jacobian(self, configuration) -> np.ndarray:
+        jacobian = np.zeros((4 * len(self.body_ids), self.model.nv))
+        for index, (side, body_id) in enumerate(self.body_ids.items()):
+            target = self.targets[side]
+            jacp = np.zeros((3, self.model.nv)); jacr = np.zeros((3, self.model.nv))
+            mj.mj_jacBody(self.model, configuration.data, jacp, jacr, body_id)
+            rotation = configuration.data.xmat[body_id].reshape(3, 3)
+            tangent = tangent_basis(target["normal"])
+            axis = rotation @ self.local_normal
+            skew_axis = np.array([[0, -axis[2], axis[1]], [axis[2], 0, -axis[0]], [-axis[1], axis[0], 0]])
+            actual_forward = rotation[:, 0]
+            skew_forward = np.array([[0, -actual_forward[2], actual_forward[1]], [actual_forward[2], 0, -actual_forward[0]], [-actual_forward[1], actual_forward[0], 0]])
+            rows = np.vstack((tangent.T @ (-skew_axis @ jacr), tangent.T @ (-skew_forward @ jacr)))
+            jacobian[4 * index:4 * index + 4] = target["activation"] * rows
+        return jacobian
+
+
 class TerrainFootTemporalTask(Task):
     CHANNELS = ("left_heel", "left_toe", "right_heel", "right_toe")
 

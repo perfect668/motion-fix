@@ -18,15 +18,18 @@ def _proxy_points(frame: dict[str, np.ndarray], config: dict) -> dict[str, tuple
         return None
     foot_back_fraction = float(config.get("heel_proxy_back_fraction", 0.28))
     sole_offset = float(config.get("heel_proxy_sole_offset", 0.0))
-    left_foot = pick("LeftFoot", "left_foot")
-    right_foot = pick("RightFoot", "right_foot")
+    left_foot = pick("left_ankle", "LeftFoot", "left_foot")
+    right_foot = pick("right_ankle", "RightFoot", "right_foot")
     if left_foot is None or right_foot is None:
         raise KeyError("Terrain contact inference requires left/right foot points")
     lateral = left_foot - right_foot
     lateral /= max(float(np.linalg.norm(lateral)), 1e-12)
     for side, title in (("left", "Left"), ("right", "Right")):
-        foot = pick(f"{title}Foot", f"{side}_foot")
-        toe = pick(f"{title}ToeBase", f"{side}_toe", f"{side}_toe_base")
+        foot = pick(f"{side}_ankle", f"{title}Foot", f"{side}_foot")
+        toe_big = pick(f"{side}_big_toe")
+        toe_small = pick(f"{side}_small_toe")
+        toe = (0.5 * (toe_big + toe_small) if toe_big is not None and toe_small is not None
+               else pick(f"{title}ToeBase", f"{side}_toe", f"{side}_toe_base"))
         if foot is None or toe is None:
             raise KeyError(f"Missing {side} foot/toe points")
         foot_vector = toe - foot
@@ -36,9 +39,16 @@ def _proxy_points(frame: dict[str, np.ndarray], config: dict) -> dict[str, tuple
         sole_normal /= max(float(np.linalg.norm(sole_normal)), 1e-12)
         if sole_normal[2] < 0.0:
             sole_normal = -sole_normal
-        heel = foot - foot_back_fraction * foot_vector - sole_offset * sole_normal
-        points[f"{side}_heel"] = (heel, "Foot_to_ToeBase_surface_proxy", True)
-        points[f"{side}_toe"] = (toe, "ToeBase", True)
+        measured_heel = pick(f"{side}_heel")
+        if measured_heel is not None:
+            heel = measured_heel
+            heel_provenance = "measured_heel"
+        else:
+            heel = foot - foot_back_fraction * foot_vector - sole_offset * sole_normal
+            heel_provenance = "Foot_to_ToeBase_surface_proxy"
+        toe_provenance = "measured_big_small_toe_midpoint" if toe_big is not None and toe_small is not None else "ToeBase"
+        points[f"{side}_heel"] = (heel, heel_provenance, True)
+        points[f"{side}_toe"] = (toe, toe_provenance, True)
         hand = pick(f"{title}Hand", f"{side}_hand", f"{side}_wrist")
         if hand is not None:
             points[f"{side}_palm"] = (hand, "hand_surface_proxy", False)
@@ -191,6 +201,18 @@ def build_terrain_contact_schedule(
         min_score = float(config.get("flat_foot_min_score", 0.45))
         for side in ("left", "right"):
             heel, toe = contacts[f"{side}_heel"], contacts[f"{side}_toe"]
+            # Preserve the measured foot frame for airborne orientation.  It
+            # is derived only from source landmarks and never from robot q.
+            foot_vec = np.asarray(toe["human_point_solver"]) - np.asarray(heel["human_point_solver"])
+            lateral_vec = (np.asarray(contacts[f"left_heel"]["human_point_solver"]) - np.asarray(contacts[f"right_heel"]["human_point_solver"]))
+            foot_forward = foot_vec / max(float(np.linalg.norm(foot_vec)), 1e-12)
+            foot_normal = np.cross(foot_forward, lateral_vec)
+            foot_normal /= max(float(np.linalg.norm(foot_normal)), 1e-12)
+            if foot_normal[2] < 0.0:
+                foot_normal = -foot_normal
+            for item in (heel, toe):
+                item["human_foot_forward_solver"] = foot_forward.copy()
+                item["human_foot_normal_solver"] = foot_normal.copy()
             dot = float(np.clip(np.dot(heel["surface_normal_solver"], toe["surface_normal_solver"]), -1.0, 1.0))
             valid = (
                 heel["surface_id"] == toe["surface_id"]

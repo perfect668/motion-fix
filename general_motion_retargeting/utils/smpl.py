@@ -176,12 +176,16 @@ def get_smplx_data(smplx_data, body_model, smplx_output, curr_frame):
     global_orient = smplx_output.global_orient[curr_frame].squeeze()
     full_body_pose = smplx_output.full_pose[curr_frame].reshape(-1, 3)
     joints = smplx_output.joints[curr_frame].detach().numpy().squeeze()
-    joint_names = JOINT_NAMES[: len(body_model.parents)]
+    # SMPL-X returns extended surface landmarks beyond the kinematic parent
+    # array.  Build names from the actual joint tensor, while computing
+    # orientations only for joints with valid parents.
+    joint_names = JOINT_NAMES[: len(joints)]
+    kinematic_joint_names = joint_names[: len(body_model.parents)]
     parents = body_model.parents
 
     result = {}
     joint_orientations = []
-    for i, joint_name in enumerate(joint_names):
+    for i, joint_name in enumerate(kinematic_joint_names):
         if i == 0:
             rot = R.from_rotvec(global_orient)
         else:
@@ -190,6 +194,11 @@ def get_smplx_data(smplx_data, body_model, smplx_output, curr_frame):
             )
         joint_orientations.append(rot)
         result[joint_name] = (joints[i], rot.as_quat(scalar_first=True))
+
+    for landmark in ("left_ankle", "right_ankle", "left_big_toe", "right_big_toe",
+                     "left_small_toe", "right_small_toe", "left_heel", "right_heel"):
+        if landmark in joint_names:
+            result[landmark] = (joints[joint_names.index(landmark)], None)
 
   
     return result
@@ -245,7 +254,8 @@ def get_smplx_data_offline_fast(smplx_data, body_model, smplx_output, tgt_fps=30
     global_orient = smplx_output.global_orient.detach().cpu().numpy().reshape(num_frames, 3)
     full_body_pose = smplx_output.full_pose.detach().cpu().numpy().reshape(num_frames, -1, 3)
     joints = smplx_output.joints.detach().cpu().numpy().reshape(num_frames, -1, 3)
-    joint_names = JOINT_NAMES[: len(body_model.parents)]
+    joint_names = JOINT_NAMES[: joints.shape[1]]
+    kinematic_joint_names = joint_names[: len(body_model.parents)]
     parents = body_model.parents
     
     if num_frames == 1:
@@ -307,7 +317,7 @@ def get_smplx_data_offline_fast(smplx_data, body_model, smplx_output, tgt_fps=30
         single_full_body_pose = full_body_pose[curr_frame]
         single_joints = joints[curr_frame]
         joint_orientations = []
-        for i, joint_name in enumerate(joint_names):
+        for i, joint_name in enumerate(kinematic_joint_names):
             if i == 0:
                 rot = R.from_rotvec(single_global_orient)
             else:
@@ -317,7 +327,13 @@ def get_smplx_data_offline_fast(smplx_data, body_model, smplx_output, tgt_fps=30
             joint_orientations.append(rot)
             result[joint_name] = (single_joints[i], rot.as_quat(scalar_first=True))
 
-
+        # These are measured surface landmarks, not rigid bodies.  Preserve
+        # their positions while deliberately leaving orientation undefined.
+        for landmark in ("left_ankle", "right_ankle", "left_big_toe", "right_big_toe",
+                         "left_small_toe", "right_small_toe", "left_heel", "right_heel"):
+            if landmark in joint_names:
+                index = joint_names.index(landmark)
+                result[landmark] = (single_joints[index], None)
         smplx_data_frames.append(result)
 
     return smplx_data_frames, aligned_fps

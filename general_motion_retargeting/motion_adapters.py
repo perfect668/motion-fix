@@ -122,9 +122,9 @@ class CanonicalMotion:
             "left_hip": ("left_hip", "LeftUpLeg"), "right_hip": ("right_hip", "RightUpLeg"),
             "left_knee": ("left_knee", "LeftLeg"), "right_knee": ("right_knee", "RightLeg"),
             "left_ankle": ("left_ankle", "LeftFoot"), "right_ankle": ("right_ankle", "RightFoot"),
-            "left_foot": ("left_foot", "LeftFoot"), "right_foot": ("right_foot", "RightFoot"),
-            "left_toe": ("left_toe", "LeftToeBase", "LeftToe"),
-            "right_toe": ("right_toe", "RightToeBase", "RightToe"),
+            "left_foot": ("left_ankle", "left_foot", "LeftFoot"), "right_foot": ("right_ankle", "right_foot", "RightFoot"),
+            "left_toe": ("left_toe", "left_big_toe", "LeftToeBase", "LeftToe"),
+            "right_toe": ("right_toe", "right_big_toe", "RightToeBase", "RightToe"),
             "left_shoulder": ("left_shoulder", "LeftArm"), "right_shoulder": ("right_shoulder", "RightArm"),
             "left_elbow": ("left_elbow", "LeftForeArm"), "right_elbow": ("right_elbow", "RightForeArm"),
             "left_wrist": ("left_wrist", "LeftHandMiddle3", "LeftHand"),
@@ -141,6 +141,13 @@ class CanonicalMotion:
                 semantic[canonical] = value.copy()
                 frame_provenance[canonical] = next(name for name in choices if name in frame)
             for side in ("left", "right"):
+                # Prefer measured SMPL-X surface landmarks over synthesized
+                # points.  A toe center is the midpoint of big/small toes.
+                big = frame.get(f"{side}_big_toe")
+                small = frame.get(f"{side}_small_toe")
+                if big is not None and small is not None:
+                    semantic[f"{side}_toe"] = 0.5 * (np.asarray(big) + np.asarray(small))
+                    frame_provenance[f"{side}_toe"] = "measured_big_small_toe_midpoint"
                 foot, toe = semantic.get(f"{side}_foot"), semantic.get(f"{side}_toe")
                 ankle = semantic.get(f"{side}_ankle", foot)
                 if foot is not None and toe is None:
@@ -161,7 +168,11 @@ class CanonicalMotion:
                     direction = direction / max(float(np.linalg.norm(direction)), 1e-12)
                     semantic[f"{side}_toe"] = foot + 0.16 * direction
                     frame_provenance[f"{side}_toe"] = "foot_orientation_surface_proxy"
-                if foot is not None and toe is not None:
+                measured_heel = frame.get(f"{side}_heel")
+                if measured_heel is not None:
+                    semantic[f"{side}_heel"] = measured_heel.copy()
+                    frame_provenance[f"{side}_heel"] = "measured_heel"
+                elif foot is not None and toe is not None:
                     semantic[f"{side}_heel"] = foot - 0.28 * (toe - foot)
                     frame_provenance[f"{side}_heel"] = "foot_to_toe_surface_proxy"
                 if foot is not None and f"{side}_ankle" not in semantic:
@@ -350,12 +361,23 @@ def _load_smplx(path: Path, human: dict[str, Any], body_models: str | Path, targ
         raise MotionFormatError(f"SMPL-X input contains no frames: {path}")
     names = list(frames[0].keys())
     positions = np.asarray([[np.asarray(frame[name][0], dtype=float) for name in names] for frame in frames])
-    orientations = _continuous_quaternions(np.asarray([[np.asarray(frame[name][1], dtype=float) for name in names] for frame in frames]))
+    orientation_valid_mask = np.asarray([
+        [frame[name][1] is not None for name in names] for frame in frames
+    ], dtype=bool)
+    # Position-only landmarks intentionally carry no orientation.  Keep the
+    # array shape usable for legacy consumers with identity placeholders and
+    # expose the mask so V4 never treats them as orientation targets.
+    raw_orientations = np.asarray([
+        [np.asarray(frame[name][1], dtype=float) if frame[name][1] is not None
+         else np.array([1.0, 0.0, 0.0, 0.0]) for name in names] for frame in frames
+    ])
+    orientations = _continuous_quaternions(raw_orientations)
     return CanonicalMotion(
         positions=positions,
         joint_names=names,
         orientations=orientations,
         orientation_valid=True,
+        orientation_valid_mask=orientation_valid_mask,
         fps=float(fps),
         root_name="pelvis",
         scene=dict(scene or {}),
@@ -486,7 +508,10 @@ def load_canonical_motion(
             raise MotionFormatError("HoloSoMo input requires an explicit joint_map")
         return _resample_motion(_load_holosoma(source, joint_map, default_holosoma_fps), target_fps)
     if kind == "smplx_npz":
-        with np.load(source, allow_pickle=False) as data:
+        # AMASS/SMPL-X archives commonly store gender and betas as object
+        # arrays.  This branch is already schema-validated as SMPL-X, so
+        # allow those metadata objects while keeping HoloSoMo loading strict.
+        with np.load(source, allow_pickle=True) as data:
             human = {key: data[key] for key in data.files}
         return _load_smplx(source, human, body_models, target_fps, kind)
     if kind == "grail_smplx_recon":

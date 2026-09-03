@@ -1,5 +1,6 @@
 {
   "extends": "holosoma_to_ne01_wholebody_omni_gmr_v3.json",
+  "scene": {"scene_scale": 1.0},
   "scene_geometry": {
     "surface_sampling": {"candidate_points_per_square_meter": 100, "minimum": 128, "maximum": 1024},
     "interaction_selection": {"points_per_semantic": 4, "minimum": 32, "maximum": 96}
@@ -28,6 +29,18 @@
     "cost": [4.0, 4.0, 1.5, 0.8, 0.8, 0.8],
     "gain": 0.30
   },
+  "joint_position_limits": {
+    "KNEE_PITCH_L_JOINT": [-0.05, 2.8],
+    "KNEE_PITCH_R_JOINT": [-0.05, 2.8],
+    "HIP_YAW_L_JOINT": [-0.75, 0.75],
+    "HIP_YAW_R_JOINT": [-0.75, 0.75]
+  },
+  "retarget_safety": {
+    "knee_minimum_rad": -0.05,
+    "hip_yaw_limit_rad": 0.75,
+    "diagnostics": true
+  },
+  "foot_frame": {"enabled": true, "cost": 0.12},
   "bone_direction": {
     "cost": 1.5,
     "gain": 0.30,

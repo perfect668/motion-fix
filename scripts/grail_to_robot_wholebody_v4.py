@@ -155,7 +155,10 @@ def main() -> None:
     finally:
         tmp.unlink(missing_ok=True)
     from general_motion_retargeting.terrain_geometry import SceneTransform
-    scene_transform = SceneTransform(np.asarray(scene_cfg.get("rotation", np.eye(3))), float(scene_cfg["robot_height"]) / float(human_height), np.asarray(scene_cfg.get("translation", [0, 0, 0])))
+    scene_scale = float(scene_cfg.get("scene_scale", 1.0))
+    if scene_cfg.get("source_reference_height") is not None:
+        scene_scale = float(scene_cfg["robot_height"]) / float(scene_cfg["source_reference_height"])
+    scene_transform = SceneTransform(np.asarray(scene_cfg.get("rotation", np.eye(3))), scene_scale, np.asarray(scene_cfg.get("translation", [0, 0, 0])))
     scene_pose = np.eye(4)
     # Motion and object originate in the same GRAIL reconstruction world, so
     # the complete similarity transform must be shared by both.  This keeps
@@ -166,7 +169,13 @@ def main() -> None:
     # must not be baked into the object transform.
     source_root = np.asarray(human["trans"], dtype=float)[0]
     scene_pose[:3, 3] = scene_transform.transform_points(pose[:3, 3])
-    scene_mesh = load_scene_asset(asset, {"object_id": asset.stem})
+    scene_mesh = load_scene_asset(asset, {
+        "object_id": asset.stem,
+        # GRAIL's generated object_usd stores the reconstructed object mesh;
+        # obj_R/obj_t/obj_scale from metadata are the sole logical pose.
+        "asset_space": str(record.get("asset_space", "object_local")),
+        "asset_scale_baked": bool(record.get("asset_scale_baked", False)),
+    })
     scene_mesh.object_pose = scene_pose
     scene = scene_mesh.to_scene_geometry(sample_count=4096)
     manifest, cache_dir = decompose_cached(scene, asset, cache_root=known.scene_cache)
@@ -272,6 +281,13 @@ def main() -> None:
             summary["interaction_scene_points"] = int(len(scene.objects[0].surface_samples))
             summary["mujoco_scene_geom_count"] = int(len(getattr(combined_info, "scene_geom_ids", ())))
             summary["coacd_piece_count"] = int(len(manifest.get("pieces", [])))
+            summary["scene_scale"] = float(scene_transform.scale)
+            summary["obj_scale"] = np.asarray(record.get("obj_data", {}).get("obj_scale", [1, 1, 1]), dtype=float).reshape(-1).tolist()
+            summary["asset_space"] = str(scene_mesh.metadata.get("asset_space", "unknown"))
+            summary["asset_scale_baked"] = bool(scene_mesh.metadata.get("asset_scale_baked", False))
+            summary["raw_object_aabb"] = {"min": np.min(scene_mesh.vertices, axis=0).tolist(), "max": np.max(scene_mesh.vertices, axis=0).tolist()}
+            final_vertices = (np.c_[scene_mesh.vertices, np.ones(len(scene_mesh.vertices))] @ scene_mesh.object_pose.T)[:, :3]
+            summary["final_object_aabb"] = {"min": np.min(final_vertices, axis=0).tolist(), "max": np.max(final_vertices, axis=0).tolist()}
             out_pkl.with_name(out_pkl.stem + ".scene_summary.json").write_text(json.dumps(summary, indent=2))
             q = np.asarray(payload.get("qpos"), dtype=float)
             if q.ndim == 2 and len(q):

@@ -13,7 +13,7 @@ from mink.tasks.task import Task
 from scipy.spatial.transform import Rotation
 from .wholebody_omni_gmr_v3 import WholeBodyOmniGMRV3
 from .scene_limits import AutomaticSceneCollisionLimit
-from .terrain_tasks import TerrainPointContactTask
+from .terrain_tasks import TerrainPointContactTask, FootFrameTask
 from .motion_adapters import CanonicalMotion
 
 
@@ -121,9 +121,10 @@ class LimbPlaneTask(Task):
         self.robot_points = robot_points
         self.triples = [(a, b, c) for a, b, c in triples if a in robot_points and b in robot_points and c in robot_points]
         self.sources: dict[str, np.ndarray] = {}
-        self._previous_normals: dict[tuple[str, str, str], np.ndarray] = {}
+        self._previous_target_normals: dict[tuple[str, str, str], np.ndarray] = {}
         self.confidence: dict[tuple[str, str, str], float] = {}
-        super().__init__(cost=np.full(3 * len(self.triples), float(cost)), gain=float(gain), lm_damping=1.0)
+        self._bend_triples = {triple for triple in self.triples if "knee" in triple[1]}
+        super().__init__(cost=np.full(3 * len(self.triples) + len(self._bend_triples), float(cost)), gain=float(gain), lm_damping=1.0)
 
     def set_source(self, source: dict[str, np.ndarray]) -> None:
         self.sources = source
@@ -143,14 +144,23 @@ class LimbPlaneTask(Task):
         target, target_norm = self._normal(self.sources[b] - self.sources[a], self.sources[c] - self.sources[a])
         scale = max(float(np.linalg.norm(u)) * float(np.linalg.norm(v)), 1e-12)
         sin_angle = norm / scale
+        source_u = self.sources[b] - self.sources[a]
+        source_v = self.sources[c] - self.sources[a]
+        source_scale = max(float(np.linalg.norm(source_u)) * float(np.linalg.norm(source_v)), 1e-12)
+        source_sin_angle = target_norm / source_scale
         # The plane is undefined for an almost straight limb.  Smoothly
         # fade it out and keep its normal sign continuous across frames.
-        confidence = float(np.clip((sin_angle - 0.08) / 0.12, 0.0, 1.0))
-        previous = self._previous_normals.get(names)
-        if previous is not None and float(normal @ previous) < 0.0:
-            normal = -normal
-        if np.isfinite(normal).all() and norm > 1e-8:
-            self._previous_normals[names] = normal.copy()
+        robot_confidence = float(np.clip((sin_angle - 0.08) / 0.12, 0.0, 1.0))
+        source_confidence = float(np.clip((source_sin_angle - 0.08) / 0.12, 0.0, 1.0))
+        confidence = min(robot_confidence, source_confidence)
+        # Only the source target normal is made temporally continuous.  The
+        # robot normal is measured state and must never be flipped to hide a
+        # mirrored configuration; its signed error supplies the correction.
+        previous_target = self._previous_target_normals.get(names)
+        if previous_target is not None and float(target @ previous_target) < 0.0:
+            target = -target
+        if np.isfinite(target).all() and target_norm > 1e-8:
+            self._previous_target_normals[names] = target.copy()
         self.confidence[names] = confidence if target_norm > 1e-8 else 0.0
         # d(u x v) = du x v + u x dv, then project through normalized cross.
         cross_j = np.cross(jb - ja, v[:, None], axis=0) + np.cross(u[:, None], jc - ja, axis=0)
@@ -162,10 +172,19 @@ class LimbPlaneTask(Task):
         for triple in self.triples:
             normal, target, _ = self._triple(configuration, triple)
             values.append(self.confidence.get(triple, 0.0) * (normal - target))
+        for triple in self.triples:
+            if triple in self._bend_triples:
+                normal, target, _ = self._triple(configuration, triple)
+                values.append(np.asarray([self.confidence.get(triple, 0.0) * (1.0 - float(normal @ target))]))
         return np.concatenate(values) if values else np.empty(0)
 
     def compute_jacobian(self, configuration: mink.Configuration) -> np.ndarray:
-        return np.vstack([self._triple(configuration, triple)[2] for triple in self.triples]) if self.triples else np.empty((0, self.model.nv))
+        rows = [self._triple(configuration, triple)[2] for triple in self.triples]
+        for triple in self.triples:
+            if triple in self._bend_triples:
+                normal, target, jac = self._triple(configuration, triple)
+                rows.append((-target @ jac).reshape(1, -1))
+        return np.vstack(rows) if rows else np.empty((0, self.model.nv))
 
 
 class WholeBodyOmniGMRV4(WholeBodyOmniGMRV3):
@@ -230,6 +249,14 @@ class WholeBodyOmniGMRV4(WholeBodyOmniGMRV3):
                 contact_cfg.get("normal_cost", 40.0),
                 contact_cfg.get("tangent_cost", 12.0),
                 contact_cfg.get("clearance", 0.004),
+            )
+        foot_frame_cfg = self.config.get("foot_frame", {})
+        if foot_frame_cfg.get("enabled", False):
+            self.foot_orientation_task = FootFrameTask(
+                self.model,
+                contact_cfg.get("foot_bodies", {"left": "ANKLE_ROLL_L_LINK", "right": "ANKLE_ROLL_R_LINK"}),
+                np.asarray(contact_cfg.get("sole_local_normal", [0.0, 0.0, 1.0]), dtype=float),
+                float(foot_frame_cfg.get("cost", contact_cfg.get("foot_orientation_cost", 0.12))),
             )
         direction_cfg = self.config.get("bone_direction", {})
         default_edges = [
@@ -446,6 +473,14 @@ class WholeBodyOmniGMRV4(WholeBodyOmniGMRV3):
                 "min_slack_after": float(minimum_slack),
                 "active_constraints": int(getattr(self.terrain_limit, "active_count", sum(len(v) for v in getattr(self.terrain_limit, "selected", {}).values())) + len(self.self_collision_limit.active_pairs) + len(getattr(self.scene_collision, "active_pairs", []))),
                 "max_velocity": float(np.max(np.abs(delta), initial=0.0)),
+                "limit_activation": {
+                    name: bool(
+                        abs(float(self.configuration.data.qpos[self.model.jnt_qposadr[self.model.joint(name).id]]) - float(bound[0])) < 1e-4
+                        or abs(float(self.configuration.data.qpos[self.model.jnt_qposadr[self.model.joint(name).id]]) - float(bound[1])) < 1e-4
+                    )
+                    for name, bound in self.config.get("joint_position_limits", {}).items()
+                    if name in [mj.mj_id2name(self.model, mj.mjtObj.mjOBJ_JOINT, i) for i in range(self.model.njnt)]
+                },
                 "interaction_error": float(np.linalg.norm(self.interaction_task.compute_error(self.configuration))),
                 "torso_pelvis_targets": {
                     key: float(value)

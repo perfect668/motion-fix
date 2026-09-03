@@ -198,6 +198,10 @@ def load_scene_asset(
     )
     metadata = dict(metadata or {})
     metadata.setdefault("sample_count", int(sample_count))
+    # USD prim hierarchy transforms are baked into vertices by _load_usd, but
+    # the logical object pose/scale is still applied exactly once below.
+    metadata.setdefault("asset_space", "unspecified")
+    metadata.setdefault("asset_scale_baked", False)
     return SceneMesh(
         vertices=vertices,
         faces=faces,

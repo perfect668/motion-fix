@@ -82,14 +82,14 @@ def _config_for_smplx(config: dict) -> dict:
         "pelvis": "pelvis",
         "LeftUpLeg": "left_hip", "RightUpLeg": "right_hip",
         "LeftLeg": "left_knee", "RightLeg": "right_knee",
-        "LeftFoot": "left_foot", "RightFoot": "right_foot",
+        "LeftFoot": "left_ankle", "RightFoot": "right_ankle",
         "LeftToeBase": "left_toe", "RightToeBase": "right_toe",
         "LeftArm": "left_shoulder", "RightArm": "right_shoulder",
         "LeftForeArm": "left_elbow", "RightForeArm": "right_elbow",
         "LeftHandMiddle3": "left_wrist", "RightHandMiddle3": "right_wrist",
         "left_hip": "left_hip", "right_hip": "right_hip",
         "left_knee": "left_knee", "right_knee": "right_knee",
-        "left_foot": "left_foot", "right_foot": "right_foot",
+        "left_foot": "left_ankle", "right_foot": "right_ankle",
         "left_toe": "left_toe", "right_toe": "right_toe",
         "left_shoulder": "left_shoulder", "right_shoulder": "right_shoulder",
         "left_elbow": "left_elbow", "right_elbow": "right_elbow",
@@ -119,6 +119,12 @@ def _contact_aliases(points: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
         if source not in points:
             raise ValueError(f"SMPL-X FK did not emit required point {source}")
         aliases[alias] = points[source]
+    # Preserve measured surface landmarks for the generic terrain contact
+    # scheduler; these are positions only and carry no fabricated rotation.
+    for side in ("left", "right"):
+        aliases[f"{side}_heel"] = points[f"{side}_heel"]
+        aliases[f"{side}_big_toe"] = points[f"{side}_big_toe"]
+        aliases[f"{side}_small_toe"] = points[f"{side}_small_toe"]
     return aliases
 
 
@@ -185,9 +191,18 @@ def main() -> None:
     config = _config_for_smplx(json.loads(args.config.read_text()))
     terrain = TerrainField.from_file(args.terrain) if args.terrain else TerrainField()
     terrain.support_normal_min_z = float(config["terrain_contact"]["support_normal_min_z"])
+    # V3 keeps its historical height normalization unless an explicit V4
+    # scene_scale is present.  This preserves the flat-motion regression
+    # baseline while making V4's GRAIL scale an explicit 1.0.
+    scene_scale_value = config["scene"].get("scene_scale")
+    scene_scale = (float(scene_scale_value) if scene_scale_value is not None
+                   else float(config["scene"]["robot_height"]) / float(human_height))
+    source_reference_height = config["scene"].get("source_reference_height")
+    if source_reference_height is not None:
+        scene_scale = float(config["scene"].get("robot_height", 1.316)) / float(source_reference_height)
     transform = SceneTransform(
         rotation=np.asarray(config["scene"]["rotation"], dtype=float),
-        scale=float(config["scene"]["robot_height"]) / float(human_height),
+        scale=scene_scale,
         translation=np.asarray(config["scene"]["translation"], dtype=float),
     )
     source_frames = []
@@ -195,22 +210,14 @@ def main() -> None:
     contacts_input = []
     for frame in frames:
         points = _source_frame(frame)
-        # SMPL-X FK output has no ToeBase semantic key.  A toe must be a
-        # forward foot landmark, never an ankle-to-knee point: that vector is
-        # mostly vertical and makes the V4 bone task select a mirrored leg.
+        # Use measured SMPL-X landmarks.  The canonical foot is the ankle;
+        # toe is the measured big/small-toe midpoint and heel is measured.
         for side in ("left", "right"):
-            foot = points[f"{side}_foot"]
-            foot_quat = np.asarray(frame[f"{side}_foot"][1], dtype=float)
-            foot_forward = Rotation.from_quat(foot_quat, scalar_first=True).apply([1.0, 0.0, 0.0])
-            foot_forward[2] = 0.0
-            if np.linalg.norm(foot_forward) < 0.2:
-                pelvis_forward = Rotation.from_quat(
-                    np.asarray(frame["pelvis"][1], dtype=float), scalar_first=True
-                ).apply([1.0, 0.0, 0.0])
-                pelvis_forward[2] = 0.0
-                foot_forward = pelvis_forward
-            foot_forward /= max(float(np.linalg.norm(foot_forward)), 1e-12)
-            points[f"{side}_toe"] = foot + 0.16 * foot_forward
+            points[f"{side}_foot"] = points[f"{side}_ankle"].copy()
+            points[f"{side}_toe"] = 0.5 * (
+                points[f"{side}_big_toe"] + points[f"{side}_small_toe"]
+            )
+            points[f"{side}_heel"] = points[f"{side}_heel"].copy()
         transformed = {name: transform.transform_points(point) for name, point in points.items()}
         source_frames.append(transformed)
         # Source SMPL-X pelvis axes are model-specific.  Use the landmark-
