@@ -69,6 +69,9 @@ def main() -> None:
         # Add stable proxies required by the generic V4 semantic mapping.
         point_by_name = {name: current[index] for index, name in enumerate(source_names)}
         for side in ("Left", "Right"):
+            # This alias is required regardless of whether a real toe child
+            # exists; do not let the toe branch skip hand synthesis.
+            point_by_name[f"{side}HandMiddle3"] = point_by_name[f"{side}Hand"]
             foot_bone = "lFoot" if side == "Left" else "rFoot"
             foot_pose = armature.pose.bones[foot_bone]
             foot_data = armature.data.bones[foot_bone]
@@ -83,19 +86,22 @@ def main() -> None:
                 raise RuntimeError(f"Cannot determine anatomical rest foot axis for {foot_bone}")
             pose_delta = foot_pose.matrix.to_3x3() @ foot_data.matrix_local.to_3x3().inverted()
             forward = armature.matrix_world.to_3x3() @ mathutils.Vector(
-                rest_foot_forward(rest_forward * 0.0, rest_forward, pose_delta)
+                rest_foot_forward(foot_data.head_local, foot_data.tail_local, pose_delta)
             )
             forward.normalize()
             point_by_name[f"{side}ToeBase"] = tuple(
                 np.asarray(point_by_name[f"{side}Foot"], dtype=float) + 0.12 * np.asarray(forward, dtype=float)
             )
-            point_by_name[f"{side}HandMiddle3"] = point_by_name[f"{side}Hand"]
-        positions.append([point_by_name[name] for name in source_names + ["LeftToeBase", "RightToeBase", "LeftHandMiddle3", "RightHandMiddle3"]])
+        output_names = source_names + ["LeftToeBase", "RightToeBase", "LeftHandMiddle3", "RightHandMiddle3"]
+        missing_output = [name for name in output_names if name not in point_by_name]
+        if missing_output:
+            raise RuntimeError(f"FBX frame {frame} is missing output points: {missing_output}")
+        positions.append([point_by_name[name] for name in output_names])
         rotation_by_name = {name: current_rotations[index] for index, name in enumerate(source_names)}
         for side in ("Left", "Right"):
             rotation_by_name[f"{side}ToeBase"] = rotation_by_name[f"{side}Foot"]
             rotation_by_name[f"{side}HandMiddle3"] = rotation_by_name[f"{side}Hand"]
-        orientations.append([rotation_by_name[name] for name in source_names + ["LeftToeBase", "RightToeBase", "LeftHandMiddle3", "RightHandMiddle3"]])
+        orientations.append([rotation_by_name[name] for name in output_names])
     args.output.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(
         args.output,

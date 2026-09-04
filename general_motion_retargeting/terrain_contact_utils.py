@@ -115,6 +115,7 @@ def build_terrain_contact_schedule(
     active: dict[str, bool] = {}
     locked_surface: dict[str, str | None] = {}
     locked_hit: dict[str, TerrainSurfaceHit] = {}
+    previous_normals: dict[str, np.ndarray] = {}
     schedule = []
     for source_frame in source_frames:
         contacts = {}
@@ -203,13 +204,40 @@ def build_terrain_contact_schedule(
             heel, toe = contacts[f"{side}_heel"], contacts[f"{side}_toe"]
             # Preserve the measured foot frame for airborne orientation.  It
             # is derived only from source landmarks and never from robot q.
-            foot_vec = np.asarray(toe["human_point_solver"]) - np.asarray(heel["human_point_solver"])
-            lateral_vec = (np.asarray(contacts[f"left_heel"]["human_point_solver"]) - np.asarray(contacts[f"right_heel"]["human_point_solver"]))
-            foot_forward = foot_vec / max(float(np.linalg.norm(foot_vec)), 1e-12)
-            foot_normal = np.cross(foot_forward, lateral_vec)
+            foot_forward = np.asarray(toe["human_point_solver"]) - np.asarray(heel["human_point_solver"])
+            foot_forward /= max(float(np.linalg.norm(foot_forward)), 1e-12)
+            big = source_frame.get(f"{side}_big_toe")
+            small = source_frame.get(f"{side}_small_toe")
+            if big is not None and small is not None:
+                foot_lateral = np.asarray(small, dtype=float) - np.asarray(big, dtype=float)
+            else:
+                left_hip = source_frame.get("left_hip")
+                right_hip = source_frame.get("right_hip")
+                foot_lateral = ((np.asarray(left_hip) - np.asarray(right_hip))
+                                if left_hip is not None and right_hip is not None
+                                else np.array([0.0, 1.0, 0.0]))
+            body_left = foot_lateral.copy()
+            left_hip = source_frame.get("left_hip")
+            right_hip = source_frame.get("right_hip")
+            if left_hip is not None and right_hip is not None:
+                body_left = np.asarray(left_hip) - np.asarray(right_hip)
+                body_left /= max(float(np.linalg.norm(body_left)), 1e-12)
+                if float(foot_lateral @ body_left) < 0.0:
+                    foot_lateral = -foot_lateral
+            foot_lateral -= foot_forward * float(foot_lateral @ foot_forward)
+            if np.linalg.norm(foot_lateral) < 1e-8:
+                foot_lateral = body_left - foot_forward * float(body_left @ foot_forward)
+            foot_lateral /= max(float(np.linalg.norm(foot_lateral)), 1e-12)
+            foot_normal = np.cross(foot_forward, foot_lateral)
             foot_normal /= max(float(np.linalg.norm(foot_normal)), 1e-12)
-            if foot_normal[2] < 0.0:
+            body_up = np.asarray(source_frame.get("spine3", source_frame.get("pelvis", [0.0, 0.0, 1.0])), dtype=float) - np.asarray(source_frame.get("pelvis", [0.0, 0.0, 0.0]), dtype=float)
+            body_up /= max(float(np.linalg.norm(body_up)), 1e-12)
+            if float(foot_normal @ body_up) < 0.0:
                 foot_normal = -foot_normal
+            previous_normal = previous_normals.get(side)
+            if previous_normal is not None and float(previous_normal @ foot_normal) < 0.0:
+                foot_normal = -foot_normal
+            previous_normals[side] = foot_normal.copy()
             for item in (heel, toe):
                 item["human_foot_forward_solver"] = foot_forward.copy()
                 item["human_foot_normal_solver"] = foot_normal.copy()

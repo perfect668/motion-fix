@@ -590,6 +590,15 @@ and this github repo:
 
 ## Known Issues
 
+## WholeBody V4
+
+The unified V4 entry point is `scripts/retarget_motion.py`; the GRAIL complex-scene entry point is `scripts/grail_to_robot_wholebody_v4.py`. Both default to the NE01 robot. SMPL-X inputs require a locally installed body model, and binary FBX inputs require Blender.
+
+```bash
+conda run --no-capture-output -n gmr python scripts/retarget_motion.py --motion <motion> --robot ne01 --version v4 --save_path <output.pkl>
+conda run --no-capture-output -n gmr python scripts/grail_to_robot_wholebody_v4.py --motion <grail.pkl> --save_path <output.pkl>
+```
+
 Designing a single config for all different humans is not trivial. We observe some motions might have bad retargeting results. If you observe some bad results, please let us know! We now have a collection of such motions in [TEST_MOTIONS.md](TEST_MOTIONS.md).
 
 ## Acknowledgement

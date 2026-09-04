@@ -18,6 +18,7 @@ setup(
     "numpy",
     "scipy",
     "qpsolvers[proxqp]",
+    "daqp",
     "rich",
     "tqdm",
     "opencv-python",

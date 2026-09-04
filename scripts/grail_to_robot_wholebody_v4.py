@@ -155,9 +155,12 @@ def main() -> None:
     finally:
         tmp.unlink(missing_ok=True)
     from general_motion_retargeting.terrain_geometry import SceneTransform
-    scene_scale = float(scene_cfg.get("scene_scale", 1.0))
-    if scene_cfg.get("source_reference_height") is not None:
-        scene_scale = float(scene_cfg["robot_height"]) / float(scene_cfg["source_reference_height"])
+    scene_scale_multiplier = float(scene_cfg.get("scene_scale", 1.0))
+    reference_height = float(scene_cfg.get("source_reference_height", human_height))
+    resolved_scale = (scene_scale_multiplier
+                      * float(scene_cfg.get("robot_height", 1.316))
+                      / max(reference_height, 1e-9))
+    scene_scale = resolved_scale
     scene_transform = SceneTransform(np.asarray(scene_cfg.get("rotation", np.eye(3))), scene_scale, np.asarray(scene_cfg.get("translation", [0, 0, 0])))
     scene_pose = np.eye(4)
     # Motion and object originate in the same GRAIL reconstruction world, so
@@ -205,6 +208,8 @@ def main() -> None:
     )
     effective = copy.deepcopy(base)
     effective["robot_xml"] = str(combined_xml)
+    effective.setdefault("scene", {})["scene_scale"] = resolved_scale
+    effective["scene"].pop("source_reference_height", None)
     effective["scene_collision"] = {**effective.get("scene_collision", {}), "backend": "mujoco", "scene_body_prefix": "scene_"}
     effective_path = work / f".{known.save_path.stem}_v4_config.json"
     effective_path.write_text(json.dumps(effective, indent=2))
@@ -282,6 +287,10 @@ def main() -> None:
             summary["mujoco_scene_geom_count"] = int(len(getattr(combined_info, "scene_geom_ids", ())))
             summary["coacd_piece_count"] = int(len(manifest.get("pieces", [])))
             summary["scene_scale"] = float(scene_transform.scale)
+            summary["human_height"] = float(human_height)
+            summary["reference_height"] = float(reference_height)
+            summary["scene_scale_multiplier"] = float(scene_scale_multiplier)
+            summary["resolved_scale"] = float(resolved_scale)
             summary["obj_scale"] = np.asarray(record.get("obj_data", {}).get("obj_scale", [1, 1, 1]), dtype=float).reshape(-1).tolist()
             summary["asset_space"] = str(scene_mesh.metadata.get("asset_space", "unknown"))
             summary["asset_scale_baked"] = bool(scene_mesh.metadata.get("asset_scale_baked", False))
