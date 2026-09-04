@@ -226,9 +226,9 @@ def main() -> None:
     impl.RETARGETER_CLASS = WholeBodyOmniGMRV4
     impl.DEFAULT_CONFIG = effective_path
     def _object_contact_schedule(schedule, source_frames, config):
-        samples = scene.objects[0].transformed_samples()
         object_id = scene.objects[0].object_id
         threshold = float(config.get("terrain_contact", {}).get("object_contact_distance", 0.05))
+        static_speed = float(config.get("terrain_contact", {}).get("static_tangent_speed", 0.08))
         # Keep contact normals tied to the same source mesh used by visual and
         # collision construction.  Centroid lookup is deterministic and
         # avoids hard-coding +Z for a vertical chair back.
@@ -242,18 +242,50 @@ def main() -> None:
         transformed_normals = normals @ np.linalg.inv(linear)
         transformed_normals /= np.maximum(np.linalg.norm(transformed_normals, axis=1, keepdims=True), 1e-12)
         for frame, record_frame in zip(source_frames, schedule):
-            for channel in ("left_butt", "right_butt", "lower_back", "upper_back", "left_palm", "right_palm"):
+            # Feet use only upward-facing mesh faces as support surfaces;
+            # knees, shins, hands and torso may contact any nearby face.
+            for channel in (
+                "left_heel", "right_heel", "left_toe", "right_toe",
+                "left_palm", "right_palm", "left_knee", "right_knee",
+                "left_shin", "right_shin", "left_butt", "right_butt",
+                "lower_back", "upper_back",
+            ):
                 item = record_frame.get("contacts", {}).get(channel)
                 if not item or not np.all(np.isfinite(item.get("human_point_solver", [np.nan] * 3))):
                     continue
                 point = np.asarray(item["human_point_solver"], dtype=float)
-                index, surface_point, normal, distance = _closest_mesh_surface(
-                    point, transformed_triangles, transformed_centers,
-                    transformed_normals, candidate_count=64,
-                )
+                if channel.endswith(("heel", "toe")):
+                    support = np.flatnonzero(transformed_normals[:, 2] > 0.6)
+                    if len(support) == 0:
+                        continue
+                    index, surface_point, normal, distance = _closest_mesh_surface(
+                        point, transformed_triangles[support], transformed_centers[support],
+                        transformed_normals[support], candidate_count=64,
+                    )
+                    index = int(support[index])
+                else:
+                    index, surface_point, normal, distance = _closest_mesh_surface(
+                        point, transformed_triangles, transformed_centers,
+                        transformed_normals, candidate_count=64,
+                    )
                 if distance > threshold:
                     continue
-                item.update({"score": float(np.clip(1.0 - distance / threshold, 0.0, 1.0)), "state": "STATIC", "source_state": "STATIC", "object_id": object_id, "surface_id": f"{object_id}:face_{index:05d}", "surface_type": "mesh", "surface_point_solver": surface_point.copy(), "surface_normal_solver": normal.copy(), "signed_distance": distance, "normal_error": distance, "tangent_error": float(item.get("tangential_speed", 0.0))})
+                score = float(np.clip(1.0 - distance / max(threshold, 1e-9), 0.0, 1.0))
+                tangent_speed = float(item.get("tangential_speed", 0.0))
+                state = "STATIC" if tangent_speed < static_speed else "SLIDING"
+                item.update({
+                    "score": max(float(item.get("score", 0.0)), score),
+                    "state": state,
+                    "source_state": state,
+                    "object_id": object_id,
+                    "surface_id": f"{object_id}:face_{index:05d}",
+                    "surface_type": "mesh",
+                    "surface_point_solver": surface_point.copy(),
+                    "surface_normal_solver": normal.copy(),
+                    "signed_distance": distance,
+                    "normal_error": distance,
+                    "tangent_error": tangent_speed,
+                })
         return schedule
     impl.SCENE_CONTACT_POSTPROCESS = _object_contact_schedule
     try:

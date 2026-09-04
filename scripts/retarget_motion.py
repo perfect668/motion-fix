@@ -61,6 +61,69 @@ def _scene_transform(config: dict, motion: CanonicalMotion | None = None) -> Sce
     )
 
 
+def _calibrate_floor_transform(
+    motion: CanonicalMotion,
+    transform: SceneTransform,
+    config: dict,
+) -> SceneTransform:
+    """Align floor-only motion to the measured source sole height.
+
+    The correction belongs to the shared SceneTransform, so pelvis, contacts,
+    interaction samples and the analytic floor receive the same offset.
+    Explicit terrain/object scenes are already metrically anchored.
+    """
+    calibration = config.get("scene", {}).get("floor_calibration", {})
+    if not bool(calibration.get("enabled", True)) or motion.scene:
+        return transform
+    frames = _contact_frames(motion)
+    if not frames:
+        return transform
+    # Estimate the floor from support-like frames only.  A jump or a fast
+    # swing should not raise the inferred floor just because its foot is high.
+    foot_names = tuple(
+        name for side in ("left", "right")
+        for name in (f"{side}_heel", f"{side}_toe", f"{side}_foot")
+    )
+    foot_heights = np.full((len(frames), len(foot_names)), np.nan, dtype=float)
+    for frame_index, frame in enumerate(frames):
+        for point_index, name in enumerate(foot_names):
+            if name in frame:
+                foot_heights[frame_index, point_index] = float(
+                    transform.transform_points(np.asarray(frame[name], dtype=float))[2]
+                )
+    speed = np.zeros(len(frames), dtype=float)
+    if len(frames) > 1:
+        finite = np.isfinite(foot_heights)
+        delta = np.diff(foot_heights, axis=0) * motion.fps
+        valid = finite[1:] & finite[:-1]
+        delta[~valid] = 0.0
+        speed[1:] = np.nanmax(np.abs(delta), axis=1)
+        speed[0] = speed[1]
+    max_speed = float(calibration.get("max_support_speed", 0.12))
+    support_frames = speed <= max(max_speed, 0.0)
+    if not np.any(support_frames):
+        support_frames = np.ones(len(frames), dtype=bool)
+    heights = []
+    for frame_index in np.flatnonzero(support_frames):
+        frame = frames[int(frame_index)]
+        points = []
+        for side in ("left", "right"):
+            for name in (f"{side}_heel", f"{side}_toe", f"{side}_foot"):
+                if name in frame:
+                    points.append(np.asarray(frame[name], dtype=float))
+        if points:
+            heights.extend(transform.transform_points(np.asarray(points))[:, 2].tolist())
+    if not heights:
+        return transform
+    quantile = float(calibration.get("quantile", 0.05))
+    floor_height = float(np.quantile(np.asarray(heights), np.clip(quantile, 0.0, 1.0)))
+    if not np.isfinite(floor_height) or abs(floor_height) < 1e-8:
+        return transform
+    translation = transform.translation.copy()
+    translation[2] -= floor_height
+    return SceneTransform(transform.rotation, transform.scale, translation)
+
+
 def _solver_inputs(motion: CanonicalMotion, transform: SceneTransform, config: dict, joint_map: Path | None):
     transformed = transform.transform_points(motion.positions)
     if motion.source_format == "holosoma_global_positions" and joint_map is not None:
@@ -345,13 +408,16 @@ def main() -> None:
                 f"FBX converted anatomical height is implausible: raw={raw_height:.3f} cm, "
                 f"converted={converted_height:.3f} m"
             )
-        motion.human_height = converted_height
+        # Head-to-ankle is only a unit sanity check: it is not a bind-pose
+        # anatomical height and varies with crouching/bending.  Keep FBX on
+        # the configured reference height until a true head-top/sole measure
+        # is available.
     if args.max_frames is not None:
         motion.positions = motion.positions[: args.max_frames]
         if motion.orientations is not None:
             motion.orientations = motion.orientations[: args.max_frames]
     config = _load_config(args.config)
-    transform = _scene_transform(config, motion)
+    transform = _calibrate_floor_transform(motion, _scene_transform(config, motion), config)
     source_terrain = TerrainField.from_file(args.terrain) if args.terrain else TerrainField()
     source_terrain.support_normal_min_z = float(config.get("terrain_contact", {}).get("support_normal_min_z", 0.6))
     terrain = source_terrain.transform(transform)

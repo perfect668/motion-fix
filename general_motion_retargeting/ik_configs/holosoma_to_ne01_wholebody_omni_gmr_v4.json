@@ -1,6 +1,9 @@
 {
   "extends": "holosoma_to_ne01_wholebody_omni_gmr_v3.json",
-  "scene": {"scene_scale": 1.0},
+  "scene": {
+    "scene_scale": 1.0,
+    "floor_calibration": {"enabled": true, "quantile": 0.05, "max_support_speed": 0.12}
+  },
   "scene_geometry": {
     "surface_sampling": {"candidate_points_per_square_meter": 100, "minimum": 128, "maximum": 1024},
     "interaction_selection": {"points_per_semantic": 4, "minimum": 32, "maximum": 96}
@@ -41,6 +44,7 @@
     "diagnostics": true
   },
   "foot_frame": {"enabled": true, "cost": 0.12},
+  "foot_temporal": {"cost": 0.08},
   "bone_direction": {
     "cost": 1.5,
     "gain": 0.30,

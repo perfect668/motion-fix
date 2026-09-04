@@ -226,18 +226,18 @@ def main() -> None:
         # twist.  The torso target shares this calibrated frame.
         anatomical_quat = _anatomical_quaternion(points)
         orientation_frames.append((anatomical_quat, anatomical_quat))
-        contacts_input.append(_contact_aliases(transformed))
+        # Contact inference owns the source->solver transform.  Passing the
+        # already transformed points here would apply the similarity twice.
+        contacts_input.append(_contact_aliases(points))
 
     # Contact schedule is computed from human points only; it never sees qpos.
     from general_motion_retargeting.terrain_contact_utils import build_terrain_contact_schedule
 
-    # contacts_input points are already in solver coordinates below; avoid
-    # applying SceneTransform a second time inside contact inference.
-    identity_transform = SceneTransform(np.eye(3), 1.0, np.zeros(3))
+    solver_terrain = terrain.transform(transform)
     schedule = build_terrain_contact_schedule(
         contacts_input,
         terrain,
-        identity_transform,
+        transform,
         {},
         float(args.tgt_fps),
         config["terrain_contact"],
@@ -247,11 +247,11 @@ def main() -> None:
     transformed_points = np.asarray(
         [[*frame.values()] for frame in source_frames], dtype=float
     ).reshape(-1, 3)
-    pool = sample_terrain_surface_pool(terrain.transform(transform), transformed_points)
+    pool = sample_terrain_surface_pool(solver_terrain, transformed_points)
     adapted_config = args.save_path.parent / f".{args.save_path.stem}_v3_config.json"
     adapted_config.write_text(json.dumps(config, indent=2))
     try:
-        retargeter = RETARGETER_CLASS(adapted_config, terrain.transform(transform), pool, fps=args.tgt_fps, solver=args.solver)
+        retargeter = RETARGETER_CLASS(adapted_config, solver_terrain, pool, fps=args.tgt_fps, solver=args.solver)
         qpos = [retargeter.retarget(frame, ori[0], contact, chest_quaternion=ori[1]) for frame, ori, contact in zip(source_frames, orientation_frames, schedule)]
     finally:
         adapted_config.unlink(missing_ok=True)
@@ -267,7 +267,7 @@ def main() -> None:
         "dof_pos": qpos[:, 7:],
         "algorithm": f"{retargeter.__class__.__name__.lower()}_grail",
         "source_motion": str(args.motion), "robot_xml": str(retargeter.robot_xml),
-        "scene_transform": transform.to_dict(), "terrain_primitives": terrain.transform(transform).to_spec(),
+        "scene_transform": transform.to_dict(), "terrain_primitives": solver_terrain.to_spec(),
         "contact_schedule": schedule, "terrain_diagnostics": retargeter.diagnostics,
         "grail_object_path": record.get("object_path", ""),
         "grail_object_data": object_data,

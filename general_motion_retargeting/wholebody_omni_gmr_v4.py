@@ -14,7 +14,7 @@ from mink.tasks.task import Task
 from scipy.spatial.transform import Rotation
 from .wholebody_omni_gmr_v3 import WholeBodyOmniGMRV3
 from .scene_limits import AutomaticSceneCollisionLimit
-from .terrain_tasks import TerrainPointContactTask, FootFrameTask
+from .terrain_tasks import TerrainFootTemporalTask, TerrainPointContactTask, FootFrameTask
 from .motion_adapters import CanonicalMotion
 
 
@@ -269,6 +269,13 @@ class WholeBodyOmniGMRV4(WholeBodyOmniGMRV3):
                 contact_cfg.get("tangent_cost", 12.0),
                 contact_cfg.get("clearance", 0.004),
             )
+        temporal_cfg = self.config.get("foot_temporal", {})
+        self.foot_temporal_task = TerrainFootTemporalTask(
+            self.model,
+            generic_points,
+            self.dt,
+            float(temporal_cfg.get("cost", 0.08)),
+        ) if all(name in generic_points for name in TerrainFootTemporalTask.CHANNELS) else None
         foot_frame_cfg = self.config.get("foot_frame", {})
         if foot_frame_cfg.get("enabled", False):
             self.foot_orientation_task = FootFrameTask(
@@ -361,6 +368,8 @@ class WholeBodyOmniGMRV4(WholeBodyOmniGMRV3):
             )
         contacts = contact_frame.get("contacts", {})
         self.contact_task.set_contacts(self.configuration, contacts)
+        if self.foot_temporal_task is not None:
+            self.foot_temporal_task.begin_frame(self.configuration, contacts)
         self.foot_orientation_task.set_contacts(
             contacts, contact_frame.get("flat_foot", {})
         )
@@ -386,6 +395,8 @@ class WholeBodyOmniGMRV4(WholeBodyOmniGMRV3):
         ]
         if self.previous_q is not None:
             tasks.append(self.temporal_task)
+        if self.foot_temporal_task is not None:
+            tasks.append(self.foot_temporal_task)
 
         failures = []
         qp_runtime = 0.0
@@ -431,6 +442,8 @@ class WholeBodyOmniGMRV4(WholeBodyOmniGMRV3):
         # Every metric below is recomputed after the final integration.
         self.terrain_limit.prepare_active_set(self.configuration, self.dt)
         self.self_collision_limit.prepare_active_set(self.configuration)
+        if self.foot_temporal_task is not None:
+            self.foot_temporal_task.end_frame(self.configuration)
         minimum_slack = min(
             (
                 item["slack"]

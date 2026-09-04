@@ -69,6 +69,8 @@ class TerrainPointContactTask(Task):
         self.targets: dict[str, dict] = {}
         self.anchors: dict[str, np.ndarray] = {}
         self.previous_state = {name: "NONE" for name in self.channels}
+        self.none_hold_steps = 3
+        self.none_counts = {name: 0 for name in self.channels}
         costs = np.tile([self.normal_cost, self.tangent_cost, self.tangent_cost], len(self.channels))
         super().__init__(cost=costs, gain=0.55, lm_damping=1.0)
 
@@ -78,10 +80,18 @@ class TerrainPointContactTask(Task):
             contact = contacts.get(name, {})
             score = float(np.clip(contact.get("score", 0.0), 0.0, 1.0))
             state = str(contact.get("state", "NONE"))
-            if state == "STATIC" and self.previous_state[name] != "STATIC":
+            # Keep one anchor for the whole contact episode.  A brief
+            # STATIC/SLIDING classification change must not re-anchor after
+            # the point has already moved along the surface.
+            if state in {"STATIC", "SLIDING"} and name not in self.anchors:
                 self.anchors[name] = self.points[name].point(configuration).copy()
-            if state == "NONE":
-                self.anchors.pop(name, None)
+                self.none_counts[name] = 0
+            elif state == "NONE":
+                self.none_counts[name] += 1
+                if self.none_counts[name] >= self.none_hold_steps:
+                    self.anchors.pop(name, None)
+            else:
+                self.none_counts[name] = 0
             targets[name] = {**contact, "score": score, "state": state}
             self.previous_state[name] = state
         self.targets = targets

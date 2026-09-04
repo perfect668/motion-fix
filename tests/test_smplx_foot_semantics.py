@@ -13,6 +13,7 @@ _spec = importlib.util.spec_from_file_location(
 _module = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_module)
 _solver_inputs = _module._solver_inputs
+_calibrate_floor_transform = _module._calibrate_floor_transform
 
 
 def test_smplx_foot_semantics():
@@ -46,3 +47,23 @@ def test_smplx_foot_semantics():
     assert np.allclose(source[0]["left_toe"], (points["left_big_toe"] + points["left_small_toe"]) / 2)
     assert np.allclose(solver[0]["left_foot"][0], points["left_ankle"])
     assert np.allclose(solver[0]["left_toe"][0], source[0]["left_toe"])
+
+
+def test_floor_calibration_uses_low_speed_support_frames():
+    names = ["left_heel", "left_toe", "right_heel", "right_toe", "pelvis"]
+    positions = np.array([
+        [[0, 0, 0.20], [0.1, 0, 0.20], [0, -0.2, 0.20], [0.1, -0.2, 0.20], [0, 0, 1.0]],
+        [[0, 0, 0.20], [0.1, 0, 0.20], [0, -0.2, 0.20], [0.1, -0.2, 0.20], [0, 0, 1.0]],
+        [[0, 0, 0.60], [0.1, 0, 0.60], [0, -0.2, 0.60], [0.1, -0.2, 0.60], [0, 0, 1.4]],
+    ], dtype=float)
+    motion = SimpleNamespace(
+        positions=positions, joint_names=names, frame_count=3, fps=50.0, scene={},
+        canonical_named_positions=lambda: [
+            {name: positions[i, j] for j, name in enumerate(names)} for i in range(3)
+        ],
+    )
+    calibrated = _calibrate_floor_transform(
+        motion, SceneTransform(np.eye(3), 1.0, np.zeros(3)),
+        {"scene": {"floor_calibration": {"max_support_speed": 0.12}}},
+    )
+    np.testing.assert_allclose(calibrated.translation[2], -0.20, atol=1e-8)

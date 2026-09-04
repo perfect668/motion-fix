@@ -23,6 +23,7 @@ class AutomaticSceneCollisionLimit(Limit):
         self.enabled = bool(config.get("enabled", True))
         self.activate_distance = float(config.get("activate_distance", 0.06))
         self.deactivate_distance = float(config.get("deactivate_distance", 0.09))
+        self.prediction_horizon = float(config.get("prediction_horizon", 2.0))
         self.margin = float(config.get("margin", 0.004))
         self.hold_steps = max(1, int(config.get("hold_steps", 3)))
         self.max_per_robot_geom = max(1, int(config.get("max_active_per_robot_geom", 3)))
@@ -58,9 +59,9 @@ class AutomaticSceneCollisionLimit(Limit):
         self.query_runtime_seconds = 0.0
         self.minimum_distance = np.inf
         self.maximum_penetration = 0.0
+        self._previous_distances: dict[tuple[int, int], float] = {}
 
     def prepare_active_set(self, configuration, dt: float = 0.0) -> None:
-        del dt
         started = perf_counter()
         if not self.enabled:
             self.active_pairs = []
@@ -74,21 +75,28 @@ class AutomaticSceneCollisionLimit(Limit):
                 fromto = np.zeros(6, dtype=float)
                 distance = float(mj.mj_geomDistance(self.model, configuration.data, robot_geom, scene_geom, self.deactivate_distance, fromto))
                 key = (robot_geom, scene_geom)
-                if distance <= self.activate_distance or key in self._held:
+                previous = self._previous_distances.get(key)
+                speed = ((distance - previous) / dt
+                         if previous is not None and dt > 1e-8 else 0.0)
+                predicted = distance + self.prediction_horizon * dt * min(speed, 0.0)
+                self._previous_distances[key] = distance
+                if (distance <= self.activate_distance
+                        or predicted <= self.activate_distance
+                        or key in self._held):
                     vector = fromto[:3] - fromto[3:]
                     norm = float(np.linalg.norm(vector))
                     if norm < 1e-10:
                         continue
                     sign = np.sign(distance if abs(distance) > 1e-12 else 1.0)
-                    per_geom.append((distance, sign * vector / norm, fromto.copy(), key))
-            per_geom.sort(key=lambda item: (item[0], item[3]))
+                    per_geom.append((distance, predicted, sign * vector / norm, fromto.copy(), key))
+            per_geom.sort(key=lambda item: (item[0], item[4]))
             # CoACD often creates adjacent pieces with nearly identical
             # closest normals. Keep only independent escape directions for a
             # robot geom, avoiding artificial over-constraint of one limb.
             reduced = []
             for item in per_geom:
-                if any(float(item[1] @ other[1]) > 0.995 and
-                       np.linalg.norm(item[2][:3] - other[2][:3]) < 0.03
+                if any(float(item[2] @ other[2]) > 0.995 and
+                       np.linalg.norm(item[3][:3] - other[3][:3]) < 0.03
                        for other in reduced):
                     continue
                 reduced.append(item)
@@ -96,8 +104,8 @@ class AutomaticSceneCollisionLimit(Limit):
                     break
             candidates.extend(reduced)
         selected = []
-        for distance, normal, fromto, key in candidates:
-            if distance <= self.activate_distance:
+        for distance, predicted, normal, fromto, key in candidates:
+            if distance <= self.activate_distance or predicted <= self.activate_distance:
                 self._held[key] = 0
             elif key in self._held:
                 self._held[key] += 1
