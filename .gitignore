@@ -1,128 +1,29 @@
-# Python
+# Python and build artifacts
 *.egg-info/
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
+*.py[cod]
 .Python
-env/
-pip-log.txt
-pip-delete-this-directory.txt
-.tox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-*.log
-.git
-.mypy_cache
-.pytest_cache
-.hypothesis
-
-# IDEs
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# OS
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
-
-# Data directories
-data/
-data_record/
-Download/
-assets/body_models/
-
-# Media files
-*.mp4
-*.avi
-*.mov
-*.wmv
-*.flv
-*.webm
-
-# Archives
-*.zip
-*.tar
-*.tar.gz
-*.rar
-*.7z
-
-# Model files
-smplx/
-body_models/
-*.pkl
-*.pth
-*.pt
-*.ckpt
-
-# Logs
-MUJOCO_LOG.TXT
-*.log
-
-# Session files
-session*.json
-
-# Temporary files
-*.tmp
-*.temp
-.tmp/
-.temp/
-
-# Build artifacts
 build/
 dist/
-*.egg-info/
+.mypy_cache/
+.pytest_cache/
+.coverage*
 
-# Environment files
-.env
-.env.local
-.env.*.local
+# Local model dependencies (not distributed with this repository)
+assets/body_models/
+body_models/
+smplx/
 
-# Jupyter
-.ipynb_checkpoints/
-
-# Cache
-.cache/
-*.cache
-
-videos/
-PythonClient/
-
-TEST_MOTIONS_MY.md
-
-tmp/
-
-motion_data/
-
-GVHMR/
-
-batch_twist1_to_csv.py
-
-yaml_to_flat_csv.py
-
-compute_rotation.py
-
+# Local data, logs and credentials
+data/
+Download/
 origin_data/
+*.log
+MUJOCO_LOG.TXT
+.env*
 
-docs/*
-!docs/robot_motion_filtering.md
-!docs/smpl_retargeting_pipeline.md
-!docs/g1_ne01_gmr_alignment_tuning.md
-
-test/
-
-# Retargeting outputs and generated scene artifacts
+# Generated runtime outputs and scene caches
+.cache/
 /work/
 /outputs/
 /runs/
@@ -131,3 +32,20 @@ test/
 *_combined.xml
 .*_merged.json
 .*_config.json
+
+# Media and archives
+*.mp4
+*.avi
+*.mov
+*.webm
+*.zip
+*.tar
+*.tar.gz
+*.rar
+*.7z
+
+# IDE and OS files
+.vscode/
+.idea/
+*.swp
+.DS_Store

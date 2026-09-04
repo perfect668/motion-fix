@@ -70,3 +70,30 @@ def test_foot_frame_uses_solver_rotation_for_all_axes():
     np.testing.assert_allclose(float(forward @ normal), 0.0, atol=1e-7)
     body_up_solver = rotation @ np.array([0.0, 0.0, 0.9])
     assert float(normal @ body_up_solver) > 0.0
+
+
+def test_foot_frame_recovers_normal_after_turn_degeneracy():
+    first = _frame(0.0, 0.0)
+    second = _frame(0.0, 0.0)
+    for frame in (first, second):
+        frame.update({
+            "left_ankle": np.array([0.0, 0.2, 0.0]),
+            "right_ankle": np.array([1.0, -0.2, 0.0]),
+            "left_hip": np.array([0.0, 0.2, 1.0]),
+            "right_hip": np.array([0.0, -0.2, 1.0]),
+            "pelvis": np.array([0.0, 0.0, 0.9]),
+            "spine3": np.array([0.0, 0.0, 1.8]),
+        })
+    first["LeftToeBase"] = first["left_ankle"] + np.array([1.0, 0.0, 0.0])
+    second["LeftToeBase"] = second["left_ankle"] + np.array([0.0, 1.0, 0.0])
+    schedule = build_terrain_contact_schedule(
+        [first, second], TerrainField(), SceneTransform(np.eye(3), 1.0, np.zeros(3)), {}, 50.0,
+        {"contact_blend_frames": 1},
+    )
+    item = schedule[-1]["contacts"]["left_heel"]
+    forward = item["human_foot_forward_solver"]
+    normal = item["human_foot_normal_solver"]
+    lateral = np.cross(normal, forward)
+    assert np.isclose(np.linalg.norm(normal), 1.0)
+    assert np.isclose(np.linalg.norm(lateral), 1.0)
+    np.testing.assert_allclose(forward @ normal, 0.0, atol=1e-7)

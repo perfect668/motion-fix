@@ -156,7 +156,8 @@ def main() -> None:
         tmp.unlink(missing_ok=True)
     from general_motion_retargeting.terrain_geometry import SceneTransform
     scene_scale_multiplier = float(scene_cfg.get("scene_scale", 1.0))
-    reference_height = float(scene_cfg.get("source_reference_height", human_height))
+    raw_reference = scene_cfg.get("source_reference_height")
+    reference_height = human_height if raw_reference is None else float(raw_reference)
     resolved_scale = (scene_scale_multiplier
                       * float(scene_cfg.get("robot_height", 1.316))
                       / max(reference_height, 1e-9))

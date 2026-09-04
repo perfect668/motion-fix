@@ -242,8 +242,6 @@ def build_terrain_contact_schedule(
                 foot_lateral = previous_frame["lateral"].copy()
             else:
                 foot_lateral /= float(np.linalg.norm(foot_lateral))
-            foot_normal = np.cross(foot_forward, foot_lateral)
-            foot_normal /= max(float(np.linalg.norm(foot_normal)), 1e-12)
             body_up = scene_transform.transform_normals(
                 np.asarray(source_frame.get("spine3", source_frame.get("pelvis", [0.0, 0.0, 1.0])), dtype=float)
                 - np.asarray(source_frame.get("pelvis", [0.0, 0.0, 0.0]), dtype=float)
@@ -252,6 +250,40 @@ def build_terrain_contact_schedule(
                 body_up = previous_frame["up"].copy() if previous_frame is not None else np.array([0.0, 0.0, 1.0])
             else:
                 body_up /= float(np.linalg.norm(body_up))
+
+            # A previous lateral axis can itself become parallel to the new
+            # forward axis after a sharp turn.  Check the cross product too;
+            # otherwise the normalized zero vector silently poisons contact
+            # normals and every downstream task.
+            foot_normal = np.cross(foot_forward, foot_lateral)
+            normal_norm = float(np.linalg.norm(foot_normal))
+            if normal_norm < 1e-8:
+                fallback_normal = None
+                for candidate in (
+                    previous_frame["normal"] if previous_frame is not None else None,
+                    body_up,
+                ):
+                    if candidate is None:
+                        continue
+                    projected = np.asarray(candidate, dtype=float) - foot_forward * float(
+                        np.asarray(candidate, dtype=float) @ foot_forward
+                    )
+                    projected_norm = float(np.linalg.norm(projected))
+                    if projected_norm >= 1e-8:
+                        fallback_normal = projected / projected_norm
+                        break
+                if fallback_normal is None:
+                    raise ValueError(f"Cannot construct {side} foot frame: normal is degenerate")
+                foot_normal = fallback_normal
+                # Rebuild the lateral axis from the recovered normal so all
+                # three axes are mutually orthogonal in solver coordinates.
+                foot_lateral = np.cross(foot_normal, foot_forward)
+                lateral_norm = float(np.linalg.norm(foot_lateral))
+                if lateral_norm < 1e-8:
+                    raise ValueError(f"Cannot construct {side} foot frame: recovered lateral axis is degenerate")
+                foot_lateral /= lateral_norm
+            else:
+                foot_normal /= normal_norm
             if float(foot_normal @ body_up) < 0.0:
                 foot_normal = -foot_normal
             if previous_frame is not None and float(previous_frame["normal"] @ foot_normal) < 0.0:
