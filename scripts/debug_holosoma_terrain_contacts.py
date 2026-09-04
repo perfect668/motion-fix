@@ -47,6 +47,15 @@ def main() -> None:
         f"\nIK passes={current['passes']} active={current['active_constraints']} "
         f"QP failures={current['qp_failures']} min_slack={current['min_slack_after']:+.5f}"
     )
+    print(
+        "Scene collision: "
+        f"candidate_pairs={current.get('scene_collision_candidate_pairs', 0)} "
+        f"active_pairs={current.get('scene_collision_active_pairs', 0)} "
+        f"min_distance={current.get('minimum_scene_distance', float('inf')):+.5f} "
+        f"max_penetration={current.get('maximum_penetration', 0.0):.5f} "
+        f"query_time={current.get('collision_query_time', 0.0) * 1e3:.2f}ms "
+        f"qp_time={current.get('qp_solve_time', 0.0) * 1e3:.2f}ms"
+    )
     print("Closest candidates:")
     for name, item in sorted(current["slacks"].items(), key=lambda pair: pair[1]["slack"])[:20]:
         print(

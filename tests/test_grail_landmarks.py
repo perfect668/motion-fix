@@ -1,9 +1,25 @@
 import numpy as np
+import json
+from pathlib import Path
 
 from general_motion_retargeting.motion_adapters import CanonicalMotion
 from general_motion_retargeting.terrain_geometry import SceneTransform
 from general_motion_retargeting.terrain_contact_utils import _proxy_points
 from general_motion_retargeting.wholebody_omni_gmr_v4 import LimbPlaneTask
+
+
+def test_v4_grail_config_keeps_inherited_contact_points():
+    # Loading the V4 override must preserve nested V3 robot-point entries.
+    import importlib.util
+    path = Path(__file__).parents[1] / "scripts" / "grail_to_robot_wholebody_v3.py"
+    spec = importlib.util.spec_from_file_location("grail_v3_config_test", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    config_path = Path(__file__).parents[1] / "general_motion_retargeting" / "ik_configs" / "holosoma_to_ne01_wholebody_omni_gmr_v4.json"
+    config = module._config_for_smplx(json.loads(config_path.read_text()))
+    points = config["contact_tasks"]["robot_points"]
+    for name in ("left_heel", "right_heel", "left_toe", "right_toe", "left_knee", "right_knee", "left_palm", "right_palm", "left_butt", "right_butt"):
+        assert name in points
 
 
 def test_measured_foot_landmarks_are_preferred_and_ankle_is_foot():

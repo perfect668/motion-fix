@@ -22,14 +22,20 @@ def test_alignment_sanity_rejects_offset_and_scale():
 def test_summary_reports_contacts_and_collisions():
     records = [
         {"active_scene_collision_pairs": 2, "minimum_scene_distance": 0.01, "maximum_penetration": 0.0,
-         "scene_collision_query_runtime_seconds": 0.002, "qp_solve_runtime_seconds": 0.01, "qp_failures": []},
+         "scene_collision_query_runtime_seconds": 0.002, "qp_solve_runtime_seconds": 0.01, "qp_failures": [],
+         "contact_states": {"left_butt": {"robot_state": "STATIC", "robot_point": [0, 0, 0], "surface_normal_solver": [0, 0, 1]} }},
         {"active_scene_collision_pairs": 4, "minimum_scene_distance": -0.002, "maximum_penetration": 0.002,
-         "scene_collision_query_runtime_seconds": 0.003, "qp_solve_runtime_seconds": 0.02, "qp_failures": ["failed"]},
+         "scene_collision_query_runtime_seconds": 0.003, "qp_solve_runtime_seconds": 0.02, "qp_failures": ["failed"],
+         "interaction_scene_selected_points": 4, "interaction_terrain_selected_points": 8,
+         "contact_states": {"left_butt": {"robot_state": "SLIDING", "robot_point": [0.01, 0, 0], "surface_normal_solver": [0, 0, 1]} }},
     ]
-    contacts = [{"contacts": {"left_butt": {"state": "STATIC", "signed_distance": 0.004, "surface_id": "seat"}}},
-                {"contacts": {"left_butt": {"state": "STATIC", "signed_distance": 0.006, "surface_id": "seat"}}}]
+    contacts = [{"contacts": {"left_butt": {"state": "STATIC", "robot_state": "STATIC", "signed_distance": 0.004, "surface_id": "seat"}}},
+                {"contacts": {"left_butt": {"state": "STATIC", "robot_state": "SLIDING", "signed_distance": 0.006, "surface_id": "seat"}}}]
     summary = summarize_scene_diagnostics(records, contacts)
     assert summary["qp_failure_count"] == 1
     assert summary["max_active_scene_collision_pairs"] == 4
     assert summary["left_butt_contact_ratio"] == 1.0
     assert summary["contact_channels"]["left_butt"]["surface_ids"] == ["seat"]
+    assert summary["interaction_scene_selected_points_mean"] == 2.0
+    assert summary["interaction_scene_selected_frames"] == 1
+    assert summary["contact_channels"]["left_butt"]["robot_state_counts"] == {"STATIC": 1, "SLIDING": 1}

@@ -43,6 +43,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--robot", type=str, default="unitree_g1")
     parser.add_argument("--robot_motion_path", type=str, required=True)
+    parser.add_argument("--loop", action="store_true",
+                        help="Loop playback (the viewer loops by default)")
     parser.add_argument("--record_video", action="store_true")
     parser.add_argument("--video_path", type=str, default="videos/example.mp4")
     parser.add_argument("--no-camera-follow", action="store_true",

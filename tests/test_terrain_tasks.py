@@ -42,7 +42,7 @@ def test_inactive_terrain_point_task_has_zero_error_and_jacobian():
     np.testing.assert_allclose(task.compute_jacobian(configuration), 0.0)
 
 
-def test_static_anchors_while_sliding_tracks_human_tangent_target():
+def test_static_anchors_surface_while_sliding_tracks_human_tangent_target():
     model, configuration = _configuration()
     task = TerrainPointContactTask(model, {"left_palm": {"sites": ["heel"]}}, 80, 25, 0.004)
     static = _contact("STATIC")
@@ -52,7 +52,10 @@ def test_static_anchors_while_sliding_tracks_human_tangent_target():
     sliding = {**static, "state": "SLIDING"}
     task.set_contacts(configuration, {"left_palm": sliding})
     sliding_error = task.compute_error(configuration)
-    np.testing.assert_allclose(static_error[1:], 0.0, atol=1e-12)
+    # STATIC contact is anchored to the inferred surface point, not the
+    # robot's pre-contact position.  The site is deliberately offset in X,
+    # so this residual exposes accidental current-pose anchoring.
+    assert np.linalg.norm(static_error[1:]) > 0.05
     assert np.linalg.norm(sliding_error[1:]) > 0.5
 
 

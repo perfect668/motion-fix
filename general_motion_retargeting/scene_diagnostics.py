@@ -77,26 +77,102 @@ def summarize_scene_diagnostics(
         "mean_collision_query_runtime_seconds": float(np.mean(values("scene_collision_query_runtime_seconds"))) if values("scene_collision_query_runtime_seconds") else 0.0,
         "mean_qp_runtime_seconds": float(np.mean(values("qp_solve_runtime_seconds"))) if values("qp_solve_runtime_seconds") else 0.0,
     }
+    selected_scene = [
+        float(record.get("interaction_scene_selected_points", 0.0))
+        for record in records
+    ]
+    selected_terrain = [
+        float(record.get("interaction_terrain_selected_points", 0.0))
+        for record in records
+    ]
+    summary["interaction_scene_selected_points_mean"] = float(np.mean(selected_scene)) if selected_scene else 0.0
+    summary["interaction_scene_selected_points_max"] = int(max(selected_scene, default=0.0))
+    summary["interaction_terrain_selected_points_mean"] = float(np.mean(selected_terrain)) if selected_terrain else 0.0
+    summary["interaction_terrain_selected_points_max"] = int(max(selected_terrain, default=0.0))
+    summary["interaction_scene_selected_frames"] = int(sum(value > 0.0 for value in selected_scene))
     channel_names = sorted({name for frame in contacts for name in frame.get("contacts", frame).keys()})
     channel_summary: dict[str, Any] = {}
     for name in channel_names:
-        items = [frame.get("contacts", frame).get(name, {}) for frame in contacts]
+        items = []
+        for index, frame in enumerate(contacts):
+            source_item = frame.get("contacts", frame).get(name, {})
+            # The schedule describes the source body.  V4 diagnostics carry
+            # the independently measured final robot point/state; merge both
+            # so summaries never mistake source NONE for robot NONE.
+            robot_item = records[index].get("contact_states", {}).get(name, {}) if index < len(records) else {}
+            items.append({**source_item, **robot_item})
         states = [str(item.get("state", "NONE")) for item in items]
+        robot_states = [str(item.get("robot_state", "NONE")) for item in items]
         distances = [float(item["signed_distance"]) for item in items if np.isfinite(float(item.get("signed_distance", np.nan)))]
+        object_distances = [
+            float(item["signed_distance"])
+            for item in items
+            if item.get("object_id")
+            and np.isfinite(float(item.get("signed_distance", np.nan)))
+        ]
+        static_slip = 0.0
+        max_static_step = 0.0
+        previous_static = None
+        for item in items:
+            point_value = item.get("robot_point")
+            is_static = (
+                item.get("robot_state", item.get("state")) == "STATIC"
+                and point_value is not None
+                and np.asarray(point_value, dtype=float).shape == (3,)
+            )
+            surface_id = str(item.get("surface_id", ""))
+            if not is_static:
+                previous_static = None
+                continue
+            current = np.asarray(point_value, dtype=float)
+            current_normal = np.asarray(item.get("surface_normal_solver", [0.0, 0.0, 1.0]), dtype=float)
+            if previous_static is None or previous_static[2] != surface_id:
+                previous_static = (current, current_normal, surface_id)
+                continue
+            previous, previous_normal, _ = previous_static
+            normal = previous_normal + current_normal
+            normal /= max(float(np.linalg.norm(normal)), 1e-12)
+            displacement = current - previous
+            tangent_displacement = displacement - normal * float(displacement @ normal)
+            step = float(np.linalg.norm(tangent_displacement))
+            static_slip += step
+            max_static_step = max(max_static_step, step)
+            previous_static = (current, current_normal, surface_id)
         channel_summary[name] = {
             "contact_ratio": float(np.mean([state != "NONE" for state in states])) if states else 0.0,
             "state_counts": dict(Counter(states)),
+            "robot_state_counts": dict(Counter(robot_states)),
             "surface_ids": sorted({str(item.get("surface_id", "")) for item in items if item.get("surface_id")}),
             "median_signed_distance": float(np.median(distances)) if distances else np.inf,
             "max_signed_distance": float(np.max(distances)) if distances else np.inf,
+            "object_contact_count": len(object_distances),
+            "median_object_signed_distance": float(np.median(object_distances)) if object_distances else np.inf,
+            "max_object_signed_distance": float(np.max(object_distances)) if object_distances else np.inf,
+            "static_tangent_slip_m": static_slip,
+            "max_static_step_m": max_static_step,
         }
     summary["contact_channels"] = channel_summary
     for name in ("left_butt", "right_butt", "lower_back"):
         summary[f"{name}_contact_ratio"] = channel_summary.get(name, {}).get("contact_ratio", 0.0)
+    seated_frames = [
+        index for index, frame in enumerate(contacts)
+        if any(frame.get("contacts", {}).get(name, {}).get("object_id")
+               for name in ("left_butt", "right_butt"))
+    ]
+    if seated_frames:
+        summary["seated_phase_start_frame"] = int(min(seated_frames))
+        summary["seated_phase_end_frame"] = int(max(seated_frames))
+        summary["seated_phase_frame_count"] = int(len(seated_frames))
+    else:
+        summary["seated_phase_start_frame"] = None
+        summary["seated_phase_end_frame"] = None
+        summary["seated_phase_frame_count"] = 0
     # Chair-agnostic contact distances are reported for every surface type;
     # the familiar butt/back keys are retained for seated-sequence reports.
     for name in ("left_butt", "right_butt", "lower_back", "upper_back"):
         item = channel_summary.get(name, {})
         summary[f"median_{name}_surface_distance"] = item.get("median_signed_distance", np.inf)
         summary[f"max_{name}_surface_distance"] = item.get("max_signed_distance", np.inf)
+        summary[f"median_{name}_object_distance"] = item.get("median_object_signed_distance", np.inf)
+        summary[f"max_{name}_object_distance"] = item.get("max_object_signed_distance", np.inf)
     return summary

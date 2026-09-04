@@ -9,6 +9,175 @@ import numpy as np
 from .terrain_geometry import SceneTransform, TerrainField, TerrainSurfaceHit
 
 
+def _closest_point_triangle(point: np.ndarray, triangle: np.ndarray) -> np.ndarray:
+    """Closest point on a triangle, used by the generic mesh provider."""
+    a, b, c = np.asarray(triangle, dtype=float)
+    ab, ac, ap = b - a, c - a, np.asarray(point, dtype=float) - a
+    d1, d2 = float(ab @ ap), float(ac @ ap)
+    if d1 <= 0.0 and d2 <= 0.0:
+        return a.copy()
+    bp = np.asarray(point, dtype=float) - b
+    d3, d4 = float(ab @ bp), float(ac @ bp)
+    if d3 >= 0.0 and d4 <= d3:
+        return b.copy()
+    vc = d1 * d4 - d3 * d2
+    if vc <= 0.0 and d1 >= 0.0 and d3 <= 0.0:
+        return a + (d1 / max(d1 - d3, 1e-12)) * ab
+    cp = np.asarray(point, dtype=float) - c
+    d5, d6 = float(ab @ cp), float(ac @ cp)
+    if d6 >= 0.0 and d5 <= d6:
+        return c.copy()
+    vb = d5 * d2 - d1 * d6
+    if vb <= 0.0 and d2 >= 0.0 and d6 <= 0.0:
+        return a + (d2 / max(d2 - d6, 1e-12)) * ac
+    va = d3 * d6 - d5 * d4
+    if va <= 0.0 and (d4 - d3) >= 0.0 and (d5 - d6) >= 0.0:
+        denominator = max((d4 - d3) + (d5 - d6), 1e-12)
+        return b + ((d4 - d3) / denominator) * (c - b)
+    denominator = max(va + vb + vc, 1e-12)
+    return a + ab * (vb / denominator) + ac * (vc / denominator)
+
+
+def _mesh_contact_hit(point: np.ndarray, triangles: np.ndarray, centers: np.ndarray,
+                      normals: np.ndarray, support: bool, support_normal_min_z: float):
+    """Deterministic nearest/supporting triangle query for any body channel."""
+    point = np.asarray(point, dtype=float)
+    candidates = np.flatnonzero(normals[:, 2] > support_normal_min_z) if support else np.arange(len(triangles))
+    if not len(candidates):
+        return None
+    if support:
+        # Prefer projected triangles containing the point, then the highest
+        # valid surface. This rejects a nearby vertical riser at stair edges.
+        containing = []
+        px, py = point[:2]
+        for index in candidates:
+            a, b, c = triangles[int(index), :, :2]
+            v0, v1, v2 = c - a, b - a, np.array([px, py]) - a
+            denominator = float(v0[0] * v1[1] - v1[0] * v0[1])
+            if abs(denominator) < 1e-12:
+                continue
+            u = float((v2[0] * v1[1] - v1[0] * v2[1]) / denominator)
+            v = float((v0[0] * v2[1] - v2[0] * v0[1]) / denominator)
+            if u >= -1e-8 and v >= -1e-8 and u + v <= 1.0 + 1e-8:
+                containing.append(int(index))
+        candidates = np.asarray(containing if containing else candidates, dtype=int)
+        if containing:
+            candidates = np.asarray(sorted(candidates.tolist(), key=lambda i: (-float(centers[i, 2]), i)))
+    else:
+        # A bounded nearest-centroid shortlist keeps mesh queries predictable.
+        order = np.argsort(np.sum((centers[candidates] - point[None, :]) ** 2, axis=1), kind="stable")
+        candidates = candidates[order[: min(64, len(order))]]
+    best = None
+    for index in candidates:
+        closest = _closest_point_triangle(point, triangles[int(index)])
+        distance = float(np.linalg.norm(point - closest))
+        if best is None or (distance, int(index)) < (best[0], best[1]):
+            best = (distance, int(index), closest)
+    _, index, closest = best
+    normal = normals[index].copy()
+    if support and normal[2] < 0.0:
+        normal = -normal
+    elif not support and float(normal @ (point - closest)) < 0.0:
+        normal = -normal
+    normal /= max(float(np.linalg.norm(normal)), 1e-12)
+    return int(index), closest, normal, float(normal @ (point - closest))
+
+
+def _triangle_barycentric(point: np.ndarray, triangle: np.ndarray) -> np.ndarray:
+    a, b, c = np.asarray(triangle, dtype=float)
+    v0, v1, v2 = b - a, c - a, np.asarray(point, dtype=float) - a
+    d00, d01, d11 = float(v0 @ v0), float(v0 @ v1), float(v1 @ v1)
+    d20, d21 = float(v2 @ v0), float(v2 @ v1)
+    denominator = d00 * d11 - d01 * d01
+    if abs(denominator) < 1e-12:
+        return np.array([1.0, 0.0, 0.0])
+    v = (d11 * d20 - d01 * d21) / denominator
+    w = (d00 * d21 - d01 * d20) / denominator
+    return np.array([1.0 - v - w, v, w], dtype=float)
+
+
+def augment_mesh_contact_schedule(
+    schedule: list[dict[str, Any]],
+    source_frames: list[dict[str, np.ndarray]],
+    vertices: np.ndarray,
+    faces: np.ndarray,
+    object_id: str,
+    object_pose: np.ndarray,
+    config: dict,
+) -> list[dict[str, Any]]:
+    """Augment generic source contacts with a static scene mesh query.
+
+    This provider is deliberately body/asset agnostic: it handles heel/toe
+    support queries and nearest-surface queries for every configured body
+    channel, while preserving the source schedule when the mesh is too far
+    away. The same transformed mesh is used for visual, interaction and
+    collision metadata by the caller.
+    """
+    vertices = np.asarray(vertices, dtype=float).reshape((-1, 3))
+    faces = np.asarray(faces, dtype=int).reshape((-1, 3))
+    pose = np.asarray(object_pose, dtype=float).reshape(4, 4)
+    transformed = (np.c_[vertices, np.ones(len(vertices))] @ pose.T)[:, :3]
+    triangles = transformed[faces]
+    centers = triangles.mean(axis=1)
+    normals = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
+    normals /= np.maximum(np.linalg.norm(normals, axis=1, keepdims=True), 1e-12)
+    threshold = float(config.get("object_contact_distance", 0.05))
+    static_speed = float(config.get("static_tangent_speed", 0.08))
+    support_min = float(config.get("support_normal_min_z", 0.6))
+    switch_hysteresis = float(config.get("surface_switch_hysteresis", 0.015))
+    channels = tuple(config.get("channels", ()))
+    locked_triangles: dict[str, int] = {}
+    for source_frame, frame_record in zip(source_frames, schedule):
+        for channel in channels:
+            item = frame_record.get("contacts", {}).get(channel)
+            if not item:
+                continue
+            point = np.asarray(item.get("human_point_solver", [np.nan] * 3), dtype=float)
+            if point.shape != (3,) or not np.all(np.isfinite(point)):
+                continue
+            result = _mesh_contact_hit(point, triangles, centers, normals,
+                                       channel.endswith(("heel", "toe")), support_min)
+            if result is None:
+                continue
+            index, surface_point, normal, signed_distance = result
+            previous_index = locked_triangles.get(channel)
+            if previous_index is not None and previous_index != index:
+                previous_point = _closest_point_triangle(point, triangles[previous_index])
+                previous_normal = normals[previous_index].copy()
+                if channel.endswith(("heel", "toe")) and previous_normal[2] < 0.0:
+                    previous_normal = -previous_normal
+                elif not channel.endswith(("heel", "toe")) and float(previous_normal @ (point - previous_point)) < 0.0:
+                    previous_normal = -previous_normal
+                previous_normal /= max(float(np.linalg.norm(previous_normal)), 1e-12)
+                previous_distance = float(previous_normal @ (point - previous_point))
+                # Keep an established surface while the alternative is only
+                # marginally closer. This prevents stair/chair edge flicker.
+                if abs(previous_distance) <= abs(signed_distance) + switch_hysteresis:
+                    index, surface_point, normal, signed_distance = (
+                        previous_index, previous_point, previous_normal, previous_distance
+                    )
+            if abs(signed_distance) > threshold:
+                locked_triangles.pop(channel, None)
+                continue
+            locked_triangles[channel] = int(index)
+            score = float(np.clip(1.0 - abs(signed_distance) / max(threshold, 1e-9), 0.0, 1.0))
+            tangent_speed = float(item.get("tangential_speed", 0.0))
+            state = "STATIC" if tangent_speed < static_speed else "SLIDING"
+            item.update({
+                "score": max(float(item.get("score", 0.0)), score),
+                "state": state, "source_state": state, "object_id": str(object_id),
+                "surface_id": f"{object_id}:face_{index:05d}",
+                "surface_triangle_index": int(index),
+                "surface_barycentric": _triangle_barycentric(
+                    surface_point, triangles[index]
+                ).tolist(),
+                "surface_type": "mesh", "surface_point_solver": surface_point.copy(),
+                "surface_normal_solver": normal.copy(), "signed_distance": signed_distance,
+                "normal_error": abs(signed_distance), "tangent_error": tangent_speed,
+            })
+    return schedule
+
+
 def _proxy_points(frame: dict[str, np.ndarray], config: dict) -> dict[str, tuple[np.ndarray, str, bool]]:
     points: dict[str, tuple[np.ndarray, str, bool]] = {}
     def pick(*names: str) -> np.ndarray | None:
@@ -65,6 +234,7 @@ def _proxy_points(frame: dict[str, np.ndarray], config: dict) -> dict[str, tuple
     right_hip = pick("right_hip", "RightUpLeg")
     spine = pick("spine3", "spine2", "spine", "Spine")
     if pelvis is not None:
+        butt_drop = float(config.get("butt_surface_vertical_offset", 0.10))
         if left_hip is not None and right_hip is not None:
             axis = left_hip - right_hip
             axis /= max(float(np.linalg.norm(axis)), 1e-12)
@@ -76,14 +246,41 @@ def _proxy_points(frame: dict[str, np.ndarray], config: dict) -> dict[str, tuple
             posterior /= max(float(np.linalg.norm(posterior)), 1e-12)
             if posterior[2] < 0:
                 posterior = -posterior
-            points["left_butt"] = (pelvis + 0.06 * axis - 0.025 * posterior, "hip_derived_butt_proxy", False)
-            points["right_butt"] = (pelvis - 0.06 * axis - 0.025 * posterior, "hip_derived_butt_proxy", False)
+            surface_offset = np.array([0.0, 0.0, -butt_drop])
+            points["left_butt"] = (pelvis + 0.06 * axis - 0.025 * posterior + surface_offset, "hip_derived_butt_proxy", False)
+            points["right_butt"] = (pelvis - 0.06 * axis - 0.025 * posterior + surface_offset, "hip_derived_butt_proxy", False)
         else:
-            points["left_butt"] = (pelvis + np.array([0.0, 0.045, -0.02]), "pelvis_surface_proxy", False)
-            points["right_butt"] = (pelvis + np.array([0.0, -0.045, -0.02]), "pelvis_surface_proxy", False)
+            points["left_butt"] = (pelvis + np.array([0.0, 0.045, -butt_drop]), "pelvis_surface_proxy", False)
+            points["right_butt"] = (pelvis + np.array([0.0, -0.045, -butt_drop]), "pelvis_surface_proxy", False)
     if spine is not None:
-        points["lower_back"] = (spine + np.array([0.0, 0.0, -0.08]), "spine_surface_proxy", False)
-        points["upper_back"] = (spine + np.array([0.0, 0.0, 0.06]), "spine_surface_proxy", False)
+        # Derive the posterior direction from the anatomical landmark frame;
+        # a world-axis offset is wrong when the subject turns or leans.
+        if pelvis is not None and left_hip is not None and right_hip is not None:
+            lateral = left_hip - right_hip
+            up = spine - pelvis
+            lateral /= max(float(np.linalg.norm(lateral)), 1e-12)
+            up /= max(float(np.linalg.norm(up)), 1e-12)
+            backward = -np.cross(lateral, up)
+            backward /= max(float(np.linalg.norm(backward)), 1e-12)
+        else:
+            backward = np.array([0.0, -1.0, 0.0])
+        back_offset = float(config.get("back_surface_offset", 0.10))
+        lower_drop = float(config.get("lower_back_vertical_offset", 0.08))
+        upper_rise = float(config.get("upper_back_vertical_offset", 0.06))
+        points["lower_back"] = (
+            spine + back_offset * backward - lower_drop * np.asarray(
+                (spine - pelvis) / max(float(np.linalg.norm(spine - pelvis)), 1e-12)
+                if pelvis is not None else np.array([0.0, 0.0, 1.0])
+            ),
+            "spine_surface_proxy", False,
+        )
+        points["upper_back"] = (
+            spine + back_offset * backward + upper_rise * np.asarray(
+                (spine - pelvis) / max(float(np.linalg.norm(spine - pelvis)), 1e-12)
+                if pelvis is not None else np.array([0.0, 0.0, 1.0])
+            ),
+            "spine_surface_proxy", False,
+        )
     return points
 
 
@@ -98,9 +295,11 @@ def build_terrain_contact_schedule(
     joint_mapping: dict,
     fps: float,
     config: dict,
+    point_transform: SceneTransform | None = None,
 ) -> list[dict[str, Any]]:
     del joint_mapping  # Validation and semantic construction happen before this stage.
     terrain = source_terrain.transform(scene_transform)
+    point_transform = scene_transform if point_transform is None else point_transform
     dt = 1.0 / max(float(fps), 1e-9)
     enter = float(config.get("contact_enter_distance", 0.03))
     exit_distance = float(config.get("contact_exit_distance", 0.055))
@@ -120,7 +319,7 @@ def build_terrain_contact_schedule(
     for source_frame in source_frames:
         contacts = {}
         for channel, (point_source, provenance, support) in _proxy_points(source_frame, config).items():
-            point_solver = scene_transform.transform_points(point_source)
+            point_solver = point_transform.transform_points(point_source)
             hit = _surface_for_channel(terrain, point_solver, support)
             old = previous.get(channel)
             velocity = np.zeros(3) if old is None else (point_solver - old) / dt

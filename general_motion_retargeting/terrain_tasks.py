@@ -84,7 +84,13 @@ class TerrainPointContactTask(Task):
             # STATIC/SLIDING classification change must not re-anchor after
             # the point has already moved along the surface.
             if state in {"STATIC", "SLIDING"} and name not in self.anchors:
-                self.anchors[name] = self.points[name].point(configuration).copy()
+                normal = np.asarray(contact.get("surface_normal_solver", [0.0, 0.0, 1.0]), dtype=float)
+                normal /= max(float(np.linalg.norm(normal)), 1e-12)
+                surface = np.asarray(contact.get("surface_point_solver", [0.0, 0.0, 0.0]), dtype=float)
+                # A STATIC episode sticks to the inferred surface anchor,
+                # rather than freezing whichever robot position happened to
+                # be present when the contact threshold was crossed.
+                self.anchors[name] = surface + self.clearance * normal
                 self.none_counts[name] = 0
             elif state == "NONE":
                 self.none_counts[name] += 1

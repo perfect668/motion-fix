@@ -10,18 +10,27 @@ import numpy as np
 from general_motion_retargeting.scene_asset_loader import load_scene_asset
 
 
-def _pose(record: dict) -> np.ndarray:
-    obj = record.get("obj_data", {})
+def _pose(record: dict, *, asset_scale_baked: bool = False) -> np.ndarray:
+    obj = record.get("obj_data") or record.get("grail_object_data", {})
     R = np.asarray(obj["obj_R"], dtype=float)
     t = np.asarray(obj["obj_t"], dtype=float)
     scale = np.asarray(obj.get("obj_scale", [1, 1, 1]), dtype=float).reshape(-1)
     if R.ndim == 3: R = R[0]
     if t.ndim == 2: t = t[0]
     if scale.size == 1: scale = np.repeat(scale, 3)
+    if asset_scale_baked:
+        scale = np.ones(3)
     pose = np.eye(4)
     pose[:3, :3] = R @ np.diag(scale)
     pose[:3, 3] = t
-    return pose
+    scene = record.get("scene_transform", {})
+    rotation = np.asarray(scene.get("rotation", np.eye(3)), dtype=float).reshape(3, 3)
+    scale_scene = float(scene.get("scale", 1.0))
+    translation = np.asarray(scene.get("translation", [0.0, 0.0, 0.0]), dtype=float)
+    transform = np.eye(4)
+    transform[:3, :3] = scale_scene * rotation
+    transform[:3, 3] = translation
+    return transform @ pose
 
 
 def main() -> None:
@@ -34,7 +43,7 @@ def main() -> None:
     summary = json.loads(args.summary.read_text())
     mesh = load_scene_asset(args.object_asset, {"asset_space": "object_local", "asset_scale_baked": False})
     raw_min, raw_max = mesh.vertices.min(axis=0), mesh.vertices.max(axis=0)
-    pose = _pose(record)
+    pose = _pose(record, asset_scale_baked=bool(summary.get("asset_scale_baked", False)))
     final = (np.c_[mesh.vertices, np.ones(len(mesh.vertices))] @ pose.T)[:, :3]
     final_min, final_max = final.min(axis=0), final.max(axis=0)
     expected = {"raw_object_aabb": (raw_min, raw_max), "final_object_aabb": (final_min, final_max)}

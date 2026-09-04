@@ -35,13 +35,18 @@ def _load_config(path: Path) -> dict:
         return raw
     parent = _load_config(path.parent / raw["extends"])
     result = copy.deepcopy(parent)
+    def merge(base, override):
+        merged = copy.deepcopy(base)
+        for key, value in override.items():
+            if isinstance(value, dict) and isinstance(merged.get(key), dict):
+                merged[key] = merge(merged[key], value)
+            else:
+                merged[key] = copy.deepcopy(value)
+        return merged
     for key, value in raw.items():
         if key == "extends":
             continue
-        if isinstance(value, dict) and isinstance(result.get(key), dict):
-            result[key] = {**result[key], **value}
-        else:
-            result[key] = value
+        result = merge(result, {key: value})
     return result
 
 
@@ -61,23 +66,23 @@ def _scene_transform(config: dict, motion: CanonicalMotion | None = None) -> Sce
     )
 
 
-def _calibrate_floor_transform(
+def _estimate_floor_offset(
     motion: CanonicalMotion,
     transform: SceneTransform,
     config: dict,
-) -> SceneTransform:
-    """Align floor-only motion to the measured source sole height.
+) -> float:
+    """Estimate a vertical offset for floor-only human targets.
 
-    The correction belongs to the shared SceneTransform, so pelvis, contacts,
-    interaction samples and the analytic floor receive the same offset.
-    Explicit terrain/object scenes are already metrically anchored.
+    This deliberately does not modify the scene transform: the analytic floor
+    and MuJoCo floor remain at z=0.  The returned offset is applied only to
+    source human targets by the caller.
     """
     calibration = config.get("scene", {}).get("floor_calibration", {})
     if not bool(calibration.get("enabled", True)) or motion.scene:
-        return transform
+        return 0.0
     frames = _contact_frames(motion)
     if not frames:
-        return transform
+        return 0.0
     # Estimate the floor from support-like frames only.  A jump or a fast
     # swing should not raise the inferred floor just because its foot is high.
     foot_names = tuple(
@@ -114,14 +119,26 @@ def _calibrate_floor_transform(
         if points:
             heights.extend(transform.transform_points(np.asarray(points))[:, 2].tolist())
     if not heights:
-        return transform
+        return 0.0
     quantile = float(calibration.get("quantile", 0.05))
     floor_height = float(np.quantile(np.asarray(heights), np.clip(quantile, 0.0, 1.0)))
     if not np.isfinite(floor_height) or abs(floor_height) < 1e-8:
-        return transform
-    translation = transform.translation.copy()
-    translation[2] -= floor_height
-    return SceneTransform(transform.rotation, transform.scale, translation)
+        return 0.0
+    return -floor_height
+
+
+def _calibrate_floor_transform(
+    motion: CanonicalMotion,
+    transform: SceneTransform,
+    config: dict,
+) -> SceneTransform:
+    """Backward-compatible scene transform accessor.
+
+    Floor calibration is now intentionally separate from the scene transform;
+    callers should use :func:`_estimate_floor_offset` for human targets.
+    """
+    del motion, config
+    return transform
 
 
 def _solver_inputs(motion: CanonicalMotion, transform: SceneTransform, config: dict, joint_map: Path | None):
@@ -385,6 +402,11 @@ def main() -> None:
                         help="Write a resumable partial checkpoint every N frames")
     parser.add_argument("--resume", action="store_true", help="Resume from <save_path>.partial.pkl")
     args = parser.parse_args()
+    args.motion = args.motion.expanduser().resolve()
+    args.config = args.config.expanduser().resolve()
+    args.save_path = args.save_path.expanduser().resolve()
+    if args.terrain is not None:
+        args.terrain = args.terrain.expanduser().resolve()
     if args.robot.lower() != "ne01":
         raise ValueError("The current unified WholeBody V4 entry is configured for NE01")
 
@@ -417,21 +439,29 @@ def main() -> None:
         if motion.orientations is not None:
             motion.orientations = motion.orientations[: args.max_frames]
     config = _load_config(args.config)
-    transform = _calibrate_floor_transform(motion, _scene_transform(config, motion), config)
+    transform = _scene_transform(config, motion)
+    floor_offset = _estimate_floor_offset(motion, transform, config)
+    # Keep the scene frame fixed (including the floor at z=0); only the
+    # floor-only human targets receive the measured landing offset.
+    human_transform = SceneTransform(
+        transform.rotation,
+        transform.scale,
+        transform.translation + np.array([0.0, 0.0, floor_offset]),
+    )
     source_terrain = TerrainField.from_file(args.terrain) if args.terrain else TerrainField()
     source_terrain.support_normal_min_z = float(config.get("terrain_contact", {}).get("support_normal_min_z", 0.6))
     terrain = source_terrain.transform(transform)
-    source_frames, solver_frames, orientation_valid = _solver_inputs(motion, transform, config, args.joint_map)
+    source_frames, solver_frames, orientation_valid = _solver_inputs(motion, human_transform, config, args.joint_map)
     contact_cfg = config.get("terrain_contact", {})
     # Contact inference owns the source-to-solver transform and must receive
     # raw canonical points.  Passing already transformed solver points here
     # applies the similarity transform twice for HoloSoMo inputs.
     contacts = build_terrain_contact_schedule(
         _contact_frames(motion), source_terrain, transform,
-        {}, args.tgt_fps, contact_cfg,
+        {}, args.tgt_fps, contact_cfg, point_transform=human_transform,
     )
     points = np.asarray(motion.positions, dtype=float).reshape(-1, 3)
-    pool = sample_terrain_surface_pool(terrain, transform.transform_points(motion.positions), **config["interaction_graph"]["terrain_sampling"])
+    pool = sample_terrain_surface_pool(terrain, human_transform.transform_points(motion.positions), **config["interaction_graph"]["terrain_sampling"])
 
     # V4's scene backend requires the same terrain mesh to be compiled into a
     # combined robot+scene MuJoCo model.  Build it automatically when a mesh
@@ -500,7 +530,9 @@ def main() -> None:
         "human_height": motion.human_height,
         "orientation_valid_mask": motion.orientation_valid_mask,
         "orientation_valid": orientation_valid, "scene": motion.scene,
-        "scene_transform": transform.to_dict(), "terrain_primitives": terrain.to_spec(),
+        "scene_transform": transform.to_dict(),
+        "human_calibration_offset_z": float(floor_offset),
+        "terrain_primitives": terrain.to_spec(),
         "contact_schedule": contacts, "terrain_diagnostics": retargeter.diagnostics,
         "robot_xml": str(retargeter.robot_xml),
     }

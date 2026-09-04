@@ -14,7 +14,7 @@ from mink.tasks.task import Task
 from scipy.spatial.transform import Rotation
 from .wholebody_omni_gmr_v3 import WholeBodyOmniGMRV3
 from .scene_limits import AutomaticSceneCollisionLimit
-from .terrain_tasks import TerrainFootTemporalTask, TerrainPointContactTask, FootFrameTask
+from .terrain_tasks import TerrainFootTemporalTask, TerrainPointContactTask, FootFrameTask, tangent_basis
 from .motion_adapters import CanonicalMotion
 
 
@@ -507,6 +507,16 @@ class WholeBodyOmniGMRV4(WholeBodyOmniGMRV3):
                 "minimum_terrain_slack": float(minimum_slack),
                 "min_slack_after": float(minimum_slack),
                 "active_constraints": int(getattr(self.terrain_limit, "active_count", sum(len(v) for v in getattr(self.terrain_limit, "selected", {}).values())) + len(self.self_collision_limit.active_pairs) + len(getattr(self.scene_collision, "active_pairs", []))),
+                "slacks": {
+                    str(name): {
+                        "signed_distance": float(item["signed_distance"]),
+                        "margin": float(self.terrain_limit.margin),
+                        "slack": float(item["slack"]),
+                        "surface_id": str(item["surface_id"]),
+                        "point": np.asarray(item["point"], dtype=float).copy(),
+                    }
+                    for name, item in self.terrain_limit.measurements.items()
+                },
                 "max_velocity": float(np.max(np.abs(delta), initial=0.0)),
                 "limit_activation": {
                     name: bool(
@@ -517,21 +527,16 @@ class WholeBodyOmniGMRV4(WholeBodyOmniGMRV3):
                     if name in [mj.mj_id2name(self.model, mj.mjtObj.mjOBJ_JOINT, i) for i in range(self.model.njnt)]
                 },
                 "interaction_error": float(np.linalg.norm(self.interaction_task.compute_error(self.configuration))),
+                # Keep the interaction sample count alongside the per-frame
+                # record so downstream diagnostics can distinguish an empty
+                # interaction pool from a solver that simply ignored it.
+                "interaction_scene_points": int(len(self.interaction_task.environment_pool)),
                 "torso_pelvis_targets": {
                     key: float(value)
                     for key, value in self.torso_task.targets.items()
                 },
                 "contact_states": {
-                    name: {
-                        "score": float(item.get("score", 0.0)),
-                        "state": str(item.get("state", "NONE")),
-                        "source_state": str(item.get("source_state", item.get("state", "NONE"))),
-                        "object_id": str(item.get("object_id", "")),
-                        "surface_id": str(item.get("surface_id", "")),
-                        "signed_distance": float(item.get("signed_distance", np.inf)),
-                        "normal_error": float(item.get("normal_error", 0.0)),
-                        "tangent_error": float(item.get("tangent_error", item.get("tangential_speed", 0.0))),
-                    }
+                    name: self._contact_diagnostic(name, item)
                     for name, item in contacts.items()
                 },
                 **scene_diagnostics,
@@ -549,6 +554,48 @@ class WholeBodyOmniGMRV4(WholeBodyOmniGMRV3):
         self.previous_q = output.copy()
         self.frame_index += 1
         return output
+
+    def _contact_diagnostic(self, name: str, item: dict) -> dict[str, Any]:
+        """Return source and independently measured robot contact metrics."""
+        source_state = str(item.get("source_state", item.get("state", "NONE")))
+        surface = np.asarray(item.get("surface_point_solver", [0.0, 0.0, 0.0]), dtype=float)
+        normal = np.asarray(item.get("surface_normal_solver", [0.0, 0.0, 1.0]), dtype=float)
+        normal /= max(float(np.linalg.norm(normal)), 1e-12)
+        robot_state = "NONE"
+        robot_signed_distance = float("inf")
+        robot_tangent_error = float("inf")
+        robot_tangent_speed = 0.0
+        robot_point = None
+        if name in getattr(self.contact_task, "points", {}):
+            point = self.contact_task.points[name].point(self.configuration)
+            robot_point = np.asarray(point, dtype=float).copy()
+            robot_signed_distance = float(normal @ (point - surface))
+            tangent = tangent_basis(normal)
+            target = item.get("human_point_solver", surface)
+            robot_tangent_error = float(np.linalg.norm(tangent.T @ (point - np.asarray(target, dtype=float))))
+            if source_state != "NONE":
+                static_limit = float(self.config.get("terrain_contact", {}).get("static_tangent_speed", 0.08))
+                previous_states = self.diagnostics[-1].get("contact_states", {}) if self.diagnostics else {}
+                previous_point = previous_states.get(name, {}).get("robot_point")
+                if previous_point is not None and self.dt > 1e-9:
+                    displacement = point - np.asarray(previous_point, dtype=float)
+                    robot_tangent_speed = float(np.linalg.norm(tangent.T @ displacement) / self.dt)
+                robot_state = "STATIC" if robot_tangent_speed <= static_limit else "SLIDING"
+        return {
+            "score": float(item.get("score", 0.0)),
+            "state": str(item.get("state", "NONE")),
+            "source_state": source_state,
+            "robot_state": robot_state,
+            "object_id": str(item.get("object_id", "")),
+            "surface_id": str(item.get("surface_id", "")),
+            "signed_distance": float(item.get("signed_distance", np.inf)),
+            "robot_signed_distance": robot_signed_distance,
+            "robot_point": robot_point,
+            "normal_error": float(item.get("normal_error", 0.0)),
+            "tangent_error": float(item.get("tangent_error", item.get("tangential_speed", 0.0))),
+            "robot_tangent_error": robot_tangent_error,
+            "robot_tangent_speed": robot_tangent_speed,
+        }
 
     def retarget_canonical(
         self,

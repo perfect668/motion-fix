@@ -327,7 +327,15 @@ class AutomaticMeshTerrainLimit(Limit):
         self.proxy_density = float(config["mesh_proxy_density"])
         self.proxy_minimum = max(8, int(config["mesh_proxy_minimum"]))
         self.proxy_maximum = max(self.proxy_minimum, int(config["mesh_proxy_maximum"]))
+        self.guard_site_names = tuple(str(name) for name in config.get("guard_sites", ()))
         self.shells = self._discover_shells()
+        for site_name in self.guard_site_names:
+            site_id = int(model.site(site_name).id)
+            self.shells[f"site:{site_name}"] = {
+                "site_id": site_id,
+                "body_id": int(model.site_bodyid[site_id]),
+                "proxies": np.zeros((0, 3), dtype=float),
+            }
         self.previous = {name: np.nan for name in self.shells}
         self.active = {name: False for name in self.shells}
         self.release_count = {name: 0 for name in self.shells}
@@ -377,6 +385,8 @@ class AutomaticMeshTerrainLimit(Limit):
         return shells
 
     def _world_points(self, configuration, shell: dict) -> np.ndarray:
+        if "site_id" in shell:
+            return configuration.data.site_xpos[int(shell["site_id"])][None, :].copy()
         body_id = shell["body_id"]
         rotation = configuration.data.xmat[body_id].reshape(3, 3)
         return configuration.data.xpos[body_id] + shell["proxies"] @ rotation.T
@@ -439,7 +449,10 @@ class AutomaticMeshTerrainLimit(Limit):
             for point, hit in selected:
                 jacp = np.zeros((3, self.model.nv), dtype=float)
                 jacr = np.zeros((3, self.model.nv), dtype=float)
-                mj.mj_jac(self.model, configuration.data, jacp, jacr, point, body_id)
+                if "site_id" in self.shells[name]:
+                    mj.mj_jacSite(self.model, configuration.data, jacp, jacr, int(self.shells[name]["site_id"]))
+                else:
+                    mj.mj_jac(self.model, configuration.data, jacp, jacr, point, body_id)
                 rows.append(-hit.normal @ jacp)
                 bounds.append(float(hit.signed_distance - self.margin))
         if not rows:
@@ -635,8 +648,13 @@ class WholeBodyOmniGMRV3:
             np.asarray(contact["sole_local_normal"], dtype=float),
             contact["foot_orientation_cost"],
         )
+        terrain_limit_config = dict(self.config["terrain_nonpenetration"])
+        guard_sites = []
+        for spec in contact.get("robot_points", {}).values():
+            guard_sites.extend(spec.get("sites", []))
+        terrain_limit_config["guard_sites"] = tuple(dict.fromkeys(guard_sites))
         self.terrain_limit = AutomaticMeshTerrainLimit(
-            self.model, terrain, self.config["terrain_nonpenetration"]
+            self.model, terrain, terrain_limit_config
         )
         self.self_collision_limit = AutomaticSelfCollisionLimit(
             self.model, self.config["self_collision"]

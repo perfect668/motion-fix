@@ -13,7 +13,7 @@ _spec = importlib.util.spec_from_file_location(
 _module = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_module)
 _solver_inputs = _module._solver_inputs
-_calibrate_floor_transform = _module._calibrate_floor_transform
+_estimate_floor_offset = _module._estimate_floor_offset
 
 
 def test_smplx_foot_semantics():
@@ -62,8 +62,12 @@ def test_floor_calibration_uses_low_speed_support_frames():
             {name: positions[i, j] for j, name in enumerate(names)} for i in range(3)
         ],
     )
-    calibrated = _calibrate_floor_transform(
+    offset = _estimate_floor_offset(
         motion, SceneTransform(np.eye(3), 1.0, np.zeros(3)),
         {"scene": {"floor_calibration": {"max_support_speed": 0.12}}},
     )
-    np.testing.assert_allclose(calibrated.translation[2], -0.20, atol=1e-8)
+    np.testing.assert_allclose(offset, -0.20, atol=1e-8)
+    # The scene transform itself remains unchanged, so the floor stays z=0.
+    np.testing.assert_allclose(_module._calibrate_floor_transform(
+        motion, SceneTransform(np.eye(3), 1.0, np.zeros(3)), {}
+    ).translation[2], 0.0, atol=1e-8)

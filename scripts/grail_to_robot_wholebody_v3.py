@@ -34,6 +34,9 @@ from general_motion_retargeting.wholebody_omni_gmr_v3 import (
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CONFIG = ROOT / "general_motion_retargeting/ik_configs/holosoma_to_ne01_wholebody_omni_gmr_v3.json"
 SCENE_CONTACT_POSTPROCESS = None
+# Generic mesh contact hook used by scene-aware V4.  It is evaluated while the
+# canonical contact schedule is assembled and does not encode action classes.
+CONTACT_SURFACE_PROVIDER = None
 # Entry-point injection used by the V4 scene wrapper.  The default keeps the
 # original V3 path completely unchanged.
 RETARGETER_CLASS = WholeBodyOmniGMRV3
@@ -72,11 +75,21 @@ def _jsonable(value):
 
 def _config_for_smplx(config: dict) -> dict:
     """Translate V3 source labels to the names emitted by SMPL-X FK."""
-    if "extends" in config and "semantic_points" not in config:
+    if "extends" in config:
         base_path = Path(__file__).resolve().parent.parent / "general_motion_retargeting/ik_configs" / config["extends"]
         base = json.loads(base_path.read_text())
-        base.update({k: v for k, v in config.items() if k != "extends"})
-        config = base
+        # Merge nested sections instead of replacing them wholesale.  V4
+        # overrides only a few semantic/contact entries; a shallow update
+        # silently discarded inherited heel/toe/knee/palm robot points.
+        def merge(parent: dict, override: dict) -> dict:
+            result = copy.deepcopy(parent)
+            for key, value in override.items():
+                if isinstance(value, dict) and isinstance(result.get(key), dict):
+                    result[key] = merge(result[key], value)
+                else:
+                    result[key] = copy.deepcopy(value)
+            return result
+        config = merge(base, {k: v for k, v in config.items() if k != "extends"})
     labels = {
         "Spine1": "pelvis",
         "pelvis": "pelvis",
@@ -242,7 +255,9 @@ def main() -> None:
         float(args.tgt_fps),
         config["terrain_contact"],
     )
-    if SCENE_CONTACT_POSTPROCESS is not None:
+    if CONTACT_SURFACE_PROVIDER is not None:
+        schedule = CONTACT_SURFACE_PROVIDER(schedule, source_frames, config)
+    elif SCENE_CONTACT_POSTPROCESS is not None:
         schedule = SCENE_CONTACT_POSTPROCESS(schedule, source_frames, config)
     transformed_points = np.asarray(
         [[*frame.values()] for frame in source_frames], dtype=float

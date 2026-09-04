@@ -1,0 +1,10 @@
+{
+  "extends": "holosoma_to_ne01_wholebody_omni_gmr_v4.json",
+  "scene": {
+    "asset_interaction_transform": {
+      "enabled": true,
+      "auto": true,
+      "max_outer_iterations": 3
+    }
+  }
+}

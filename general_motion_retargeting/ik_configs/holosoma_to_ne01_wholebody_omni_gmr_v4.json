@@ -2,11 +2,28 @@
   "extends": "holosoma_to_ne01_wholebody_omni_gmr_v3.json",
   "scene": {
     "scene_scale": 1.0,
+    "asset_interaction_transform": {
+      "enabled": false,
+      "auto": false,
+      "contact_probe_distance": 0.12,
+      "translation_step": 0.02,
+      "yaw_step": 0.05,
+      "scale_step": 0.03,
+      "translation": [0.0, 0.0, 0.0],
+      "yaw": 0.0,
+      "scale_axis_1": 1.0,
+      "scale_axis_2": 1.0,
+      "scale_up": 1.0,
+      "scale_min": 0.85,
+      "scale_max": 1.15,
+      "max_outer_iterations": 3
+    },
     "floor_calibration": {"enabled": true, "quantile": 0.05, "max_support_speed": 0.12}
   },
   "scene_geometry": {
     "surface_sampling": {"candidate_points_per_square_meter": 100, "minimum": 128, "maximum": 1024},
-    "interaction_selection": {"points_per_semantic": 4, "minimum": 32, "maximum": 96}
+    "interaction_selection": {"points_per_semantic": 4, "minimum": 32, "maximum": 96},
+    "scene_surface_points": 512
   },
   "scene_collision": {
     "backend": "hybrid",
@@ -74,13 +91,17 @@
     "upper_back": {"query_type": "nearest", "provenance": "spine_surface_proxy"}
   },
   "terrain_contact": {
+    "butt_surface_vertical_offset": 0.21,
+    "back_surface_offset": 0.10,
+    "lower_back_vertical_offset": 0.08,
+    "upper_back_vertical_offset": 0.06,
     "object_contact_distance": 0.05,
     "channels": ["left_heel", "right_heel", "left_toe", "right_toe", "left_palm", "right_palm", "left_knee", "right_knee", "left_shin", "right_shin", "left_butt", "right_butt", "lower_back", "upper_back"]
   },
   "contact_tasks": {
     "robot_points": {
-      "left_butt": {"body": "base_link", "offsets": [[-0.075, 0.045, -0.025]]},
-      "right_butt": {"body": "base_link", "offsets": [[-0.075, -0.045, -0.025]]},
+      "left_butt": {"body": "base_link", "offsets": [[-0.075, 0.045, -0.15]]},
+      "right_butt": {"body": "base_link", "offsets": [[-0.075, -0.045, -0.15]]},
       "lower_back": {"body": "TORSO_LINK", "offsets": [[-0.080, 0.0, 0.055]]},
       "upper_back": {"body": "TORSO_LINK", "offsets": [[-0.070, 0.0, 0.16]]}
     }
