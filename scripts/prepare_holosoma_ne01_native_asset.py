@@ -102,7 +102,6 @@ def build_urdf(source: pathlib.Path, output: pathlib.Path) -> None:
 
 def main() -> None:
     root = pathlib.Path(__file__).resolve().parents[1]
-    default_source = pathlib.Path.home() / "桌面" / "ne01-robot-assets"
     default_output = (
         root.parent
         / "holosoma"
@@ -114,7 +113,8 @@ def main() -> None:
         / "ne01"
     )
     parser = argparse.ArgumentParser()
-    parser.add_argument("--source-dir", type=pathlib.Path, default=default_source)
+    parser.add_argument("--source-dir", type=pathlib.Path, required=True,
+                        help="Directory containing the NE01 source URDF/XML and meshes")
     parser.add_argument("--output-dir", type=pathlib.Path, default=default_output)
     args = parser.parse_args()
 

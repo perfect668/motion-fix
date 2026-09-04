@@ -30,8 +30,8 @@
     "gain": 0.30
   },
   "joint_position_limits": {
-    "KNEE_PITCH_L_JOINT": [-0.05, 2.8],
-    "KNEE_PITCH_R_JOINT": [-0.05, 2.8],
+    "KNEE_PITCH_L_JOINT": [-0.05, 2.3078],
+    "KNEE_PITCH_R_JOINT": [-0.05, 2.3078],
     "HIP_YAW_L_JOINT": [-0.75, 0.75],
     "HIP_YAW_R_JOINT": [-0.75, 0.75]
   },

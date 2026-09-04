@@ -1,6 +1,6 @@
 <?xml version='1.0' encoding='utf-8'?>
 <mujoco model="NE01_holosoma_gmr_v2">
-  <compiler angle="radian" meshdir="/home/user/桌面/ne01-robot-assets/meshes" />
+  <compiler angle="radian" meshdir="meshes" />
   <visual>
     <global offwidth="1280" offheight="720" />
   </visual>

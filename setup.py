@@ -1,14 +1,14 @@
 from setuptools import setup, find_packages
 
 setup(
-  name = 'general_motion_retargeting',
+  name = 'ne01-wholebody-v4-retargeting',
   packages = find_packages(),
   author="Yanjie Ze",
   author_email="lastyanjieze@gmail.com",
-  description="General Motion Retargeting (GMR) for Humanoid Robots",
+  description="NE01 WholeBody V4 motion retargeting",
   long_description=open("README.md").read(),
   long_description_content_type="text/markdown",
-  url="https://github.com/YanjieZe/GMR",
+  url="https://github.com/perfect668/motion-fix",
   license="MIT",
   version="0.2.0",
   install_requires=[
@@ -25,8 +25,7 @@ setup(
     "natsort",
     "psutil",
     "smplx @ git+https://github.com/vchoutas/smplx",
-    "protobuf",
-    "redis[hiredis]",
+    "torch",
     "imageio[ffmpeg]",
     "trimesh>=4.0",
     "usd-core>=24.0",

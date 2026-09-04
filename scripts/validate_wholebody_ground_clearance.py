@@ -11,7 +11,8 @@ import mink
 import mujoco as mj
 import numpy as np
 
-from general_motion_retargeting.wholebody_omni_gmr import GroundNonPenetrationLimit
+from general_motion_retargeting.wholebody_omni_gmr_v3 import AutomaticMeshTerrainLimit
+from general_motion_retargeting.terrain_geometry import TerrainField
 
 
 def main() -> None:
@@ -23,8 +24,8 @@ def main() -> None:
     args = parser.parse_args()
 
     root = pathlib.Path(__file__).resolve().parent.parent
-    config_path = pathlib.Path(args.config) if args.config else root / "general_motion_retargeting/ik_configs/smplx_to_ne01_wholebody_omni_gmr.json"
-    xml_path = pathlib.Path(args.xml) if args.xml else root / "assets/ne01/ne01_wholebody_omni_gmr.xml"
+    config_path = pathlib.Path(args.config) if args.config else root / "general_motion_retargeting/ik_configs/holosoma_to_ne01_wholebody_omni_gmr_v4.json"
+    xml_path = pathlib.Path(args.xml) if args.xml else root / "assets/ne01/ne01_desktop_assets_wholebody_omni_gmr_v2.xml"
     with config_path.open("r", encoding="utf-8") as file:
         config = json.load(file)
     with pathlib.Path(args.robot_motion_path).open("rb") as file:
@@ -32,24 +33,17 @@ def main() -> None:
 
     model = mj.MjModel.from_xml_path(str(xml_path))
     configuration = mink.Configuration(model)
-    nonpenetration = config["ground_nonpenetration"]
-    limit = GroundNonPenetrationLimit(
-        model,
-        config["ground_interaction_graph"]["regions"],
-        nonpenetration["always_active_sites"],
-        nonpenetration.get("collision_geoms", {}),
-        nonpenetration.get("dynamic_mesh_guards", {}),
-        float(config["whole_body_ground"].get("floor_z", 0.0)),
-        float(config["whole_body_ground"].get("clearance", 0.002)),
-    )
+    nonpenetration = config["terrain_nonpenetration"]
+    limit = AutomaticMeshTerrainLimit(model, TerrainField(), nonpenetration)
 
     records = []
     for frame, (root_pos, root_rot, dof_pos) in enumerate(zip(motion["root_pos"], motion["root_rot"], motion["dof_pos"])):
         # Exported rotations are xyzw; MuJoCo free-joint qpos uses wxyz.
         qpos = np.r_[root_pos, np.asarray(root_rot)[[3, 0, 1, 2]], dof_pos]
         configuration.update(qpos)
-        for name, item in limit.measure_current_slacks(configuration).items():
-            records.append((item["slack"], frame, name, item["height"], item["required_margin"]))
+        limit.prepare_active_set(configuration, 0.0)
+        for name, item in limit.measurements.items():
+            records.append((item["slack"], frame, name, item["signed_distance"], limit.margin))
 
     print(f"Validated {len(motion['root_pos'])} exported frames from {args.robot_motion_path}")
     print("Worst final-qpos clearances:")

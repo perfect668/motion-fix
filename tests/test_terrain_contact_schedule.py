@@ -41,3 +41,32 @@ def test_surface_episode_hysteresis_is_stable_at_edge():
     )
     ids = [item["contacts"]["left_toe"]["surface_id"] for item in schedule]
     assert len(set(ids)) == 1
+
+
+def test_foot_frame_uses_solver_rotation_for_all_axes():
+    frame = _frame(0.0, 0.0)
+    frame.update({
+        "left_hip": np.array([0.0, 0.2, 1.0]),
+        "right_hip": np.array([0.0, -0.2, 1.0]),
+        "pelvis": np.array([0.0, 0.0, 0.9]),
+        "spine3": np.array([0.0, 0.0, 1.8]),
+        "left_big_toe": frame["LeftToeBase"] + np.array([0.0, 0.04, 0.0]),
+        "left_small_toe": frame["LeftToeBase"] - np.array([0.0, 0.04, 0.0]),
+        "right_big_toe": frame["RightToeBase"] + np.array([0.0, 0.04, 0.0]),
+        "right_small_toe": frame["RightToeBase"] - np.array([0.0, 0.04, 0.0]),
+    })
+    angle = np.pi / 2.0
+    rotation = np.array([[np.cos(angle), -np.sin(angle), 0.0],
+                         [np.sin(angle), np.cos(angle), 0.0], [0.0, 0.0, 1.0]])
+    schedule = build_terrain_contact_schedule(
+        [frame] * 3, TerrainField(), SceneTransform(rotation, 1.0, np.zeros(3)), {}, 50.0,
+        {"contact_enter_distance": 0.03, "contact_exit_distance": 0.055, "contact_blend_frames": 1},
+    )
+    item = schedule[-1]["contacts"]["left_heel"]
+    forward = item["human_foot_forward_solver"]
+    normal = item["human_foot_normal_solver"]
+    np.testing.assert_allclose(np.linalg.norm(forward), 1.0)
+    np.testing.assert_allclose(np.linalg.norm(normal), 1.0)
+    np.testing.assert_allclose(float(forward @ normal), 0.0, atol=1e-7)
+    body_up_solver = rotation @ np.array([0.0, 0.0, 0.9])
+    assert float(normal @ body_up_solver) > 0.0

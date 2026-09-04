@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 import json
+import tempfile
 import os
 import pickle
 from time import perf_counter
@@ -197,17 +198,35 @@ class WholeBodyOmniGMRV4(WholeBodyOmniGMRV3):
     def __init__(self, config_path: str | Path, terrain, environment_pool: np.ndarray, fps: float = 50.0, solver: str = "daqp") -> None:
         config_path = Path(config_path)
         raw = json.loads(config_path.read_text())
+        self._merged_config_dir = None
         if raw.get("extends"):
             base_path = config_path.parent / raw["extends"]
             base = json.loads(base_path.read_text())
             base = _deep_merge(base, {k: v for k, v in raw.items() if k != "extends"})
-            merged = config_path.with_name(f".{config_path.stem}_merged.json")
+            robot_xml = Path(base["robot_xml"])
+            if not robot_xml.is_absolute():
+                base["robot_xml"] = str((config_path.parent.parent.parent / robot_xml).resolve())
+            self._merged_config_dir = tempfile.TemporaryDirectory(prefix="gmr_v4_")
+            merged = Path(self._merged_config_dir.name) / "merged_config.json"
             merged.write_text(json.dumps(base, indent=2))
             self._merged_config_path = merged
             config_path = merged
         else:
             self._merged_config_path = None
-        super().__init__(config_path, terrain, environment_pool, fps=fps, solver=solver)
+        try:
+            super().__init__(config_path, terrain, environment_pool, fps=fps, solver=solver)
+        finally:
+            # The parent constructor has already loaded the merged mapping and
+            # resolved robot_xml, so the source-tree-independent file can be
+            # removed immediately on both success and failure.
+            merged_path = getattr(self, "_merged_config_path", None)
+            if merged_path is not None:
+                merged_path.unlink(missing_ok=True)
+            temp_dir = getattr(self, "_merged_config_dir", None)
+            if temp_dir is not None:
+                temp_dir.cleanup()
+            self._merged_config_path = None
+            self._merged_config_dir = None
         # V4 consumes only canonical semantic names.  The adapters may retain
         # dataset aliases in their source frame for legacy contact code, but
         # no dataset-specific label is allowed to select a V4 target.
@@ -316,6 +335,9 @@ class WholeBodyOmniGMRV4(WholeBodyOmniGMRV3):
         path = getattr(self, "_merged_config_path", None)
         if path is not None:
             path.unlink(missing_ok=True)
+        temp_dir = getattr(self, "_merged_config_dir", None)
+        if temp_dir is not None:
+            temp_dir.cleanup()
 
     def retarget(
         self,

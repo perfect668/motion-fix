@@ -1,8 +1,0 @@
-{
-  "frames": 120,
-  "fps": 50.0,
-  "scene_scale": 0.7393258426966293,
-  "minimum_terrain_slack": -1.1573735781908456e-07,
-  "maximum_joint_velocity": 4.508980377493732,
-  "frames_with_qp_failure": 0
-}

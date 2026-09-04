@@ -584,7 +584,10 @@ class WholeBodyOmniGMRV3:
                 mj.mjtJoint.mjJNT_SLIDE,
             ):
                 raise ValueError(f"V3 custom limit requires a hinge or slide joint: {joint_name}")
-            lower, upper = (float(bounds[0]), float(bounds[1]))
+            requested_lower, requested_upper = (float(bounds[0]), float(bounds[1]))
+            xml_lower, xml_upper = self.model.jnt_range[joint_id]
+            lower = max(float(xml_lower), requested_lower)
+            upper = min(float(xml_upper), requested_upper)
             if not lower < upper:
                 raise ValueError(f"Invalid V3 joint range for {joint_name}: {bounds}")
             self.model.jnt_range[joint_id] = (lower, upper)

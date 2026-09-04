@@ -48,7 +48,9 @@ def _load_config(path: Path) -> dict:
 def _scene_transform(config: dict, motion: CanonicalMotion | None = None) -> SceneTransform:
     scene = config.get("scene", {})
     source_height = float(scene.get("default_human_height", 1.78))
-    if motion is not None and motion.source_format == "smplx_npz" and motion.human_height is not None:
+    # Only adapters that can measure height in metric solver coordinates set
+    # human_height.  Do not infer it for legacy FBX/BVH/HoloSoMo inputs.
+    if motion is not None and motion.human_height is not None:
         source_height = float(motion.human_height)
     scale = (float(scene.get("scene_scale", 1.0))
              * float(scene.get("robot_height", 1.316)) / source_height)

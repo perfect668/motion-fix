@@ -96,6 +96,17 @@ def test_v3_applies_ne01_torso_roll_safety_range():
     np.testing.assert_allclose(retargeter.model.jnt_range[joint_id], [-0.3, 0.3])
 
 
+def test_v3_custom_joint_limit_cannot_expand_xml_range(tmp_path):
+    config = json.loads(CONFIG.read_text())
+    config["joint_position_limits"] = {"KNEE_PITCH_L_JOINT": [-0.05, 2.8]}
+    config["robot_xml"] = str(ROOT / "assets/ne01/ne01_desktop_assets_wholebody_omni_gmr_v2.xml")
+    path = tmp_path / "expanded.json"
+    path.write_text(json.dumps(config))
+    retargeter = WholeBodyOmniGMRV3(path, TerrainField(), np.zeros((4, 3)))
+    joint_id = retargeter.model.joint("KNEE_PITCH_L_JOINT").id
+    assert retargeter.model.jnt_range[joint_id, 1] <= 2.3078 + 1e-6
+
+
 def test_torso_pelvis_task_tracks_and_clamps_relative_orientation():
     config = json.loads(CONFIG.read_text())
     model = mj.MjModel.from_xml_path(str(ROOT / config["robot_xml"]))

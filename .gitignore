@@ -121,3 +121,13 @@ docs/*
 !docs/g1_ne01_gmr_alignment_tuning.md
 
 test/
+
+# Retargeting outputs and generated scene artifacts
+/work/
+/outputs/
+/runs/
+*.partial.pkl
+*_scene_cache/
+*_combined.xml
+.*_merged.json
+.*_config.json

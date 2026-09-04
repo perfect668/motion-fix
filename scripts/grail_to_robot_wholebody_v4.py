@@ -81,19 +81,19 @@ def _asset_path(record: dict, motion: Path, override: Path | None = None) -> Pat
     raw = str(record.get("object_path", ""))
     candidates = []
     if raw:
-        candidates.append(Path(raw))
-        candidates.append(Path("/home/user/datasets/grail_200/data") / motion.parent.parent.name / "object_usd" / (motion.stem + ".usd"))
+        raw_path = Path(raw).expanduser()
+        candidates.append(raw_path if raw_path.is_absolute() else motion.parent / raw_path)
     # GRAIL reconstruction names are also used by the generated USD assets.
-    candidates.extend([
-        motion.parent.parent / "object_usd" / f"{motion.stem}.usd",
-        Path("/home/user/datasets/grail_200/data/sitting/object_usd") / f"{motion.stem}.usd",
-    ])
-    for candidate in candidates:
+    candidates.append(motion.parent.parent / "object_usd" / f"{motion.stem}.usd")
+    # Keep the error actionable without embedding developer-machine paths.
+    unique_candidates = list(dict.fromkeys(str(path) for path in candidates))
+    for candidate_name in unique_candidates:
+        candidate = Path(candidate_name)
         if candidate.is_file():
             return candidate.resolve()
     raise FileNotFoundError(
         "GRAIL metadata declares an object, but no mesh/USD asset was found. "
-        f"object_path={raw!r}; checked {len(candidates)} paths"
+        f"object_path={raw!r}; checked: {unique_candidates}"
     )
 
 
@@ -170,7 +170,6 @@ def main() -> None:
     # Object pose is a static reconstruction-world pose.  Human root
     # translation changes through the sequence (approach, sit, stand) and
     # must not be baked into the object transform.
-    source_root = np.asarray(human["trans"], dtype=float)[0]
     scene_pose[:3, 3] = scene_transform.transform_points(pose[:3, 3])
     scene_mesh = load_scene_asset(asset, {
         "object_id": asset.stem,
