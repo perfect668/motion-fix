@@ -45,9 +45,13 @@ def _load_config(path: Path) -> dict:
     return result
 
 
-def _scene_transform(config: dict) -> SceneTransform:
+def _scene_transform(config: dict, motion: CanonicalMotion | None = None) -> SceneTransform:
     scene = config.get("scene", {})
-    scale = float(scene.get("robot_height", 1.316)) / float(scene.get("default_human_height", 1.78))
+    source_height = float(scene.get("default_human_height", 1.78))
+    if motion is not None and motion.source_format == "smplx_npz" and motion.human_height is not None:
+        source_height = float(motion.human_height)
+    scale = (float(scene.get("scene_scale", 1.0))
+             * float(scene.get("robot_height", 1.316)) / source_height)
     return SceneTransform(
         np.asarray(scene.get("rotation", np.eye(3)), dtype=float),
         scale,
@@ -145,9 +149,79 @@ def _solver_inputs(motion: CanonicalMotion, transform: SceneTransform, config: d
             solver_frames.append(solver_frame)
         return source_frames, solver_frames, bool(motion.orientation_valid)
 
-    # SMPL-X canonical names are already semantic FK names.  Adapt them to the
-    # stable semantic names expected by the V4 configuration and reuse the
-    # recorded FK orientations instead of inventing identity quaternions.
+    # SMPL-X uses ankle as the foot joint.  Build the solver input from one
+    # explicit anatomical canonical skeleton so contact and pose tasks cannot
+    # disagree about the foot/toe semantics.
+    if motion.source_format == "smplx_npz":
+        required = {
+            "pelvis", "left_hip", "right_hip", "spine3", "neck",
+            "left_knee", "right_knee", "left_ankle", "right_ankle",
+            "left_big_toe", "right_big_toe", "left_small_toe", "right_small_toe",
+            "left_heel", "right_heel", "left_shoulder", "right_shoulder",
+            "left_elbow", "right_elbow", "left_wrist", "right_wrist",
+        }
+        missing = sorted(required - set(motion.joint_names))
+        if missing:
+            raise ValueError(f"SMPL-X canonical motion is missing measured landmarks: {missing}")
+        index = {name: i for i, name in enumerate(motion.joint_names)}
+        labels = {
+            "Hips": "pelvis", "Spine": "spine2", "Spine1": "spine3", "Neck": "neck",
+            "Head": "head", "LeftShoulder": "left_collar", "RightShoulder": "right_collar",
+            "LeftArm": "left_shoulder", "RightArm": "right_shoulder",
+            "LeftForeArm": "left_elbow", "RightForeArm": "right_elbow",
+            "LeftHandMiddle3": "left_wrist", "RightHandMiddle3": "right_wrist",
+            "LeftUpLeg": "left_hip", "RightUpLeg": "right_hip",
+            "LeftLeg": "left_knee", "RightLeg": "right_knee",
+            # Critical semantic correction: solver foot is SMPL-X ankle.
+            "LeftFoot": "left_ankle", "RightFoot": "right_ankle",
+        }
+        if "head" not in index:
+            labels.pop("Head")
+        canonical_positions = []
+        source_frames = []
+        for frame_index in range(motion.frame_count):
+            points = {name: transformed[frame_index, index[source]] for name, source in labels.items() if source in index}
+            points["LeftToeBase"] = 0.5 * (transformed[frame_index, index["left_big_toe"]] + transformed[frame_index, index["left_small_toe"]])
+            points["RightToeBase"] = 0.5 * (transformed[frame_index, index["right_big_toe"]] + transformed[frame_index, index["right_small_toe"]])
+            points["LeftFootMod"] = points["LeftFoot"].copy()
+            points["RightFootMod"] = points["RightFoot"].copy()
+            canonical_positions.append(points)
+            semantic = {key: value.copy() for key, value in points.items()}
+            semantic.update({name: transformed[frame_index, index[name]].copy() for name in motion.joint_names if name in index})
+            semantic.update({
+                "pelvis": points["Hips"].copy(), "left_ankle": points["LeftFoot"].copy(),
+                "right_ankle": points["RightFoot"].copy(),
+                "left_foot": points["LeftFoot"].copy(), "right_foot": points["RightFoot"].copy(),
+                "left_toe": points["LeftToeBase"].copy(), "right_toe": points["RightToeBase"].copy(),
+                "left_heel": transformed[frame_index, index["left_heel"]].copy(),
+                "right_heel": transformed[frame_index, index["right_heel"]].copy(),
+            })
+            source_frames.append(semantic)
+        solver_names = list(labels) + ["LeftToeBase", "RightToeBase"]
+        solver_positions = np.asarray([[frame[name] for name in solver_names] for frame in canonical_positions])
+        solver_names_for_map = {name: name for name in solver_names}
+        # Reuse the validated HoloSoMo landmark basis builder with an explicit
+        # map whose foot source is the ankle-backed LeftFoot/RightFoot above.
+        mapping = {
+            "solver_joint_mapping": {
+                "pelvis": "Hips", "left_hip": "LeftUpLeg", "right_hip": "RightUpLeg",
+                "spine1": "Spine", "spine3": "Spine1", "neck": "Neck",
+                "head": "Head", "left_collar": "LeftShoulder", "right_collar": "RightShoulder",
+                "left_shoulder": "LeftArm", "right_shoulder": "RightArm",
+                "left_elbow": "LeftForeArm", "right_elbow": "RightForeArm",
+                "left_wrist": "LeftHandMiddle3", "right_wrist": "RightHandMiddle3",
+                "left_knee": "LeftLeg", "right_knee": "RightLeg",
+                "left_foot": "LeftFoot", "right_foot": "RightFoot",
+                "left_toe": "LeftToeBase", "right_toe": "RightToeBase",
+            }
+        }
+        solver_frames, orientation_info = build_solver_frames(solver_positions, solver_names, mapping)
+        # The builder's names are the solver semantic names; preserve the
+        # same canonical positions in source_frames for contact inference.
+        return source_frames, solver_frames, orientation_info
+
+    # Other canonical names are already semantic FK names.  Adapt them to the
+    # stable semantic names expected by the V4 configuration.
     aliases = {
         "pelvis": "pelvis", "left_hip": "left_hip", "right_hip": "right_hip",
         "spine3": "spine3", "left_knee": "left_knee", "right_knee": "right_knee",
@@ -256,12 +330,26 @@ def main() -> None:
         target_fps=args.tgt_fps,
         default_holosoma_fps=args.source_fps,
     )
+    if motion.source_format.startswith("fbx_binary"):
+        index = {name: i for i, name in enumerate(motion.joint_names)}
+        required_height_points = {"Head", "LeftFoot", "RightFoot"}
+        if not required_height_points <= set(index):
+            raise ValueError(f"FBX height check requires {sorted(required_height_points)}")
+        feet = 0.5 * (motion.positions[:, index["LeftFoot"]] + motion.positions[:, index["RightFoot"]])
+        converted_height = float(np.median(np.linalg.norm(motion.positions[:, index["Head"]] - feet, axis=1)))
+        raw_height = converted_height / 0.01
+        if not 0.8 <= converted_height <= 2.5:
+            raise ValueError(
+                f"FBX converted anatomical height is implausible: raw={raw_height:.3f} cm, "
+                f"converted={converted_height:.3f} m"
+            )
+        motion.human_height = converted_height
     if args.max_frames is not None:
         motion.positions = motion.positions[: args.max_frames]
         if motion.orientations is not None:
             motion.orientations = motion.orientations[: args.max_frames]
     config = _load_config(args.config)
-    transform = _scene_transform(config)
+    transform = _scene_transform(config, motion)
     source_terrain = TerrainField.from_file(args.terrain) if args.terrain else TerrainField()
     source_terrain.support_normal_min_z = float(config.get("terrain_contact", {}).get("support_normal_min_z", 0.6))
     terrain = source_terrain.transform(transform)

@@ -10,6 +10,19 @@ import numpy as np
 FBX_UNIT_SCALE = 0.01
 
 
+def rest_foot_forward(rest_head, rest_tail, pose_delta):
+    """Propagate the bind-pose head-to-tail anatomical foot axis."""
+    import numpy as _np
+    axis = _np.asarray(rest_tail, dtype=float) - _np.asarray(rest_head, dtype=float)
+    if _np.linalg.norm(axis) < 1e-8:
+        raise ValueError("Foot rest axis has zero length")
+    axis = _np.asarray(pose_delta, dtype=float) @ axis
+    norm = _np.linalg.norm(axis)
+    if norm < 1e-8:
+        raise ValueError("Foot pose produced a zero-length forward axis")
+    return axis / norm
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", required=True, type=Path)
@@ -58,7 +71,20 @@ def main() -> None:
         for side in ("Left", "Right"):
             foot_bone = "lFoot" if side == "Left" else "rFoot"
             foot_pose = armature.pose.bones[foot_bone]
-            forward = armature.matrix_world.to_3x3() @ foot_pose.matrix.to_3x3() @ mathutils.Vector((1.0, 0.0, 0.0))
+            foot_data = armature.data.bones[foot_bone]
+            toe_children = [child for child in foot_data.children if "toe" in child.name.lower() or "foot" in child.name.lower()]
+            if toe_children:
+                child_pose = armature.pose.bones[toe_children[0].name]
+                toe_world = armature.matrix_world @ child_pose.head
+                point_by_name[f"{side}ToeBase"] = tuple(float(v) * FBX_UNIT_SCALE for v in toe_world)
+                continue
+            rest_forward = foot_data.tail_local - foot_data.head_local
+            if rest_forward.length < 1e-8 or abs(rest_forward.normalized().z) > 0.9:
+                raise RuntimeError(f"Cannot determine anatomical rest foot axis for {foot_bone}")
+            pose_delta = foot_pose.matrix.to_3x3() @ foot_data.matrix_local.to_3x3().inverted()
+            forward = armature.matrix_world.to_3x3() @ mathutils.Vector(
+                rest_foot_forward(rest_forward * 0.0, rest_forward, pose_delta)
+            )
             forward.normalize()
             point_by_name[f"{side}ToeBase"] = tuple(
                 np.asarray(point_by_name[f"{side}Foot"], dtype=float) + 0.12 * np.asarray(forward, dtype=float)

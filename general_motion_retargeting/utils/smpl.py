@@ -195,7 +195,7 @@ def get_smplx_data(smplx_data, body_model, smplx_output, curr_frame):
         joint_orientations.append(rot)
         result[joint_name] = (joints[i], rot.as_quat(scalar_first=True))
 
-    for landmark in ("left_ankle", "right_ankle", "left_big_toe", "right_big_toe",
+    for landmark in ("left_big_toe", "right_big_toe",
                      "left_small_toe", "right_small_toe", "left_heel", "right_heel"):
         if landmark in joint_names:
             result[landmark] = (joints[joint_names.index(landmark)], None)
@@ -329,7 +329,7 @@ def get_smplx_data_offline_fast(smplx_data, body_model, smplx_output, tgt_fps=30
 
         # These are measured surface landmarks, not rigid bodies.  Preserve
         # their positions while deliberately leaving orientation undefined.
-        for landmark in ("left_ankle", "right_ankle", "left_big_toe", "right_big_toe",
+        for landmark in ("left_big_toe", "right_big_toe",
                          "left_small_toe", "right_small_toe", "left_heel", "right_heel"):
             if landmark in joint_names:
                 index = joint_names.index(landmark)
