@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "robot_xml": "assets/ne01/ne01_desktop_assets_wholebody_omni_gmr_v2.xml",
+  "scene": {"robot_height": 1.316, "default_human_height": 1.78},
+  "global_anchor": {"source": "pelvis", "robot_body": "base_link", "cost": [4.0, 4.0, 1.5, 2.0]},
+  "semantic_points": {
+    "pelvis": {"source": "pelvis", "robot": {"body": "base_link", "offsets": [[0, 0, 0]]}},
+    "left_hip": {"source": "left_hip", "robot": {"body": "HIP_PITCH_L_LINK", "offsets": [[0, 0, 0]]}},
+    "left_knee": {"source": "left_knee", "robot": {"body": "KNEE_PITCH_L_LINK", "offsets": [[0, 0, 0]]}},
+    "left_foot": {"source": "left_foot", "robot": {"body": "ANKLE_PITCH_L_LINK", "offsets": [[0, 0, 0]]}},
+    "left_toe": {"source": "left_toe", "robot": {"body": "ANKLE_ROLL_L_LINK", "offsets": [[0.14, 0, -0.034]]}},
+    "right_hip": {"source": "right_hip", "robot": {"body": "HIP_PITCH_R_LINK", "offsets": [[0, 0, 0]]}},
+    "right_knee": {"source": "right_knee", "robot": {"body": "KNEE_PITCH_R_LINK", "offsets": [[0, 0, 0]]}},
+    "right_foot": {"source": "right_foot", "robot": {"body": "ANKLE_PITCH_R_LINK", "offsets": [[0, 0, 0]]}},
+    "right_toe": {"source": "right_toe", "robot": {"body": "ANKLE_ROLL_R_LINK", "offsets": [[0.14, 0, -0.034]]}},
+    "left_shoulder": {"source": "left_shoulder", "robot": {"body": "SHOULDER_ROLL_L_LINK", "offsets": [[0, 0, 0]]}},
+    "left_elbow": {"source": "left_elbow", "robot": {"body": "ELBOW_PITCH_L_LINK", "offsets": [[0, 0, 0]]}},
+    "left_hand": {"source": "left_hand", "robot": {"body": "HAND_YAW_L_LINK", "offsets": [[0, -0.004, -0.08]]}},
+    "right_shoulder": {"source": "right_shoulder", "robot": {"body": "SHOULDER_ROLL_R_LINK", "offsets": [[0, 0, 0]]}},
+    "right_elbow": {"source": "right_elbow", "robot": {"body": "ELBOW_PITCH_R_LINK", "offsets": [[0, 0, 0]]}},
+    "right_hand": {"source": "right_hand", "robot": {"body": "HAND_YAW_R_LINK", "offsets": [[0, 0.004, -0.08]]}}
+  },
+  "interaction_graph": {"environment_points": 64, "semantic_cost": 1.0, "environment_cost": 0.12, "gain": 0.35},
+  "contact_tasks": {
+    "normal_cost": 40.0, "tangent_cost": 12.0, "clearance": 0.004,
+    "robot_points": {
+      "left_heel": {"sites": ["ground_guard_left_heel_inner", "ground_guard_left_heel_outer"]},
+      "left_toe": {"sites": ["ground_guard_left_toe_inner", "ground_guard_left_toe_outer"]},
+      "right_heel": {"sites": ["ground_guard_right_heel_inner", "ground_guard_right_heel_outer"]},
+      "right_toe": {"sites": ["ground_guard_right_toe_inner", "ground_guard_right_toe_outer"]},
+      "left_palm": {"body": "HAND_YAW_L_LINK", "offsets": [[0, -0.004, -0.08]]},
+      "right_palm": {"body": "HAND_YAW_R_LINK", "offsets": [[0, 0.004, -0.08]]},
+      "left_knee": {"sites": ["ground_contact_left_knee"]}, "right_knee": {"sites": ["ground_contact_right_knee"]},
+      "left_shin": {"body": "KNEE_PITCH_L_LINK", "offsets": [[-0.045, 0, -0.205]]}, "right_shin": {"body": "KNEE_PITCH_R_LINK", "offsets": [[-0.045, 0, -0.205]]},
+      "left_butt": {"body": "base_link", "offsets": [[-0.075, 0.045, -0.15]]}, "right_butt": {"body": "base_link", "offsets": [[-0.075, -0.045, -0.15]]},
+      "lower_back": {"body": "TORSO_LINK", "offsets": [[-0.08, 0, 0.055]]}, "upper_back": {"body": "TORSO_LINK", "offsets": [[-0.07, 0, 0.16]]}
+    }
+  },
+  "terrain_contact": {"contact_enter_distance": 0.03, "contact_exit_distance": 0.055, "static_tangent_speed": 0.08, "normal_speed_limit": 0.20},
+  "torso_pelvis_coherence": {"waist_yaw_joint": "WAIST_YAW_JOINT", "torso_roll_joint": "TORSO_ROLL_JOINT", "cost": 0.25, "gain": 0.4, "blend_frames": 7},
+  "terrain_nonpenetration": {"margin": 0.004, "activate_distance": 0.06},
+  "scene_collision": {"enabled": true, "backend": "mujoco", "margin": 0.004, "activate_distance": 0.055, "scene_body_prefix": "scene_"},
+  "joint_position_limits": {"KNEE_PITCH_L_JOINT": [-0.05, 2.3078], "KNEE_PITCH_R_JOINT": [-0.05, 2.3078], "HIP_YAW_L_JOINT": [-0.75, 0.75], "HIP_YAW_R_JOINT": [-0.75, 0.75]},
+  "posture": {"nominal_cost": 0.01},
+  "solver": {
+    "damping": 0.1,
+    "trust_region": 0.12,
+    "joint_velocity_limit": 9.4247779608,
+    "first_frame_iterations": 8,
+    "iterations": 4,
+    "retry_damping_factors": [1.0, 2.5, 6.0],
+    "retry_trust_factors": [1.0, 1.5, 2.5]
+  }
+}
