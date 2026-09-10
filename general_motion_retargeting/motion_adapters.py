@@ -10,16 +10,31 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+import os
 import pickle
 import subprocess
 import tempfile
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 
 
 class MotionFormatError(ValueError):
     """Raised when a motion file matches a format but fails its schema."""
+
+
+@dataclass(frozen=True)
+class MotionAdapter:
+    """Named adapter contract used by the V5 input registry.
+
+    The callable receives a resolved path and keyword arguments.  Keeping the
+    registry data-only makes format detection testable without importing any
+    dataset-specific solver code.
+    """
+
+    name: str
+    loader: Callable[..., "CanonicalMotion"]
+    extensions: tuple[str, ...] = ()
 
 
 @dataclass
@@ -43,6 +58,14 @@ class CanonicalMotion:
     human_height: float | None = None
     source_to_canonical: dict[str, Any] = field(default_factory=dict)
     scene_objects: list[dict[str, Any]] = field(default_factory=list)
+    timestamps: np.ndarray | None = None
+    unit: str = "meter"
+    up_axis: str = "+Z"
+    handedness: str = "right"
+    frame_ids: np.ndarray | None = None
+    landmark_provenance: dict[str, str] = field(default_factory=dict)
+    capabilities: dict[str, Any] = field(default_factory=dict)
+    anatomical_frames: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.positions = np.asarray(self.positions, dtype=np.float64)
@@ -69,6 +92,10 @@ class CanonicalMotion:
                 )
             if not np.isfinite(self.orientations).all():
                 raise MotionFormatError("Canonical orientations contain NaN or Inf")
+            norms = np.linalg.norm(self.orientations, axis=-1, keepdims=True)
+            if np.any(norms < 1e-8):
+                raise MotionFormatError("Canonical orientations contain zero quaternions")
+            self.orientations = self.orientations / norms
         if self.orientation_valid_mask is None:
             self.orientation_valid_mask = np.full(
                 (self.positions.shape[0], self.positions.shape[1]),
@@ -82,10 +109,30 @@ class CanonicalMotion:
                 raise MotionFormatError(
                     f"orientation_valid_mask must have shape {expected_mask}, got {self.orientation_valid_mask.shape}"
                 )
+            if self.orientations is None and np.any(self.orientation_valid_mask):
+                raise MotionFormatError("orientation_valid_mask marks valid rotations but orientations are missing")
         if self.human_height is not None:
             self.human_height = float(self.human_height)
             if not np.isfinite(self.human_height) or self.human_height <= 0.0:
                 raise MotionFormatError("human_height must be finite and positive")
+        if self.unit != "meter":
+            raise MotionFormatError(f"CanonicalMotion.unit must be 'meter', got {self.unit!r}")
+        if self.up_axis != "+Z" or self.handedness != "right":
+            raise MotionFormatError("CanonicalMotion must be right-handed Z-up")
+        if self.timestamps is None:
+            self.timestamps = np.arange(self.positions.shape[0], dtype=float) / self.fps
+        else:
+            self.timestamps = np.asarray(self.timestamps, dtype=float).reshape(-1)
+            if len(self.timestamps) != self.positions.shape[0] or not np.isfinite(self.timestamps).all():
+                raise MotionFormatError("timestamps must match frame count and be finite")
+            if len(self.timestamps) > 1 and np.any(np.diff(self.timestamps) <= 0.0):
+                raise MotionFormatError("timestamps must be strictly increasing")
+        if self.frame_ids is None:
+            self.frame_ids = np.arange(self.positions.shape[0], dtype=np.int64)
+        else:
+            self.frame_ids = np.asarray(self.frame_ids).reshape(-1)
+            if len(self.frame_ids) != self.positions.shape[0]:
+                raise MotionFormatError("frame_ids must match frame count")
         if not self.source_to_canonical:
             self.source_to_canonical = {name: name for name in self.joint_names}
         # A read-only alias used by generic scene-aware consumers.  Keep the
@@ -141,8 +188,8 @@ class CanonicalMotion:
                 semantic[canonical] = value.copy()
                 frame_provenance[canonical] = next(name for name in choices if name in frame)
             for side in ("left", "right"):
-                # Prefer measured SMPL-X surface landmarks over synthesized
-                # points.  A toe center is the midpoint of big/small toes.
+                # Prefer measured SMPL-X surface landmarks. A toe center is
+                # the midpoint of big/small toes when both are available.
                 big = frame.get(f"{side}_big_toe")
                 small = frame.get(f"{side}_small_toe")
                 if big is not None and small is not None:
@@ -150,31 +197,14 @@ class CanonicalMotion:
                     frame_provenance[f"{side}_toe"] = "measured_big_small_toe_midpoint"
                 foot, toe = semantic.get(f"{side}_foot"), semantic.get(f"{side}_toe")
                 ankle = semantic.get(f"{side}_ankle", foot)
-                if foot is not None and toe is None:
-                    # SMPL-X FK exposes a foot orientation but no ToeBase.
-                    # Use its anatomical forward axis when available; the
-                    # positional fallback is only used by position-only data.
-                    direction = None
-                    foot_name = next((name for name in aliases[f"{side}_foot"] if name in frame), None)
-                    if self.orientations is not None and foot_name in self.joint_names:
-                        from scipy.spatial.transform import Rotation
-                        joint_index = self.joint_names.index(foot_name)
-                        direction = Rotation.from_quat(
-                            self.orientations[len(result), joint_index][[1, 2, 3, 0]]
-                        ).apply([1.0, 0.0, 0.0])
-                        direction = np.asarray(direction, dtype=float)
-                    if direction is None or np.linalg.norm(direction) < 1e-8:
-                        direction = foot - semantic.get(f"{side}_knee", foot)
-                    direction = direction / max(float(np.linalg.norm(direction)), 1e-12)
-                    semantic[f"{side}_toe"] = foot + 0.16 * direction
-                    frame_provenance[f"{side}_toe"] = "foot_orientation_surface_proxy"
+                # Heel/toe are independent surface landmarks. Do not invent
+                # either from a foot-knee vector or a quaternion. Missing
+                # landmarks remain absent and are reported as a capability
+                # limitation by the contact adapter.
                 measured_heel = frame.get(f"{side}_heel")
                 if measured_heel is not None:
                     semantic[f"{side}_heel"] = measured_heel.copy()
                     frame_provenance[f"{side}_heel"] = "measured_heel"
-                elif foot is not None and toe is not None:
-                    semantic[f"{side}_heel"] = foot - 0.28 * (toe - foot)
-                    frame_provenance[f"{side}_heel"] = "foot_to_toe_surface_proxy"
                 if foot is not None and f"{side}_ankle" not in semantic:
                     semantic[f"{side}_ankle"] = ankle.copy()
                     frame_provenance[f"{side}_ankle"] = "foot_alias"
@@ -265,6 +295,8 @@ def detect_motion_format(path: str | Path) -> str:
     if suffix == ".npz":
         with np.load(source, allow_pickle=False) as data:
             keys = set(data.files)
+            if {"positions", "joint_names"} <= keys or {"canonical_positions", "joint_names"} <= keys:
+                return "canonical_npz"
             if {"global_joint_positions", "joint_positions"} & keys:
                 return "holosoma_global_positions"
             if ("poses" in keys or {"root_orient", "pose_body"} <= keys) and "trans" in keys:
@@ -316,6 +348,24 @@ def _load_holosoma(path: Path, joint_map: str | Path, default_fps: float) -> Can
     )
 
 
+def _load_canonical_npz(path: Path) -> CanonicalMotion:
+    with np.load(path, allow_pickle=False) as data:
+        key = "positions" if "positions" in data.files else "canonical_positions"
+        positions = np.asarray(data[key], dtype=float)
+        names = [str(item) for item in np.asarray(data["joint_names"]).tolist()]
+        fps = _as_scalar(data["fps"], "fps") if "fps" in data.files else 50.0
+        orientations = None
+        if "orientations" in data.files:
+            orientations = _continuous_quaternions(np.asarray(data["orientations"], dtype=float))
+        timestamps = np.asarray(data["timestamps"], dtype=float) if "timestamps" in data.files else None
+        return CanonicalMotion(
+            positions, names, fps=fps, orientations=orientations,
+            orientation_valid=orientations is not None, timestamps=timestamps,
+            source_format="canonical_npz", source_path=str(path),
+            metadata={"canonical_schema": 1},
+        )
+
+
 def _smplx_arrays(human: dict[str, Any]) -> tuple[np.ndarray, np.ndarray, np.ndarray, str, float]:
     if "poses" in human:
         poses = np.asarray(human["poses"], dtype=np.float32)
@@ -342,21 +392,32 @@ def _load_smplx(path: Path, human: dict[str, Any], body_models: str | Path, targ
     from .utils.smpl import get_smplx_data_offline_fast, load_smplx_file
 
     root_orient, pose_body, trans, gender, source_fps = _smplx_arrays(human)
-    temporary = path.with_name(f".{path.stem}_canonical_smplx.npz")
-    np.savez(
-        temporary,
-        root_orient=root_orient,
-        pose_body=pose_body,
-        trans=trans,
-        betas=np.asarray(human.get("betas", np.zeros(10)), dtype=np.float32).reshape(-1)[:10],
-        gender=np.asarray(gender),
-        mocap_frame_rate=np.asarray(source_fps),
-    )
-    try:
+    # Never create a sidecar next to the input dataset.  Dataset mounts are
+    # commonly read-only, and mutating an input tree also makes repeated
+    # retargets non-reproducible.  Keep this adapter's serialization bridge in
+    # the repository cache (or an explicitly configured writable cache).
+    cache_root = Path(
+        os.environ.get(
+            "GMR_CANONICAL_CACHE",
+            Path(__file__).resolve().parents[1] / ".cache" / "canonical_motion",
+        )
+    ).expanduser()
+    cache_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="smplx_", dir=cache_root) as directory:
+        temporary = Path(directory) / "input.npz"
+        np.savez(
+            temporary,
+            root_orient=root_orient,
+            pose_body=pose_body,
+            trans=trans,
+            betas=np.asarray(human.get("betas", np.zeros(10)), dtype=np.float32).reshape(-1)[:10],
+            gender=np.asarray(gender),
+            mocap_frame_rate=np.asarray(source_fps),
+        )
         data, model, output, human_height = load_smplx_file(temporary, Path(body_models))
-        frames, fps = get_smplx_data_offline_fast(data, model, output, tgt_fps=target_fps or source_fps)
-    finally:
-        temporary.unlink(missing_ok=True)
+        frames, fps = get_smplx_data_offline_fast(
+            data, model, output, tgt_fps=target_fps or source_fps
+        )
     if not frames:
         raise MotionFormatError(f"SMPL-X input contains no frames: {path}")
     names = list(frames[0].keys())
@@ -376,7 +437,7 @@ def _load_smplx(path: Path, human: dict[str, Any], body_models: str | Path, targ
         positions=positions,
         joint_names=names,
         orientations=orientations,
-        orientation_valid=True,
+        orientation_valid=bool(np.all(orientation_valid_mask)),
         orientation_valid_mask=orientation_valid_mask,
         fps=float(fps),
         root_name="pelvis",
@@ -467,6 +528,27 @@ def _load_fbx_pickle(path: Path, fps: float) -> CanonicalMotion:
     )
 
 
+# Public registry.  The V5 entry point resolves a format once and consumers
+# can inspect the selected adapter without importing legacy entry scripts.
+MOTION_ADAPTERS: dict[str, MotionAdapter] = {
+    "canonical_npz": MotionAdapter("canonical_npz", _load_canonical_npz, (".npz",)),
+    "holosoma_global_positions": MotionAdapter(
+        "holosoma_global_positions", _load_holosoma, (".npy", ".npz")),
+    "smplx_npz": MotionAdapter("smplx_npz", _load_smplx, (".npz",)),
+    "grail_smplx_recon": MotionAdapter("grail_smplx_recon", _load_smplx, (".pkl",)),
+    "bvh": MotionAdapter("bvh", _load_bvh, (".bvh",)),
+    "fbx": MotionAdapter("fbx", _load_fbx_pickle, (".fbx", ".pkl")),
+}
+
+
+def get_motion_adapter(kind: str) -> MotionAdapter:
+    """Return the registered adapter or fail before any solver is created."""
+    try:
+        return MOTION_ADAPTERS[str(kind)]
+    except KeyError as error:
+        raise MotionFormatError(f"No CanonicalMotion adapter registered for {kind!r}") from error
+
+
 def load_canonical_motion(
     path: str | Path,
     *,
@@ -477,6 +559,7 @@ def load_canonical_motion(
     bvh_format: str = "lafan1",
     default_bvh_fps: float = 30.0,
     default_fbx_fps: float = 60.0,
+    motion_format: str | None = None,
 ) -> CanonicalMotion:
     """Load a supported motion into :class:`CanonicalMotion`.
 
@@ -486,7 +569,15 @@ def load_canonical_motion(
     """
 
     source = Path(path).expanduser().resolve()
-    kind = detect_motion_format(source)
+    # An explicit format is a contract, not a hint.  Only ``auto`` performs
+    # content detection; this prevents canonical NPZ archives from being
+    # silently routed through the HoloSoMo 53-joint adapter.
+    requested_kind = None if motion_format in (None, "auto") else str(motion_format)
+    kind = requested_kind or detect_motion_format(source)
+    # Resolve through the public registry before dispatching.  The explicit
+    # branches below only adapt arguments for each loader's source schema;
+    # they cannot silently introduce an unregistered format.
+    adapter = get_motion_adapter(kind)
     if kind == "holosoma_global_positions":
         if joint_map is None and source.suffix.lower() == ".npz":
             with np.load(source, allow_pickle=False) as data:
@@ -507,6 +598,8 @@ def load_canonical_motion(
         if joint_map is None:
             raise MotionFormatError("HoloSoMo input requires an explicit joint_map")
         return _resample_motion(_load_holosoma(source, joint_map, default_holosoma_fps), target_fps)
+    if kind == "canonical_npz":
+        return _resample_motion(_load_canonical_npz(source), target_fps)
     if kind == "smplx_npz":
         # AMASS/SMPL-X archives commonly store gender and betas as object
         # arrays.  This branch is already schema-validated as SMPL-X, so
@@ -564,7 +657,4 @@ def load_canonical_motion(
                     source_format="fbx_binary_blender_global_positions_meters_zup",
                     source_path=str(source), metadata=metadata), target_fps)
         return _resample_motion(_load_fbx_pickle(source, default_fbx_fps), target_fps)
-    raise MotionFormatError(
-        f"Detected {kind!r}, but no CanonicalMotion adapter is registered yet. "
-        "Use the existing BVH/FBX entry point or add a format adapter explicitly."
-    )
+    raise MotionFormatError(f"Adapter {adapter.name!r} did not handle {source}")

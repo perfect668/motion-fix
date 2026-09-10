@@ -33,6 +33,8 @@ class SceneTransform:
             raise ValueError("SceneTransform.rotation must be a proper rotation")
         if not np.isfinite(self.scale) or self.scale <= 0.0:
             raise ValueError("SceneTransform.scale must be positive")
+        if not np.isfinite(translation).all():
+            raise ValueError("SceneTransform.translation must be finite")
         object.__setattr__(self, "rotation", rotation)
         object.__setattr__(self, "translation", translation)
         object.__setattr__(self, "scale", float(self.scale))
@@ -80,6 +82,23 @@ class TerrainSurfaceHit:
     surface_id: str
     surface_type: str
     supportable: bool
+    triangle_id: int | None = None
+    barycentric: np.ndarray | None = None
+    asset_local_anchor: np.ndarray | None = None
+    asset_local_normal: np.ndarray | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "closest_point", np.asarray(self.closest_point, dtype=float).reshape(3))
+        normal = _unit(np.asarray(self.normal, dtype=float).reshape(3))
+        object.__setattr__(self, "normal", normal)
+        if self.barycentric is not None:
+            barycentric = np.asarray(self.barycentric, dtype=float).reshape(3)
+            if not np.isfinite(barycentric).all():
+                raise ValueError("TerrainSurfaceHit barycentric coordinates must be finite")
+            object.__setattr__(self, "barycentric", barycentric)
+        if self.asset_local_normal is not None:
+            local_normal = _unit(np.asarray(self.asset_local_normal, dtype=float).reshape(3))
+            object.__setattr__(self, "asset_local_normal", local_normal)
 
 
 @dataclass(frozen=True)
@@ -229,6 +248,38 @@ class TerrainField:
                     candidate = floor_hit
             hits.append(candidate)
         return hits
+
+    def raycast(self, origin: np.ndarray, direction: np.ndarray, max_distance: float = np.inf) -> TerrainSurfaceHit | None:
+        """Return the nearest forward intersection with floor or an OBB."""
+        origin = np.asarray(origin, dtype=float).reshape(3)
+        direction = _unit(np.asarray(direction, dtype=float).reshape(3))
+        limit = float(max_distance)
+        candidates: list[tuple[float, TerrainSurfaceHit]] = []
+        if self.floor_z is not None and direction[2] < -1e-12:
+            distance = (self.floor_z - origin[2]) / direction[2]
+            if 0.0 <= distance <= limit:
+                point = origin + distance * direction
+                candidates.append((float(distance), self.nearest_surface(point)))
+        for box in self.boxes:
+            local_origin = box.rotation.T @ (origin - box.center)
+            local_direction = box.rotation.T @ direction
+            lower, upper = -box.half_extents, box.half_extents
+            near, far = -np.inf, np.inf
+            for axis in range(3):
+                if abs(local_direction[axis]) < 1e-12:
+                    if local_origin[axis] < lower[axis] or local_origin[axis] > upper[axis]:
+                        near, far = np.inf, -np.inf
+                        break
+                    continue
+                t0 = (lower[axis] - local_origin[axis]) / local_direction[axis]
+                t1 = (upper[axis] - local_origin[axis]) / local_direction[axis]
+                near, far = max(near, min(t0, t1)), min(far, max(t0, t1))
+            if near <= far and far >= 0.0:
+                distance = max(0.0, near)
+                if distance <= limit:
+                    point = origin + distance * direction
+                    candidates.append((float(distance), self._box_hit(box, point, self.support_normal_min_z)))
+        return min(candidates, key=lambda item: (item[0], item[1].surface_id))[1] if candidates else None
 
     def nearest_surface_batch_arrays(self, points: np.ndarray) -> dict[str, np.ndarray]:
         """Vectorized SDF query for hot IK loops.

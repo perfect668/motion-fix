@@ -58,7 +58,13 @@ def build_solver_inputs(motion):
         "left_wrist": ("left_wrist", "LeftHandMiddle3", "LeftHand"), "right_wrist": ("right_wrist", "RightHandMiddle3", "RightHand"),
     }
     resolved = {key: next((name for name in values if name in names), None) for key, values in aliases.items()}
-    required = [key for key in aliases if resolved[key] is None and key not in {"left_toe", "right_toe"}]
+    derivable_toes = {
+        "left_toe": ("left_big_toe", "left_small_toe"),
+        "right_toe": ("right_big_toe", "right_small_toe"),
+    }
+    required = [key for key in aliases if resolved[key] is None and not (
+        key in derivable_toes and all(item in names for item in derivable_toes[key])
+    )]
     if required: raise ValueError(f"Canonical motion is missing required landmarks: {required}")
     source_frames = []
     solver_frames = []
@@ -66,14 +72,15 @@ def build_solver_inputs(motion):
     for t in range(motion.frame_count):
         source={}
         for semantic, original in resolved.items():
-            if original is not None: source[semantic]=motion.positions[t,index[original]].copy(); source[original]=source[semantic].copy()
+            if original is not None:
+                source[semantic] = motion.positions[t, index[original]].copy()
+                source[original] = source[semantic].copy()
+        for semantic, (first, second) in derivable_toes.items():
+            if semantic not in source and first in index and second in index:
+                source[semantic] = 0.5 * (motion.positions[t, index[first]] + motion.positions[t, index[second]])
         for side in ("left", "right"):
             if f"{side}_wrist" in source:
                 source[f"{side}_hand"] = source[f"{side}_wrist"].copy()
-        for side in ("left","right"):
-            foot=source.get(f"{side}_foot"); toe=source.get(f"{side}_toe")
-            if toe is None and foot is not None:
-                knee=source.get(f"{side}_knee",foot); direction=foot-knee; direction/=max(float(np.linalg.norm(direction)),1e-12); source[f"{side}_toe"]=foot+.16*direction
         source_frames.append(source)
         # The global/root orientation is always rebuilt from positions.  The
         # adapter may retain validated local orientations for future point
@@ -82,7 +89,8 @@ def build_solver_inputs(motion):
         previous_pelvis_quaternion = pelvis_quaternion
         targets = {}
         for semantic, original in resolved.items():
-            if original is None: continue
+            if semantic not in source:
+                continue
             quat = pelvis_quaternion if semantic == "pelvis" else np.array([1., 0., 0., 0.])
             targets[semantic]=(source[semantic],quat)
         solver_frames.append(targets)

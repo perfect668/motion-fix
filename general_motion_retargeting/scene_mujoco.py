@@ -118,7 +118,12 @@ def _mesh_from_scene_object(obj: Any) -> SceneMesh:
     return SceneMesh(raw["vertices"], raw["faces"], obj.object_id, source, object_pose=obj.pose)
 
 
-def _normalize_scene(scene: SceneMesh | SceneGeometry | dict | str | Path) -> tuple[list[SceneMesh], list[dict[str, Any]], float | None]:
+def _normalize_scene(scene: SceneMesh | SceneGeometry | list[SceneMesh] | tuple[SceneMesh, ...] | dict | str | Path) -> tuple[list[SceneMesh], list[dict[str, Any]], float | None]:
+    if isinstance(scene, (list, tuple)):
+        meshes = [item for item in scene if isinstance(item, SceneMesh)]
+        if len(meshes) != len(scene) or not meshes:
+            raise ValueError("Scene mesh list must contain at least one SceneMesh")
+        return meshes, [], 0.0
     if isinstance(scene, SceneMesh):
         return [scene], [], 0.0
     if isinstance(scene, SceneGeometry):
@@ -154,12 +159,13 @@ def _add_primitive(body: ET.Element, object_id: str, collision: dict[str, Any], 
 
 def build_scene_model(
     robot_xml: str | Path,
-    scene_spec: SceneMesh | SceneGeometry | str | Path | dict,
+    scene_spec: SceneMesh | SceneGeometry | list[SceneMesh] | tuple[SceneMesh, ...] | str | Path | dict,
     output_xml: str | Path,
     *,
     cache_root: str | Path = ".cache/scene_collision",
     decomposition_config: dict[str, Any] | None = None,
     show_collision: bool = False,
+    floor_z: float | None = None,
     return_info: bool = False,
 ) -> Path | CombinedSceneModel:
     """Build and compile a combined robot and scene MJCF.
@@ -175,6 +181,10 @@ def build_scene_model(
         raise FileNotFoundError(f"Robot XML does not exist: {robot_xml}")
     root = ET.parse(robot_xml).getroot()
     _absolutize_compiler_paths(root, robot_xml)
+    if floor_z is not None:
+        floor_geom = root.find(".//geom[@name='floor']")
+        if floor_geom is not None:
+            floor_geom.set("pos", _numbers([0.0, 0.0, float(floor_z)]))
     asset = root.find("asset")
     if asset is None:
         asset = ET.SubElement(root, "asset")
@@ -182,7 +192,12 @@ def build_scene_model(
     if worldbody is None:
         worldbody = ET.SubElement(root, "worldbody")
 
-    meshes, legacy_objects, floor_z = _normalize_scene(scene_spec)
+    requested_floor_z = floor_z
+    meshes, legacy_objects, normalized_floor_z = _normalize_scene(scene_spec)
+    # An explicit caller floor owns the assembled world.  Do not let the
+    # compatibility normalizer's default ``0.0`` overwrite it in manifests
+    # or diagnostics.
+    floor_z = normalized_floor_z if requested_floor_z is None else requested_floor_z
     decomposition_config = dict(decomposition_config or {})
     generated_objects: list[dict[str, Any]] = []
     for mesh in meshes:

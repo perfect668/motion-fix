@@ -70,3 +70,14 @@ def test_vectorized_array_query_matches_scalar_fields():
     np.testing.assert_allclose(arrays["closest_point"], [item.closest_point for item in scalar])
     np.testing.assert_allclose(arrays["normal"], [item.normal for item in scalar])
     assert arrays["surface_id"].tolist() == [item.surface_id for item in scalar]
+
+
+def test_raycast_hits_floor_and_box_top():
+    floor = TerrainField([], floor_z=0.0)
+    hit = floor.raycast([0.2, -0.1, 1.0], [0.0, 0.0, -1.0])
+    assert hit is not None and hit.surface_id == "floor"
+    box = BoxPrimitive("step", [0, 0, 0.25], [0.5, 0.5, 0.25], np.eye(3))
+    terrain = TerrainField([box], floor_z=None)
+    hit = terrain.raycast([0.0, 0.0, 1.0], [0.0, 0.0, -1.0])
+    assert hit is not None and hit.surface_id == "step:z+"
+    np.testing.assert_allclose(hit.closest_point, [0.0, 0.0, 0.5])

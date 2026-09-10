@@ -65,7 +65,9 @@ def summarize_scene_diagnostics(
     contacts = list(contact_schedule or [])
     def values(key: str) -> list[float]:
         return [float(record[key]) for record in records if np.isfinite(float(record.get(key, np.nan)))]
-    active = [float(record.get("active_scene_collision_pairs", 0)) for record in records]
+    collision_runtime = values("scene_collision_query_runtime_seconds") or values("collision_query_time")
+    qp_runtime = values("qp_solve_runtime_seconds") or values("qp_solve_time")
+    active = [float(record.get("active_scene_collision_pairs", record.get("scene_collision_active_pairs", 0))) for record in records]
     failures = sum(bool(record.get("qp_failures") or record.get("qp_failure")) for record in records)
     summary: dict[str, Any] = {
         "frames": len(records),
@@ -73,9 +75,9 @@ def summarize_scene_diagnostics(
         "mean_active_scene_collision_pairs": float(np.mean(active)) if active else 0.0,
         "max_active_scene_collision_pairs": int(max(active, default=0)),
         "minimum_scene_distance": float(min(values("minimum_scene_distance"), default=np.inf)),
-        "maximum_penetration": float(max(values("maximum_penetration"), default=0.0)),
-        "mean_collision_query_runtime_seconds": float(np.mean(values("scene_collision_query_runtime_seconds"))) if values("scene_collision_query_runtime_seconds") else 0.0,
-        "mean_qp_runtime_seconds": float(np.mean(values("qp_solve_runtime_seconds"))) if values("qp_solve_runtime_seconds") else 0.0,
+        "maximum_penetration": float(max(values("maximum_penetration") + values("maximum_scene_penetration"), default=0.0)),
+        "mean_collision_query_runtime_seconds": float(np.mean(collision_runtime)) if collision_runtime else 0.0,
+        "mean_qp_runtime_seconds": float(np.mean(qp_runtime)) if qp_runtime else 0.0,
     }
     selected_scene = [
         float(record.get("interaction_scene_selected_points", 0.0))
@@ -104,12 +106,13 @@ def summarize_scene_diagnostics(
         states = [str(item.get("state", "NONE")) for item in items]
         robot_states = [str(item.get("robot_state", "NONE")) for item in items]
         distances = [float(item["signed_distance"]) for item in items if np.isfinite(float(item.get("signed_distance", np.nan)))]
-        object_distances = [
-            float(item["signed_distance"])
-            for item in items
-            if item.get("object_id")
-            and np.isfinite(float(item.get("signed_distance", np.nan)))
-        ]
+        object_distances = []
+        for item in items:
+            if not item.get("object_id") or item.get("state", item.get("source_state", "NONE")) == "NONE":
+                continue
+            value = item.get("contact_distance", item.get("signed_distance", np.nan))
+            if np.isfinite(float(value)):
+                object_distances.append(float(value))
         static_slip = 0.0
         max_static_step = 0.0
         previous_static = None
@@ -152,11 +155,12 @@ def summarize_scene_diagnostics(
             "max_static_step_m": max_static_step,
         }
     summary["contact_channels"] = channel_summary
-    for name in ("left_butt", "right_butt", "lower_back"):
+    for name in ("left_butt", "right_butt", "lower_back", "upper_back"):
         summary[f"{name}_contact_ratio"] = channel_summary.get(name, {}).get("contact_ratio", 0.0)
     seated_frames = [
         index for index, frame in enumerate(contacts)
         if any(frame.get("contacts", {}).get(name, {}).get("object_id")
+               and frame.get("contacts", {}).get(name, {}).get("state", "NONE") != "NONE"
                for name in ("left_butt", "right_butt"))
     ]
     if seated_frames:

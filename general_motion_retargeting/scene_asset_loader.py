@@ -119,6 +119,19 @@ def _load_usd(path: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     vertices: list[np.ndarray] = []
     faces: list[np.ndarray] = []
     offset = 0
+    # USD exposes a 0.01 fallback even when the file never authored units.
+    # Treat that fallback as unspecified for backwards-compatible assets;
+    # authored metersPerUnit metadata is applied exactly once.
+    meters_per_unit = float(UsdGeom.GetStageMetersPerUnit(stage) or 1.0) if stage.HasAuthoredMetadata("metersPerUnit") else 1.0
+    up_axis = str(UsdGeom.GetStageUpAxis(stage)).lower()
+    if up_axis in {"y", "axis.y"}:
+        # USD's common Y-up convention is converted once at the scene-loader
+        # boundary into the canonical right-handed Z-up solver frame.
+        axis_conversion = np.array([[1., 0., 0.], [0., 0., -1.], [0., 1., 0.]])
+    elif up_axis in {"z", "axis.z", ""}:
+        axis_conversion = np.eye(3)
+    else:
+        raise ValueError(f"Unsupported USD up axis {up_axis!r}: {path}")
     for prim in stage.Traverse():
         if not prim.IsA(UsdGeom.Mesh):
             continue
@@ -128,7 +141,7 @@ def _load_usd(path: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         indices_value = mesh.GetFaceVertexIndicesAttr().Get(Usd.TimeCode.Default())
         if points_value is None or counts_value is None or indices_value is None:
             continue
-        points = np.asarray(points_value, dtype=float)
+        points = np.asarray(points_value, dtype=float) * meters_per_unit
         triangles = _triangulate(np.asarray(counts_value), np.asarray(indices_value))
         if not len(points) or not len(triangles):
             continue
@@ -139,6 +152,7 @@ def _load_usd(path: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
             dtype=float,
         )
         transformed = (np.c_[points, np.ones(len(points))] @ matrix)[:, :3]
+        transformed = transformed @ axis_conversion.T
         vertices.append(transformed)
         faces.append(triangles + offset)
         offset += len(points)
@@ -197,6 +211,13 @@ def load_scene_asset(
         _load_usd(source) if suffix in {".usd", ".usda", ".usdc"} else _load_obj(source)
     )
     metadata = dict(metadata or {})
+    unit_scale = metadata.get("unit_scale", metadata.get("meters_per_unit", 1.0))
+    unit_scale = float(unit_scale)
+    if not np.isfinite(unit_scale) or unit_scale <= 0.0:
+        raise ValueError(f"Scene asset unit_scale must be positive, got {unit_scale}")
+    if not metadata.get("asset_scale_baked", False):
+        vertices = vertices * unit_scale
+    metadata["unit_scale"] = unit_scale
     metadata.setdefault("sample_count", int(sample_count))
     # USD prim hierarchy transforms are baked into vertices by _load_usd, but
     # the logical object pose/scale is still applied exactly once below.

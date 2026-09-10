@@ -1,16 +1,16 @@
 from setuptools import setup, find_packages
 
 setup(
-  name = 'ne01-wholebody-v4-retargeting',
+  name = 'ne01-wholebody-v5-retargeting',
   packages = find_packages(),
   author="Yanjie Ze",
   author_email="lastyanjieze@gmail.com",
-  description="NE01 WholeBody V4 motion retargeting",
+  description="NE01 WholeBody V5 task-level motion retargeting",
   long_description=open("README.md").read(),
   long_description_content_type="text/markdown",
   url="https://github.com/perfect668/motion-fix",
   license="MIT",
-  version="0.2.0",
+  version="0.3.0",
   install_requires=[
     "loop_rate_limiters",
     "mink",

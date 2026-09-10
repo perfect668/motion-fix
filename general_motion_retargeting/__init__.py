@@ -1,4 +1,4 @@
-"""Public API for the NE01 WholeBody V4 retargeting package."""
+"""Public APIs for the versioned NE01 WholeBody retargeting pipelines."""
 
 from .params import (
     ASSET_ROOT,

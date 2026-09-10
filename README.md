@@ -1,6 +1,6 @@
-# NE01 WholeBody V4 Retargeting
+# NE01 WholeBody V5 Retargeting
 
-This repository contains the NE01 WholeBody V4 retargeting pipeline. It accepts SMPL-X, BVH, FBX, HoloSoMo and GRAIL motions. V4 inherits the V3 Mink solver core and adds format adapters, terrain-aware contacts and scene collision handling.
+This repository contains an independent NE01 WholeBody V5 task pipeline. It accepts SMPL-X, BVH, FBX, HoloSoMo and GRAIL motions through a CanonicalMotion adapter registry, resolves scene ownership before solving, and combines interaction preservation, source-scene contacts and MuJoCo scene collision. V1-V4 entry points remain available as regression baselines.
 
 ## Prerequisites
 
@@ -11,7 +11,19 @@ This repository contains the NE01 WholeBody V4 retargeting pipeline. It accepts 
 
 ## Entry Points
 
-The unified motion entry point is `scripts/retarget_motion.py`:
+The V5 unified task entry point is `scripts/retarget.py`:
+
+```bash
+conda run --no-capture-output -n gmr python scripts/retarget.py \
+  --motion <motion> --robot ne01 --output work/v5_result.pkl
+```
+
+For an explicit scene relation, use a JSON job manifest so the resolver can
+distinguish shared source scenes from source-to-target bindings. Complex GRAIL
+USD/OBJ assets are loaded, sampled and decomposed automatically; no hand-made
+collision XML is required.
+
+The historical V4 entry point remains available for regression comparisons:
 
 ```bash
 conda run --no-capture-output -n gmr python scripts/retarget_motion.py \
@@ -26,7 +38,11 @@ conda run --no-capture-output -n gmr python scripts/grail_to_robot_wholebody_v4.
   --motion <grail_recon.pkl> --save_path <output.pkl> --tgt_fps 50
 ```
 
-The output PKL contains NE01 `qpos`, root and DOF trajectories, contact schedule, terrain metadata, scene transform and diagnostics. Generated outputs belong in `work/`, `outputs/` or `runs/`, which are ignored by Git.
+V5 output contains NE01 `qpos`, robot joint/DOF trajectories, final-FK body states, contact schedule, terrain metadata, the single scene transform and diagnostics. Formal PKL/NPZ files are written atomically only after final validation; failed runs are not silently exported. Generated outputs belong in `work/`, `outputs/` or `runs/`, which are ignored by Git.
+
+More detail is in `docs/v5_architecture.md`, `docs/v5_data_contracts.md`,
+`docs/v5_coordinate_and_scale_policy.md`, `docs/v5_scene_and_contact_pipeline.md`
+and `docs/v5_validation.md`.
 
 ## Tests
 
