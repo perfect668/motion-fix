@@ -86,6 +86,8 @@ class TerrainSurfaceHit:
     barycentric: np.ndarray | None = None
     asset_local_anchor: np.ndarray | None = None
     asset_local_normal: np.ndarray | None = None
+    hit: bool = True
+    ray_distance: float | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "closest_point", np.asarray(self.closest_point, dtype=float).reshape(3))
@@ -99,6 +101,20 @@ class TerrainSurfaceHit:
         if self.asset_local_normal is not None:
             local_normal = _unit(np.asarray(self.asset_local_normal, dtype=float).reshape(3))
             object.__setattr__(self, "asset_local_normal", local_normal)
+
+
+def no_support_hit(point: np.ndarray) -> TerrainSurfaceHit:
+    """Return an explicit finite no-hit record for a gravity support query."""
+    point = np.asarray(point, dtype=float).reshape(3)
+    return TerrainSurfaceHit(
+        signed_distance=float("inf"),
+        closest_point=point.copy(),
+        normal=np.array([0.0, 0.0, 1.0]),
+        surface_id="no_support",
+        surface_type="none",
+        supportable=False,
+        hit=False,
+    )
 
 
 @dataclass(frozen=True)
@@ -142,11 +158,13 @@ class TerrainField:
         floor_z: float | None = 0.0,
         floor_id: str = "floor",
         support_normal_min_z: float = 0.6,
+        support_origin_tolerance: float = 0.20,
     ) -> None:
         self.boxes = sorted(list(boxes or []), key=lambda item: item.surface_id)
         self.floor_z = None if floor_z is None else float(floor_z)
         self.floor_id = str(floor_id)
         self.support_normal_min_z = float(support_normal_min_z)
+        self.support_origin_tolerance = max(0.0, float(support_origin_tolerance))
         # Cached arrays keep the hot batch query out of the Python box loop.
         self._box_centers = np.asarray([b.center for b in self.boxes], dtype=float).reshape((-1, 3))
         self._box_half_extents = np.asarray([b.half_extents for b in self.boxes], dtype=float).reshape((-1, 3))
@@ -363,7 +381,7 @@ class TerrainField:
     def support_surface(self, point: np.ndarray) -> TerrainSurfaceHit:
         point = np.asarray(point, dtype=float).reshape(3)
         hits: list[TerrainSurfaceHit] = []
-        if self.floor_z is not None and self.floor_z <= point[2] + 1e-9:
+        if self.floor_z is not None and self.floor_z <= point[2] + self.support_origin_tolerance:
             hits.append(TerrainSurfaceHit(
                 signed_distance=float(point[2] - self.floor_z),
                 closest_point=np.array([point[0], point[1], self.floor_z]),
@@ -412,9 +430,10 @@ class TerrainField:
                     surface_id=f"{box.surface_id}:{face_name}",
                     surface_type=box.surface_type,
                     supportable=True,
+                    ray_distance=float(point[2] - closest[2]),
                 ))
         if not hits:
-            return self.nearest_surface(point)
+            return no_support_hit(point)
         # Highest valid support wins; stable surface id resolves coplanar ties.
         return min(hits, key=lambda hit: (-hit.closest_point[2], hit.surface_id))
 
@@ -430,6 +449,7 @@ class TerrainField:
             floor_z=floor_z,
             floor_id=self.floor_id,
             support_normal_min_z=self.support_normal_min_z,
+            support_origin_tolerance=self.support_origin_tolerance,
         )
 
     def to_spec(self) -> dict:
@@ -437,6 +457,7 @@ class TerrainField:
             "floor_z": self.floor_z,
             "floor_id": self.floor_id,
             "support_normal_min_z": self.support_normal_min_z,
+            "support_origin_tolerance": self.support_origin_tolerance,
             "primitives": [box.to_dict() for box in self.boxes],
         }
 
@@ -459,6 +480,7 @@ class TerrainField:
             floor_z=spec.get("floor_z", 0.0),
             floor_id=spec.get("floor_id", "floor"),
             support_normal_min_z=spec.get("support_normal_min_z", 0.6),
+            support_origin_tolerance=spec.get("support_origin_tolerance", 0.20),
         )
 
     @classmethod

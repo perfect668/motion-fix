@@ -2,6 +2,7 @@
 
 from .bundle_resolver import BundleResolver, GenericBundleResolver, GrailBundleResolver, HoloSoMoBundleResolver
 from ..motion_adapters import detect_motion_format
+from .eligibility import AdmissionStatus, ScopeAdmissionError, ScopeDecision, preflight_scope, validate_loaded_scope
 
 
 def resolver_for_motion(motion, motion_format="auto"):
@@ -12,4 +13,4 @@ def resolver_for_motion(motion, motion_format="auto"):
         return HoloSoMoBundleResolver()
     return GenericBundleResolver()
 
-__all__ = ["BundleResolver", "GenericBundleResolver", "GrailBundleResolver", "HoloSoMoBundleResolver", "resolver_for_motion"]
+__all__ = ["BundleResolver", "GenericBundleResolver", "GrailBundleResolver", "HoloSoMoBundleResolver", "resolver_for_motion", "AdmissionStatus", "ScopeAdmissionError", "ScopeDecision", "preflight_scope", "validate_loaded_scope"]

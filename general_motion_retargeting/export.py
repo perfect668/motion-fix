@@ -38,8 +38,23 @@ def export_result(output: str | Path, payload: dict[str, Any], arrays: dict[str,
     output = Path(output).expanduser().resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
     if payload.get("status") != "VALID" and not allow_invalid:
+        # Keep an independently readable failure artifact even when formal
+        # motion output is refused.  This prevents an INVALID solve from
+        # looking like a crash and, importantly, never writes a partial NPZ.
+        status_path = output.with_suffix(".status.json")
+        status_payload = {
+            "status": payload.get("status", "INVALID"),
+            "formal_motion_written": False,
+            "payload": jsonable(payload),
+            "diagnostics": jsonable(diagnostics),
+        }
+        _atomic_write_bytes(
+            status_path,
+            json.dumps(status_payload, indent=2, ensure_ascii=False).encode("utf-8"),
+        )
         raise RuntimeError(
             "V5 validation failed; formal output was not written. "
+            f"Failure report: {status_path}. "
             "Use --save-invalid-debug only for an explicit debug artifact."
         )
     if payload.get("status") != "VALID":

@@ -16,12 +16,7 @@ from ..motion_adapters import CanonicalMotion
 from ..terrain_geometry import SceneTransform, TerrainField
 
 
-CHANNELS = (
-    "left_heel", "right_heel", "left_toe", "right_toe",
-    "left_palm", "right_palm", "left_knee", "right_knee",
-    "left_shin", "right_shin", "left_butt", "right_butt",
-    "lower_back", "upper_back",
-)
+CHANNELS = ("left_heel", "right_heel", "left_toe", "right_toe")
 
 
 _FOOT_LABEL_CHANNELS = ("left_heel", "right_heel", "left_toe", "right_toe")
@@ -47,49 +42,7 @@ def _points(motion: CanonicalMotion) -> list[dict[str, np.ndarray]]:
     foot_label_order = _verified_foot_label_order(motion)
     for frame_index, frame in enumerate(frames):
         value = {str(k): np.asarray(v, dtype=float) for k, v in frame.items()}
-        # Build an anatomical frame from the measured pelvis/hip/spine
-        # landmarks.  All butt/back proxies are expressed in this frame; a
-        # fixed world-Z offset is invalid once the person bends or rotates.
-        pelvis = value.get("pelvis")
-        spine = value.get("spine3", pelvis)
-        lhip, rhip = value.get("left_hip", pelvis), value.get("right_hip", pelvis)
-        up = np.asarray(spine - pelvis, dtype=float)
-        up /= max(float(np.linalg.norm(up)), 1e-12)
-        lateral = np.asarray(lhip - rhip, dtype=float)
-        lateral /= max(float(np.linalg.norm(lateral)), 1e-12)
-        backward = -np.cross(lateral, up)
-        backward /= max(float(np.linalg.norm(backward)), 1e-12)
-        # Candidate provenance is kept separate from canonical landmark names
-        # so adapters remain format agnostic and diagnostics can explain which
-        # geometric proxy generated a contact.
-        candidates: dict[str, tuple[np.ndarray, list[str]]] = {}
         for side in ("left", "right"):
-            hip = value.get(f"{side}_hip", value.get("pelvis"))
-            knee = value.get(f"{side}_knee", hip)
-            ankle = value.get(f"{side}_ankle", value.get(f"{side}_foot", knee))
-            value.setdefault(f"{side}_shin", .5 * (knee + ankle))
-            # The pelvis joint is not a butt surface.  This proxy is built
-            # once here (rather than independently in a task and a solver)
-            # and its provenance is carried into the contact record.
-            # Three-dimensional candidates cover the actual pelvis surface
-            # under arbitrary seated/leaning orientations.  The solver sees
-            # one selected point per channel, while the detector chooses the
-            # closest surface-consistent candidate.
-            side_sign = 1.0 if side == "left" else -1.0
-            butt_base = np.asarray(hip, dtype=float)
-            butt_offsets = (
-                -0.10 * up + side_sign * 0.025 * lateral,
-                -0.14 * up + side_sign * 0.045 * lateral,
-                -0.17 * up + side_sign * 0.055 * lateral,
-                -0.14 * up + side_sign * 0.035 * lateral + 0.035 * backward,
-                -0.14 * up + side_sign * 0.035 * lateral - 0.025 * backward,
-            )
-            candidates[f"{side}_butt"] = (
-                np.asarray([butt_base + offset for offset in butt_offsets]),
-                ["hip_derived_butt_proxy"] * len(butt_offsets),
-            )
-            value.setdefault(f"{side}_butt", candidates[f"{side}_butt"][0][0].copy())
-            value.setdefault(f"{side}_palm", value.get(f"{side}_wrist", hip))
             # Heel/toe are independent surface landmarks. Never substitute
             # an ankle/foot center: that creates false support episodes for
             # formats that do not provide true surface markers.
@@ -106,35 +59,7 @@ def _points(motion: CanonicalMotion) -> list[dict[str, np.ndarray]]:
             for side in ("left", "right")
             if f"{side}_foot" in value
         }
-        # Back surface candidates similarly follow the torso frame instead of
-        # assuming the source world axes are anatomical.
-        lower_offsets = tuple(
-            height * up + depth * backward
-            for height, depth in (
-                (0.02, -0.06), (0.02, 0.06),
-                (0.05, -0.09), (0.05, 0.09),
-                (0.08, 0.04),
-            )
-        )
-        upper_offsets = tuple(
-            height * up + depth * backward
-            for height, depth in (
-                (0.00, -0.08), (0.00, 0.08),
-                (0.04, -0.10), (0.04, 0.10),
-                (0.08, 0.06),
-            )
-        )
-        candidates["lower_back"] = (
-            np.asarray([pelvis + offset for offset in lower_offsets]),
-            ["spine_surface_proxy"] * len(lower_offsets),
-        )
-        candidates["upper_back"] = (
-            np.asarray([spine + offset for offset in upper_offsets]),
-            ["spine_surface_proxy"] * len(upper_offsets),
-        )
-        value.setdefault("lower_back", candidates["lower_back"][0][0].copy())
-        value.setdefault("upper_back", candidates["upper_back"][0][0].copy())
-        value["__proxy_candidates__"] = candidates
+        value["__proxy_candidates__"] = {}
         if foot_probabilities is not None:
             value["__contact_probs__"] = foot_probabilities[frame_index].copy()
             if foot_label_order is not None:

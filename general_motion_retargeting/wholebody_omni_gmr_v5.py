@@ -467,14 +467,14 @@ class _ContactTask(Task):
         self.support_geom_ids = {}
         for side in ("left", "right"):
             for channel, region in ((f"{side}_heel", "rear"), (f"{side}_toe", "front")):
-                names = configured_support.get(channel)
-                if names is None:
-                    names = [
+                geom_names = configured_support.get(channel)
+                if geom_names is None:
+                    geom_names = [
                         f"{side}_foot_{region}_left_collision",
                         f"{side}_foot_{region}_right_collision",
                     ]
                 ids = []
-                for name in names:
+                for name in geom_names:
                     geom_id = int(mj.mj_name2id(model, mj.mjtObj.mjOBJ_GEOM, str(name)))
                     if geom_id >= 0:
                         ids.append(geom_id)
@@ -482,7 +482,7 @@ class _ContactTask(Task):
         # Every channel has one normal and two tangent rows.  Keeping the row
         # layout fixed is important: changing task dimensions as contacts
         # enter/leave would make the QP warm-start and damping discontinuous.
-        super().__init__(cost=np.zeros(3 * len(names)), gain=.5, lm_damping=1.0)
+        super().__init__(cost=np.zeros(3 * len(self.names)), gain=.5, lm_damping=1.0)
 
     def set_contacts(self, contacts): self.contacts = contacts or {}
 
@@ -1094,8 +1094,8 @@ class WholeBodyRetargetSolver:
             )
         )
         terrain_violation = any(
-            float(item[2].signed_distance) < self.terrain_limit.margin - tolerance
-            for item in self.terrain_limit.active
+            float(item["slack"]) < -tolerance
+            for item in self.terrain_limit.all_measurements
         )
         collision_violation = any(
             float(item["distance"]) < self.scene_collision.margin - tolerance
@@ -1163,14 +1163,20 @@ class WholeBodyRetargetSolver:
         target = np.asarray(pelvis_target, dtype=float).copy()
         if self.root_policy in {"source", "disabled"}:
             return target, np.asarray(pelvis_quaternion, dtype=float)
-        support_channels = tuple(self.config.get("morphology", {}).get(
+        # V5 is deliberately a foot-supported terrain solver.  Keep this
+        # policy feet-only even when an inherited/legacy config still carries
+        # body-contact names: root height is never inferred from butt/back or
+        # hand contacts in the terrain-only scope.
+        configured_support = self.config.get("morphology", {}).get(
             "root_support_channels",
-            ("left_heel", "left_toe", "right_heel", "right_toe",
-             "left_butt", "right_butt", "lower_back", "upper_back"),
-        ))
+            ("left_heel", "left_toe", "right_heel", "right_toe"),
+        )
+        support_channels = tuple(
+            name for name in configured_support
+            if name in {"left_heel", "left_toe", "right_heel", "right_toe"}
+        )
         contacts = contact_frame.get("contacts", {}) if isinstance(contact_frame, dict) else {}
         foot_corrections = []
-        body_corrections = []
         for channel in support_channels:
             item = contacts.get(channel, {})
             state = str(item.get("state", "NONE"))
@@ -1196,29 +1202,37 @@ class WholeBodyRetargetSolver:
                 continue
             surface = np.asarray(surface, dtype=float)
             correction = (
-                float(surface[2] + self.contact.clearance - robot_point[2]),
+                float(
+                    (self.contact.clearance - normal @ (robot_point - surface))
+                    / max(float(normal[2]), 1e-6)
+                ),
                 float(np.clip(activation, 0.0, 1.0)),
             )
-            if channel in {"left_heel", "left_toe", "right_heel", "right_toe"}:
-                foot_corrections.append(correction)
-            else:
-                body_corrections.append(correction)
-        # Feet are the primary vertical support when any reliable foot
-        # episode exists.  Butt/back contacts describe seated or prone
-        # support only when no foot is carrying the root; averaging both
-        # groups made a seated butt target cancel a clearly floating foot.
-        corrections = foot_corrections or body_corrections
-        if corrections:
-            # Blend support correction by the detector's continuous episode
-            # activation.  Applying a full stair-height correction when a
-            # contact has only just re-entered creates a root Z impulse and
-            # sends the legs into an infeasible branch.  The weighted mean is
-            # smooth and the hard scene/terrain limits still bound it.
-            values = np.asarray([item[0] for item in corrections], dtype=float)
-            weights = np.asarray([item[1] for item in corrections], dtype=float)
-            if float(weights.sum()) > 1e-9:
-                target_delta = float(np.sum(values * weights) / weights.sum())
-                target_delta = float(np.clip(target_delta, -0.08, 0.08))
+            foot_corrections.append(correction)
+        if foot_corrections:
+            # A weighted median is robust when heel and toe are briefly on
+            # different stair facets.  A weighted mean would let one noisy
+            # proxy pull the entire floating base down.  The correction is
+            # additionally bounded by policy; large residuals indicate a
+            # morphology/scene mismatch and must be reported by validation,
+            # not hidden by a root teleport.
+            ordered = sorted(foot_corrections, key=lambda item: item[0])
+            total_weight = sum(item[1] for item in ordered)
+            if total_weight > 1e-9:
+                half = 0.5 * total_weight
+                cumulative = 0.0
+                target_delta = ordered[-1][0]
+                for value, weight in ordered:
+                    cumulative += weight
+                    if cumulative >= half:
+                        target_delta = value
+                        break
+                max_correction = float(
+                    self.config.get("morphology", {}).get(
+                        "root_max_vertical_correction", 0.03
+                    )
+                )
+                target_delta = float(np.clip(target_delta, -max_correction, max_correction))
                 target[2] = float(
                     self.configuration.data.xpos[self.root.body_id, 2] + target_delta
                 )
@@ -1514,18 +1528,20 @@ class WholeBodyRetargetSolver:
             )
         )
         terrain_rows = []
-        for body_id, point, hit in self.terrain_limit.active:
-            signed_distance = float(hit.signed_distance)
-            if signed_distance < self.terrain_limit.margin - tolerance:
-                terrain_rows.append({
-                    "body_id": int(body_id),
-                    "signed_distance": signed_distance,
-                    "margin": float(self.terrain_limit.margin),
-                    "slack": signed_distance - float(self.terrain_limit.margin),
-                    "surface_id": str(hit.surface_id),
-                    "normal": np.asarray(hit.normal, dtype=float).copy(),
-                    "point": np.asarray(point, dtype=float).copy(),
-                })
+        for item in self.terrain_limit.violating_measurements(
+            self.configuration, tolerance=tolerance
+        ):
+            hit = item["hit"]
+            terrain_rows.append({
+                "body_id": int(item["body_id"]),
+                "index": int(item["index"]),
+                "signed_distance": float(item["signed_distance"]),
+                "margin": float(item["margin"]),
+                "slack": float(item["slack"]),
+                "surface_id": str(hit.surface_id),
+                "normal": np.asarray(hit.normal, dtype=float).copy(),
+                "point": np.asarray(item["point"], dtype=float).copy(),
+            })
         scene_rows = []
         for pair in self.scene_collision.active_pairs:
             distance = float(pair["distance"])
@@ -1543,10 +1559,20 @@ class WholeBodyRetargetSolver:
             "scene_violation_count": len(scene_rows),
             "scene_violations": scene_rows,
             "minimum_terrain_signed_distance": float(
-                min((float(item[2].signed_distance) for item in self.terrain_limit.active), default=np.inf)
+                min((float(item["signed_distance"])
+                     for item in self.terrain_limit.all_measurements), default=np.inf)
             ),
             "minimum_scene_distance": float(self.scene_collision.minimum_distance),
         }
+
+    def _terrain_violation_state(self, tolerance: float = 1e-6) -> tuple[bool, float]:
+        """Inspect complete terrain proxy measurements, not only active rows."""
+        measurements = self.terrain_limit.all_measurements
+        if not measurements:
+            return False, float("inf")
+        minimum = min(float(item["signed_distance"]) for item in measurements)
+        violated = any(float(item["slack"]) < -float(tolerance) for item in measurements)
+        return violated, minimum
 
     def _try_contact_channel_correction(
         self,
@@ -1865,6 +1891,10 @@ class WholeBodyRetargetSolver:
             contact_frame = self._bind_robot_static_anchors(
                 contact_frame, index * self.dt
             )
+            self.terrain_limit.set_contact_scores({
+                channel: float(item.get("activation", item.get("score", 0.0)))
+                for channel, item in contact_frame.get("contacts", {}).items()
+            })
             # Preserve the exact contact realization used by the task and
             # diagnostics.  In particular STATIC tangent anchors are bound to
             # the robot proxy here, so validators and exporters must not fall
@@ -1916,8 +1946,8 @@ class WholeBodyRetargetSolver:
                     for item in self.scene_collision.active_pairs
                 )
                 terrain_near = any(
-                    float(item[2].signed_distance) <= self.terrain_limit.margin + 0.01
-                    for item in self.terrain_limit.active
+                    float(item["signed_distance"]) <= self.terrain_limit.margin + 0.01
+                    for item in self.terrain_limit.all_measurements
                 )
                 if collision_near or terrain_near:
                     self.trust.radius = min(base_radius, max(collision_radius, 1e-4))
@@ -2163,10 +2193,7 @@ class WholeBodyRetargetSolver:
                     self.terrain_limit.prepare_active_set(self.configuration, solve_dt)
                     self.scene_collision.prepare_active_set(self.configuration, solve_dt)
                     candidate_snapshot = self._constraint_snapshot(solve_dt)
-                    terrain_violation = any(
-                        float(item[2].signed_distance) < self.terrain_limit.margin - 1e-6
-                        for item in self.terrain_limit.active
-                    )
+                    terrain_violation, _ = self._terrain_violation_state(1e-6)
                     collision_violation = any(
                         float(item["distance"]) < self.scene_collision.margin - 1e-6
                         for item in self.scene_collision.active_pairs
@@ -2263,10 +2290,7 @@ class WholeBodyRetargetSolver:
                     break
                 self.terrain_limit.prepare_active_set(self.configuration, solve_dt)
                 self.scene_collision.prepare_active_set(self.configuration, solve_dt)
-                terrain_violation = any(
-                    float(item[2].signed_distance) < self.terrain_limit.margin - 1e-6
-                    for item in self.terrain_limit.active
-                )
+                terrain_violation, _ = self._terrain_violation_state(1e-6)
                 collision_violation = any(
                     float(item["distance"]) < self.scene_collision.margin - 1e-6
                     for item in self.scene_collision.active_pairs
@@ -2319,10 +2343,7 @@ class WholeBodyRetargetSolver:
                     self.configuration.update(frame_anchor_qpos)
                     self.terrain_limit.prepare_active_set(self.configuration, solve_dt)
                     self.scene_collision.prepare_active_set(self.configuration, solve_dt)
-                    anchor_terrain_violation = any(
-                        float(item[2].signed_distance) < self.terrain_limit.margin - 1e-6
-                        for item in self.terrain_limit.active
-                    )
+                    anchor_terrain_violation, _ = self._terrain_violation_state(1e-6)
                     anchor_collision_violation = any(
                         float(item["distance"]) < self.scene_collision.margin - 1e-6
                         for item in self.scene_collision.active_pairs
@@ -2415,7 +2436,9 @@ class WholeBodyRetargetSolver:
                     "robot_point": None if robot_point is None else robot_point.copy(),
                     "target_surface_point": np.asarray(item.get("surface_point_solver", [0., 0., 0.]), dtype=float).copy(),
                 }
-            self.diagnostics.append({"frame":index,"qp_failures":failures,"contact_polish_failures":contact_polish_failures,"contact_polish_attempts":contact_polish_attempts,"contact_polish_accepted_channels":contact_polish_accepted_channels,"contact_unreachable_channels":sorted(set(contact_unreachable_channels)),"collision_polish_failures":collision_polish_failures,"nonlinear_safe_step_fraction":float(nonlinear_safe_step_fraction),"interaction_error":interaction_error,"interaction_scene_points":int(self.interaction.environment_count),"minimum_terrain_distance":float(min((x[2].signed_distance for x in self.terrain_limit.active),default=np.inf)),"active_terrain_constraints":len(self.terrain_limit.active),"scene_collision_candidate_pairs":int(len(self.scene_collision.robot_geoms)*len(self.scene_collision.scene_geoms)),"scene_collision_exact_query_pairs":int(self.scene_collision.exact_query_pairs),"scene_collision_broadphase_culled_pairs":int(self.scene_collision.broadphase_culled_pairs),"scene_collision_active_pairs":len(self.scene_collision.active_pairs),"scene_collision_polish_iterations":int(polish_count),"scene_collision_active_pair_details":[{"robot_geom":mj.mj_id2name(self.model,mj.mjtObj.mjOBJ_GEOM,int(x["robot_geom"])),"scene_geom":mj.mj_id2name(self.model,mj.mjtObj.mjOBJ_GEOM,int(x["scene_geom"])),"distance":float(x["distance"])} for x in self.scene_collision.active_pairs],"minimum_scene_distance":float(self.scene_collision.minimum_distance),"maximum_scene_penetration":float(self.scene_collision.maximum_penetration),"collision_query_time":float(collision_query_total),"scene_collision_query_runtime_seconds":float(collision_query_total),"qp_solve_time":float(qp_solve_total),"qp_solve_runtime_seconds":float(qp_solve_total),"qp_iterations":int(qp_iterations),"qp_retries":int(qp_retries),"contacts":contact_metrics,"contact_states":contact_metrics})
+            terrain_distances = [float(item["signed_distance"]) for item in self.terrain_limit.all_measurements]
+            terrain_slacks = [float(item["slack"]) for item in self.terrain_limit.all_measurements]
+            self.diagnostics.append({"frame":index,"qp_failures":failures,"contact_polish_failures":contact_polish_failures,"contact_polish_attempts":contact_polish_attempts,"contact_polish_accepted_channels":contact_polish_accepted_channels,"contact_unreachable_channels":sorted(set(contact_unreachable_channels)),"collision_polish_failures":collision_polish_failures,"nonlinear_safe_step_fraction":float(nonlinear_safe_step_fraction),"interaction_error":interaction_error,"interaction_scene_points":int(self.interaction.environment_count),"interaction_scene_selected_points":int(self.interaction.environment_count),"minimum_terrain_distance":float(min(terrain_distances,default=np.inf)),"minimum_terrain_slack":float(min(terrain_slacks,default=np.inf)),"active_terrain_constraints":len(self.terrain_limit.active),"terrain_candidate_count":len(self.terrain_limit.all_measurements),"terrain_active_indices":[int(item["index"]) for item in self.terrain_limit.all_measurements if item.get("active")],"scene_collision_candidate_pairs":int(len(self.scene_collision.robot_geoms)*len(self.scene_collision.scene_geoms)),"scene_collision_exact_query_pairs":int(self.scene_collision.exact_query_pairs),"scene_collision_broadphase_culled_pairs":int(self.scene_collision.broadphase_culled_pairs),"scene_collision_active_pairs":len(self.scene_collision.active_pairs),"scene_collision_polish_iterations":int(polish_count),"scene_collision_active_pair_details":[{"robot_geom":mj.mj_id2name(self.model,mj.mjtObj.mjOBJ_GEOM,int(x["robot_geom"])),"scene_geom":mj.mj_id2name(self.model,mj.mjtObj.mjOBJ_GEOM,int(x["scene_geom"])),"distance":float(x["distance"])} for x in self.scene_collision.active_pairs],"minimum_scene_distance":float(self.scene_collision.minimum_distance),"maximum_scene_penetration":float(self.scene_collision.maximum_penetration),"collision_query_time":float(collision_query_total),"scene_collision_query_runtime_seconds":float(collision_query_total),"qp_solve_time":float(qp_solve_total),"qp_solve_runtime_seconds":float(qp_solve_total),"qp_iterations":int(qp_iterations),"qp_retries":int(qp_retries),"contacts":contact_metrics,"contact_states":contact_metrics})
             if progress_interval and (
                 index % progress_interval == 0 or index == len(solver_frames) - 1
             ):

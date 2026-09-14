@@ -119,6 +119,21 @@ def _mesh_from_scene_object(obj: Any) -> SceneMesh:
 
 
 def _normalize_scene(scene: SceneMesh | SceneGeometry | list[SceneMesh] | tuple[SceneMesh, ...] | dict | str | Path) -> tuple[list[SceneMesh], list[dict[str, Any]], float | None]:
+    if hasattr(scene, "meshes") and hasattr(scene, "boxes") and hasattr(scene, "scene"):
+        meshes = list(scene.meshes)
+        objects = []
+        for box in scene.boxes:
+            objects.append({
+                "object_id": str(box.surface_id),
+                "position": np.asarray(box.center, dtype=float),
+                "quaternion": _rotation_to_quaternion(np.asarray(box.rotation, dtype=float)),
+                "collision": {
+                    "type": "box",
+                    "position": [0.0, 0.0, 0.0],
+                    "half_extents": np.asarray(box.half_extents, dtype=float),
+                },
+            })
+        return meshes, objects, scene.scene.floor_height
     if isinstance(scene, (list, tuple)):
         meshes = [item for item in scene if isinstance(item, SceneMesh)]
         if len(meshes) != len(scene) or not meshes:
@@ -266,7 +281,7 @@ def build_scene_model(
         quaternion = obj.get("quaternion", [1, 0, 0, 0])
         body = ET.SubElement(worldbody, "body", name=f"scene_{object_id}", pos=_numbers(position), quat=_numbers(quaternion), mocap="true")
         collision = obj.get("collision", {})
-        count = _add_primitive(body, object_id, collision, obj)
+        count = _add_primitive(body, object_id, collision, {**obj, "position": [0.0, 0.0, 0.0]})
         collision_names = [f"scene_{object_id}_collision_000"] if count else []
         if not count and collision.get("type") in {"convex_decomposition", "decomposed_mesh"}:
             manifest_path = Path(collision["manifest"]).expanduser().resolve()

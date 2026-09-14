@@ -165,17 +165,17 @@ class CanonicalMotion:
         frames = self.named_positions()
         aliases = {
             "pelvis": ("pelvis", "Hips", "hips", "Pelvis"),
-            "spine3": ("spine3", "Spine1", "spine", "Spine"),
-            "left_hip": ("left_hip", "LeftUpLeg"), "right_hip": ("right_hip", "RightUpLeg"),
-            "left_knee": ("left_knee", "LeftLeg"), "right_knee": ("right_knee", "RightLeg"),
-            "left_ankle": ("left_ankle", "LeftFoot"), "right_ankle": ("right_ankle", "RightFoot"),
-            "left_foot": ("left_ankle", "left_foot", "LeftFoot"), "right_foot": ("right_ankle", "right_foot", "RightFoot"),
+            "spine3": ("spine3", "Chest4", "Chest3", "Spine2", "Spine1", "spine", "Spine"),
+            "left_hip": ("left_hip", "LeftUpLeg", "LeftHip"), "right_hip": ("right_hip", "RightUpLeg", "RightHip"),
+            "left_knee": ("left_knee", "LeftLeg", "LeftKnee"), "right_knee": ("right_knee", "RightLeg", "RightKnee"),
+            "left_ankle": ("left_ankle", "LeftFoot", "LeftAnkle"), "right_ankle": ("right_ankle", "RightFoot", "RightAnkle"),
+            "left_foot": ("left_ankle", "left_foot", "LeftFoot", "LeftAnkle"), "right_foot": ("right_ankle", "right_foot", "RightFoot", "RightAnkle"),
             "left_toe": ("left_toe", "left_big_toe", "LeftToeBase", "LeftToe"),
             "right_toe": ("right_toe", "right_big_toe", "RightToeBase", "RightToe"),
-            "left_shoulder": ("left_shoulder", "LeftArm"), "right_shoulder": ("right_shoulder", "RightArm"),
-            "left_elbow": ("left_elbow", "LeftForeArm"), "right_elbow": ("right_elbow", "RightForeArm"),
-            "left_wrist": ("left_wrist", "LeftHandMiddle3", "LeftHand"),
-            "right_wrist": ("right_wrist", "RightHandMiddle3", "RightHand"),
+            "left_shoulder": ("left_shoulder", "LeftArm", "LeftShoulder"), "right_shoulder": ("right_shoulder", "RightArm", "RightShoulder"),
+            "left_elbow": ("left_elbow", "LeftForeArm", "LeftElbow"), "right_elbow": ("right_elbow", "RightForeArm", "RightElbow"),
+            "left_wrist": ("left_wrist", "LeftHandMiddle3", "LeftHand", "LeftWrist"),
+            "right_wrist": ("right_wrist", "RightHandMiddle3", "RightHand", "RightWrist"),
         }
         result = []
         provenance = []
@@ -560,8 +560,12 @@ def _load_bvh(path: Path, bvh_format: str, fps: float | None) -> CanonicalMotion
     names = list(data.bones)
     toe_name = "LeftToe" if "LeftToe" in names else "LeftToeBase" if "LeftToeBase" in names else None
     right_toe_name = "RightToe" if "RightToe" in names else "RightToeBase" if "RightToeBase" in names else None
+    left_foot_name = "LeftFoot" if "LeftFoot" in names else "LeftAnkle" if "LeftAnkle" in names else None
+    right_foot_name = "RightFoot" if "RightFoot" in names else "RightAnkle" if "RightAnkle" in names else None
     if toe_name is None or right_toe_name is None:
         raise MotionFormatError("BVH must contain LeftToe/LeftToeBase and RightToe/RightToeBase")
+    if left_foot_name is None or right_foot_name is None:
+        raise MotionFormatError("BVH must contain LeftFoot/LeftAnkle and RightFoot/RightAnkle")
     frames = []
     for frame_index in range(data.pos.shape[0]):
         result = {}
@@ -569,8 +573,8 @@ def _load_bvh(path: Path, bvh_format: str, fps: float | None) -> CanonicalMotion
             orientation = utils.quat_mul(rotation_quat, global_rot[frame_index, joint_index])
             position = global_pos[frame_index, joint_index] @ rotation_matrix.T * unit_scale
             result[bone] = [position, orientation]
-        result.setdefault("LeftFootMod", [result["LeftFoot"][0], result[toe_name][1]])
-        result.setdefault("RightFootMod", [result["RightFoot"][0], result[right_toe_name][1]])
+        result.setdefault("LeftFootMod", [result[left_foot_name][0], result[toe_name][1]])
+        result.setdefault("RightFootMod", [result[right_foot_name][0], result[right_toe_name][1]])
         frames.append(result)
     if not frames:
         raise MotionFormatError(f"BVH input contains no frames: {path}")

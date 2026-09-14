@@ -20,6 +20,9 @@ from .schemas import (
     SceneBundle,
     TransformPlan,
     MorphologyTargets,
+    TaskFamily,
+    TerrainKind,
+    InteractionMode,
 )
 
 __all__ = [name for name in globals() if not name.startswith("_")]

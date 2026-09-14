@@ -173,6 +173,46 @@ def test_v5_frame_displacement_limit_is_expressed_in_delta_q():
     assert updated.h[x_row] == pytest.approx(0.005)
 
 
+def test_terrain_limit_adaptive_activation_and_full_measurement_set():
+    import mujoco as mj
+    import mink
+    from general_motion_retargeting.v5_terrain_limit import TerrainNonPenetrationLimit
+
+    xml = '''<mujoco><worldbody>
+      <body name="ANKLE_ROLL_L_LINK" pos="0 0 0.04"><freejoint/>
+        <geom name="sole" type="sphere" size="0.02" contype="1"/>
+      </body>
+    </worldbody></mujoco>'''
+    model = mj.MjModel.from_xml_string(xml)
+    terrain = TerrainField([], floor_z=0.0)
+    limit = TerrainNonPenetrationLimit(model, terrain, {
+        "margin": 0.004, "adaptive_activation": True,
+        "activate_distance": 0.03, "deactivate_distance": 0.04,
+        "deactivate_hold_steps": 3, "prediction_horizon": 2.0,
+    })
+    configuration = mink.Configuration(model)
+    limit.prepare_active_set(configuration, 0.02)
+    assert limit.all_measurements
+    assert limit.active_indices
+    # Move the proxy well above the activation band: complete measurements
+    # remain available even when the optimization active set is empty.
+    q = configuration.data.qpos.copy(); q[2] = 0.5
+    configuration.update(q)
+    for _ in range(4):
+        limit.prepare_active_set(configuration, 0.02)
+    assert limit.all_measurements
+    assert limit.active == []
+
+
+def test_scope_admission_rejects_full_complex_grail_even_with_frame_cap(tmp_path):
+    from general_motion_retargeting.input.eligibility import preflight_scope, AdmissionStatus
+    path = tmp_path / "sitting" / "recon" / "chair.pkl"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"placeholder")
+    decision = preflight_scope(path, "grail_smplx_recon")
+    assert decision.status == AdmissionStatus.EXCLUDED
+
+
 def test_pose_trajectory_rejects_duplicate_timestamps():
     with pytest.raises(ValueError, match="strictly increasing"):
         PoseTrajectory(np.array([0.0, 0.0]), np.zeros((2, 3)))

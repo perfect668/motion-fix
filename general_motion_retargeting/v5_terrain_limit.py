@@ -20,10 +20,23 @@ class TerrainNonPenetrationLimit(Limit):
         self.model = model
         self.terrain = terrain
         self.config = dict(config or {})
-        self.margin = float(self.config.get("margin", 0.004))
+        self.margin = float(self.config.get(
+            "margin", self.config.get("default_margin", 0.004)
+        ))
         self.activate = float(self.config.get("activate_distance", 0.06))
+        self.deactivate = float(self.config.get("deactivate_distance", 0.09))
+        self.deactivate_hold_steps = max(1, int(self.config.get("deactivate_hold_steps", 3)))
+        self.prediction_horizon = max(0.0, float(self.config.get("prediction_horizon", 2.0)))
+        self.contact_activation_score = float(self.config.get("contact_activation_score", 0.15))
+        self.adaptive = bool(self.config.get("adaptive_activation", True))
         self.shells = self._discover()
         self.active = []
+        self.active_indices: list[int] = []
+        self.all_measurements: list[dict] = []
+        self.previous_distances: dict[int, float] = {}
+        self.active_mask: dict[int, bool] = {}
+        self.deactivate_counter: dict[int, int] = {}
+        self.contact_scores: dict[str, float] = {}
 
     def _discover(self):
         shells = []
@@ -90,10 +103,6 @@ class TerrainNonPenetrationLimit(Limit):
         budget = max(1, int(self.config.get("mesh_proxy_points", 96)))
         per_shell = max(4, int(np.ceil(budget / max(1, len(raw_shells)))))
         for body_id, samples in raw_shells:
-            stride = max(1, int(np.ceil(len(samples) / per_shell)))
-            selected = samples[::stride][:per_shell]
-            # The first rows are primitive support points.  Retain them even
-            # when the visual mesh requires a large stride.
             primitive_count = 0
             for geom_id in range(self.model.ngeom):
                 if int(self.model.geom_bodyid[geom_id]) != body_id or not self.model.geom_contype[geom_id]:
@@ -103,9 +112,14 @@ class TerrainNonPenetrationLimit(Limit):
                     int(mj.mjtGeom.mjGEOM_CAPSULE),
                 ):
                     primitive_count += 1
-            if primitive_count:
-                selected = np.concatenate((samples[:primitive_count], selected))
-                selected = selected[:max(per_shell, primitive_count)]
+            # Sample visual mesh points independently of the primitive rows;
+            # otherwise the stride can duplicate a sphere/capsule point and
+            # make candidate indices depend on the shell's geometry density.
+            primitive = samples[:primitive_count]
+            visual = samples[primitive_count:]
+            stride = max(1, int(np.ceil(max(len(visual), 1) / max(per_shell - primitive_count, 1))))
+            selected_visual = visual[::stride][:max(per_shell - primitive_count, 0)]
+            selected = np.concatenate((primitive, selected_visual))
             shells.append((body_id, selected))
         return shells
 
@@ -115,24 +129,113 @@ class TerrainNonPenetrationLimit(Limit):
             rotation = configuration.data.xmat[body_id].reshape(3, 3)
             yield body_id, configuration.data.xpos[body_id] + local @ rotation.T
 
-    def prepare_active_set(self, configuration, dt=0.0):
-        del dt
+    def _region(self, body_id: int) -> str:
+        name = (mj.mj_id2name(self.model, mj.mjtObj.mjOBJ_BODY, int(body_id)) or "").upper()
+        side = "left" if "_L_" in name or name.endswith("_L_LINK") else "right" if "_R_" in name or name.endswith("_R_LINK") else ""
+        if side and "ANKLE" in name:
+            return f"{side}_foot"
+        if side and ("KNEE" in name or "SHIN" in name):
+            return f"{side}_leg"
+        return "body"
+
+    def set_contact_scores(self, scores: dict[str, float] | None) -> None:
+        self.contact_scores = {str(key): float(value) for key, value in (scores or {}).items()}
+
+    def prepare_active_set(self, configuration, dt=0.0, contact_scores=None):
+        if contact_scores is not None:
+            self.set_contact_scores(contact_scores)
         active = []
+        active_indices = []
+        measurements = []
+        point_index = 0
         for body_id, points in self._world_points(configuration):
             hits = self.terrain.nearest_surface_batch(points)
             for point, hit in zip(points, hits):
-                if float(hit.signed_distance) <= self.activate:
+                distance = float(hit.signed_distance)
+                previous = self.previous_distances.get(point_index)
+                velocity = (
+                    0.0
+                    if previous is None or not np.isfinite(dt) or dt <= 0.0
+                    else (distance - previous) / float(dt)
+                )
+                predicted = distance + self.prediction_horizon * max(float(dt), 0.0) * min(velocity, 0.0)
+                region = self._region(body_id)
+                if region == "left_foot":
+                    contact_score = max(self.contact_scores.get("left_heel", 0.0), self.contact_scores.get("left_toe", 0.0))
+                elif region == "right_foot":
+                    contact_score = max(self.contact_scores.get("right_heel", 0.0), self.contact_scores.get("right_toe", 0.0))
+                else:
+                    contact_score = self.contact_scores.get(region, 0.0)
+                forced = distance <= self.margin or predicted <= self.margin
+                enter = distance <= self.activate or predicted <= self.activate or contact_score > self.contact_activation_score
+                was_active = self.active_mask.get(point_index, False)
+                if not self.adaptive:
+                    is_active = True
+                    self.deactivate_counter[point_index] = 0
+                elif forced or enter:
+                    is_active = True
+                    self.deactivate_counter[point_index] = 0
+                elif was_active and distance <= self.deactivate:
+                    is_active = True
+                    self.deactivate_counter[point_index] = 0
+                elif was_active:
+                    count = self.deactivate_counter.get(point_index, 0) + 1
+                    self.deactivate_counter[point_index] = count
+                    is_active = count < self.deactivate_hold_steps
+                else:
+                    is_active = False
+                self.previous_distances[point_index] = distance
+                self.active_mask[point_index] = is_active
+                measurements.append({
+                    "index": point_index,
+                    "body_id": int(body_id),
+                    "point": point.copy(),
+                    "hit": hit,
+                    "signed_distance": distance,
+                    "margin": self.margin,
+                    "slack": distance - self.margin,
+                    "normal_velocity": velocity,
+                    "predicted_distance": predicted,
+                    "region": region,
+                    "active": is_active,
+                })
+                if is_active:
                     active.append((body_id, point.copy(), hit))
+                    active_indices.append(point_index)
+                point_index += 1
         self.active = active
+        self.active_indices = active_indices
+        self.all_measurements = measurements
+
+    def force_activate_violations(self, configuration) -> list[dict]:
+        """Activate every missed proxy whose complete-set slack is negative."""
+        self.prepare_active_set(configuration, 0.0)
+        missed = [
+            item for item in self.all_measurements
+            if item["slack"] < 0.0 and not item["active"]
+        ]
+        if not missed:
+            return []
+        by_index = {item["index"]: item for item in self.all_measurements}
+        for item in missed:
+            index = int(item["index"])
+            self.active_mask[index] = True
+            self.deactivate_counter[index] = 0
+            value = by_index[index]
+            self.active.append((value["body_id"], value["point"].copy(), value["hit"]))
+            self.active_indices.append(index)
+        return missed
 
     def measure_all(self, configuration):
         """Measure every proxy for final validation and diagnostics."""
         values = []
+        point_index = 0
         for body_id, points in self._world_points(configuration):
             for point, hit in zip(points, self.terrain.nearest_surface_batch(points)):
                 values.append(
                     {
                         "body_id": int(body_id),
+                        "index": point_index,
                         "point": point.copy(),
                         "signed_distance": float(hit.signed_distance),
                         "margin": float(self.margin),
@@ -141,7 +244,23 @@ class TerrainNonPenetrationLimit(Limit):
                         "surface_normal": np.asarray(hit.normal).copy(),
                     }
                 )
+                point_index += 1
         return values
+
+    def violating_measurements(self, configuration=None, tolerance: float = 0.0) -> list[dict]:
+        """Return safety-margin violations from the complete proxy set.
+
+        ``active`` is an optimization set and may intentionally omit distant
+        proxies.  Final safety decisions must never depend on that set; this
+        helper refreshes measurements when requested and always inspects all
+        candidates.
+        """
+        if configuration is not None:
+            self.prepare_active_set(configuration, 0.0)
+        return [
+            item for item in self.all_measurements
+            if float(item.get("slack", 0.0)) < -float(tolerance)
+        ]
 
     def compute_qp_inequalities(self, configuration, dt):
         del dt
@@ -159,7 +278,15 @@ class TerrainNonPenetrationLimit(Limit):
             )
             rows.append(-np.asarray(hit.normal, dtype=float) @ jacobian_position)
             bounds.append(float(hit.signed_distance - self.margin))
-        return Constraint(G=np.asarray(rows), h=np.asarray(bounds)) if rows else Constraint()
+        # Keep the constraint matrix dimension explicit even for an empty
+        # adaptive active set; Mink can then concatenate limits without
+        # guessing the number of velocity variables.
+        if not rows:
+            return Constraint(
+                G=np.empty((0, self.model.nv), dtype=float),
+                h=np.empty((0,), dtype=float),
+            )
+        return Constraint(G=np.asarray(rows), h=np.asarray(bounds))
 
 
 __all__ = ["TerrainNonPenetrationLimit"]

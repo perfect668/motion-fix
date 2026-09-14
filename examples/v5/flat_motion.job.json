@@ -1,0 +1,6 @@
+{
+  "motion": {"path": "../../data/smplx_data/diverse_actions_8h_v3/walk_ff_start_360_R_very_fast_001__A450_M.npz", "format": "smplx_npz"},
+  "robot": {"name": "ne01"},
+  "scope": {"task_family": "flat_motion", "terrain_kind": "flat", "interaction_mode": "feet_only"},
+  "output": {"path": "../../work/v5_examples/flat_walk.pkl"}
+}

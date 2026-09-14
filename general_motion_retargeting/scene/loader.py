@@ -17,7 +17,7 @@ from scipy.spatial import cKDTree
 
 from ..core.schemas import FloorPolicy, PoseTrajectory, SceneAsset, SceneModel, SceneReference
 from ..scene_asset_loader import load_scene_asset
-from ..terrain_geometry import BoxPrimitive, TerrainField, TerrainSurfaceHit
+from ..terrain_geometry import BoxPrimitive, TerrainField, TerrainSurfaceHit, no_support_hit
 
 
 def _unit(vector: np.ndarray, fallback: np.ndarray | None = None) -> np.ndarray:
@@ -177,7 +177,7 @@ class MeshSceneField:
 
     is_mesh_scene = True
 
-    def __init__(self, vertices, faces, asset_id: str, *, floor_z=0.0, support_normal_min_z=0.6, asset_inverse=None):
+    def __init__(self, vertices, faces, asset_id: str, *, floor_z=0.0, support_normal_min_z=0.6, support_origin_tolerance=0.20, asset_inverse=None):
         self.vertices = np.asarray(vertices, dtype=float).reshape((-1, 3))
         self.faces = np.asarray(faces, dtype=np.int64).reshape((-1, 3))
         self.triangles = self.vertices[self.faces]
@@ -191,6 +191,7 @@ class MeshSceneField:
         self.floor_z = floor_z
         self.floor_id = "floor"
         self.support_normal_min_z = float(support_normal_min_z)
+        self.support_origin_tolerance = max(0.0, float(support_origin_tolerance))
         self._support_mask = self.normals[:, 2] > self.support_normal_min_z
         self.boxes: list[BoxPrimitive] = []
         self.asset_id = asset_id
@@ -351,7 +352,7 @@ class MeshSceneField:
                 continue
             triangle = self.triangles[index]
             plane_z = triangle[0, 2] - (normal[0] * (point[0] - triangle[0, 0]) + normal[1] * (point[1] - triangle[0, 1])) / normal[2]
-            if plane_z > point[2] + 0.03:
+            if plane_z > point[2] + self.support_origin_tolerance:
                 continue
             projected = np.array([point[0], point[1], plane_z])
             closest = _closest_points_on_triangles(projected, triangle[None])[0]
@@ -365,20 +366,18 @@ class MeshSceneField:
                 local_anchor = (np.r_[local_anchor, 1.0] @ self.asset_inverse.T)[:3]
                 asset_linear = np.linalg.inv(self.asset_inverse[:3, :3])
                 local_normal = _unit(asset_linear.T @ self.normals[index], np.array([0.0, 0.0, 1.0]))
+            normal = self.normals[index].copy()
             hit = TerrainSurfaceHit(
-                float(point[2] - projected[2]), projected, self.normals[index].copy(),
+                float(normal @ (point - projected)), projected, normal,
                 str(self.patch_ids[index]), "mesh", True,
                 triangle_id=index,
                 barycentric=_barycentric(projected, self.triangles[index]),
                 asset_local_anchor=local_anchor,
                 asset_local_normal=local_normal,
+                ray_distance=float(point[2] - projected[2]),
             )
         else:
-            hit = self._nearest_mesh_hit(point)
-            if not hit.supportable and self._floor_hit(point) is not None:
-                floor_hit = self._floor_hit(point)
-                if floor_hit is not None and floor_hit.closest_point[2] <= point[2] + 0.03:
-                    return floor_hit
+            hit = no_support_hit(point)
         floor = self._floor_hit(point)
         if floor is not None and floor.closest_point[2] <= point[2] + 0.03:
             # Highest support under the foot wins; deterministic tie uses the
@@ -436,7 +435,7 @@ class CompositeSceneField:
             if hit.supportable:
                 candidates.append(hit)
         if not candidates:
-            return self.nearest_surface(point)
+            return no_support_hit(point)
         # Highest support below the query wins; ID breaks ties at edges.
         return min(candidates, key=lambda hit: (-float(hit.closest_point[2]), str(hit.surface_id)))
 

@@ -24,7 +24,8 @@
     "min_chain_scale": 0.35,
     "max_chain_scale": 2.5,
     "root_policy": "support_aware",
-    "root_support_channels": ["left_heel", "left_toe", "right_heel", "right_toe", "left_butt", "right_butt", "lower_back", "upper_back"]
+    "root_support_channels": ["left_heel", "left_toe", "right_heel", "right_toe"],
+    "root_max_vertical_correction": 0.03
   },
   "global_anchor": {"source": "pelvis", "robot_body": "base_link", "cost": [60.0, 60.0, 12.0, 8.0, 8.0, 8.0]},
   "semantic_points": {
@@ -49,19 +50,13 @@
   "limb_plane": {"cost": 0.6, "gain": 0.2},
   "contact_tasks": {
     "normal_cost": 240.0, "tangent_cost": 12.0, "sliding_tangent_ratio": 0.75, "sliding_tangent_cost": 20.0, "clearance": 0.004,
-    "polish_iterations": 16, "polish_trust_region": 0.015,
-    "polish_residual_threshold": 0.008, "support_polish_residual_threshold": 0.001, "support_polish_activation": 0.25, "per_channel_polish": false, "per_channel_fallback": true, "per_channel_max_attempts": 1, "per_channel_min_improvement": 0.00001, "support_polish_base_linear_velocity_limit": 0.20, "support_polish_base_angular_velocity_limit": 0.50, "support_polish_leg_preference": true, "support_polish_root_cost": 30.0, "support_polish_other_cost": 15.0, "support_polish_hip_cost": 0.20, "support_polish_knee_cost": 0.08, "support_polish_ankle_cost": 0.02, "support_polish_posture_gain": 0.50, "polish_activation": 0.25, "polish_tangent": false, "polish_tangent_threshold": 0.04,
+    "polish_iterations": 2, "polish_trust_region": 0.015,
+    "polish_residual_threshold": 0.008, "support_polish_residual_threshold": 0.001, "support_polish_activation": 0.25, "per_channel_polish": false, "per_channel_fallback": false, "per_channel_max_attempts": 0, "per_channel_min_improvement": 0.00001, "support_polish_base_linear_velocity_limit": 0.20, "support_polish_base_angular_velocity_limit": 0.50, "support_polish_leg_preference": true, "support_polish_root_cost": 30.0, "support_polish_other_cost": 15.0, "support_polish_hip_cost": 0.20, "support_polish_knee_cost": 0.08, "support_polish_ankle_cost": 0.02, "support_polish_posture_gain": 0.50, "polish_activation": 0.25, "polish_tangent": false, "polish_tangent_threshold": 0.04,
     "robot_points": {
       "left_heel": {"sites": ["ground_guard_left_heel_inner", "ground_guard_left_heel_outer"]},
       "left_toe": {"sites": ["ground_guard_left_toe_inner", "ground_guard_left_toe_outer"]},
       "right_heel": {"sites": ["ground_guard_right_heel_inner", "ground_guard_right_heel_outer"]},
-      "right_toe": {"sites": ["ground_guard_right_toe_inner", "ground_guard_right_toe_outer"]},
-      "left_palm": {"body": "HAND_YAW_L_LINK", "offsets": [[0, -0.004, -0.08]]},
-      "right_palm": {"body": "HAND_YAW_R_LINK", "offsets": [[0, 0.004, -0.08]]},
-      "left_knee": {"sites": ["ground_contact_left_knee"]}, "right_knee": {"sites": ["ground_contact_right_knee"]},
-      "left_shin": {"body": "KNEE_PITCH_L_LINK", "offsets": [[-0.045, 0, -0.205]]}, "right_shin": {"body": "KNEE_PITCH_R_LINK", "offsets": [[-0.045, 0, -0.205]]},
-      "left_butt": {"body": "base_link", "offsets": [[-0.075, 0.045, -0.15]]}, "right_butt": {"body": "base_link", "offsets": [[-0.075, -0.045, -0.15]]},
-      "lower_back": {"body": "TORSO_LINK", "offsets": [[-0.08, 0, 0.055]]}, "upper_back": {"body": "TORSO_LINK", "offsets": [[-0.07, 0, 0.16]]}
+      "right_toe": {"sites": ["ground_guard_right_toe_inner", "ground_guard_right_toe_outer"]}
     }
   },
   "foot_orientation": {
@@ -92,7 +87,7 @@
     }
   },
   "torso_pelvis_coherence": {"waist_yaw_joint": "WAIST_YAW_JOINT", "torso_roll_joint": "TORSO_ROLL_JOINT", "yaw_cost": 4.0, "roll_cost": 6.0, "cost": 1.0, "gain": 0.45, "blend_frames": 7},
-  "terrain_nonpenetration": {"margin": 0.004, "activate_distance": 0.06, "mesh_proxy_points": 96},
+  "terrain_nonpenetration": {"margin": 0.004, "default_margin": 0.004, "adaptive_activation": true, "activate_distance": 0.06, "deactivate_distance": 0.09, "deactivate_hold_steps": 3, "prediction_horizon": 2.0, "contact_activation_score": 0.15, "mesh_proxy_points": 96},
   "validation": {
     "max_support_gap": 0.005,
     "max_support_penetration": 0.002,

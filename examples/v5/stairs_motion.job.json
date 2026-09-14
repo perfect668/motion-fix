@@ -1,0 +1,8 @@
+{
+  "motion": {"path": "../../data/smplx_data/diverse_actions_8h_v3/walk_ff_start_360_R_very_fast_001__A450_M.npz", "format": "smplx_npz"},
+  "source_scene": {"path": "terrain_stairs.json", "format": "json", "asset_id": "stairs"},
+  "robot": {"name": "ne01"},
+  "scene_relation": "shared_scene",
+  "scope": {"task_family": "terrain_locomotion", "terrain_kind": "stairs", "interaction_mode": "feet_only"},
+  "output": {"path": "../../work/v5_examples/stairs_walk.pkl"}
+}

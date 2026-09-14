@@ -1,0 +1,6 @@
+{
+  "motion": {"path": "/home/user/datasets/grail_200/data/sitting/recon/sitting__art_nouveau_curvilinear_iron_and_stained_glass_single_chair__002.pkl", "format": "grail_smplx_recon"},
+  "robot": {"name": "ne01"},
+  "scope": {"task_family": "flat_motion", "terrain_kind": "flat", "interaction_mode": "feet_only"},
+  "output": {"path": "../../work/v5_examples/excluded_chair.pkl"}
+}

@@ -76,6 +76,12 @@ def _validate(result: RetargetResult, solver=None, contact_plan=None) -> dict:
         checks["finite_body_states"] = bool(
             np.isfinite(fk["body_pos_w"]).all() and np.isfinite(fk["body_quat_w"]).all()
         )
+        body_quat = np.asarray(fk["body_quat_w"], dtype=float)
+        quat_norms = np.linalg.norm(body_quat, axis=-1)
+        checks["legal_body_quaternions"] = bool(
+            np.isfinite(quat_norms).all()
+            and np.all(np.abs(quat_norms - 1.0) <= 1e-4)
+        )
         expected_joint_names = tuple(getattr(solver.robot_profile, "joint_names", ()))
         exported_joint_names = tuple(fk.get("robot_joint_names", ()))
         expected_joint_count = len(expected_joint_names)
@@ -156,6 +162,7 @@ def _validate(result: RetargetResult, solver=None, contact_plan=None) -> dict:
     else:
         checks["finite_joint_vel"] = True
         checks["finite_body_states"] = True
+        checks["legal_body_quaternions"] = True
         checks["scene_penetration"] = True
         checks["finite_final_scene_distance"] = True
         checks["terrain_nonpenetration"] = True
@@ -333,14 +340,6 @@ def _replay_support(solver, contact_plan, qpos_sequence: np.ndarray) -> dict:
             failed_indices.append(index)
             continue
         solver.configuration.update(qpos_sequence[index])
-        if frame is not None and bool(frame.get("support_transition", False)):
-            # Contact tasks still run on these frames, but a fast source
-            # landing/terrain transfer is not yet a stable load-bearing
-            # assertion.  The detector bounds this exemption to a short
-            # configured window; later frames must pass the physical gap
-            # replay below.
-            deferred_indices.append(index)
-            continue
         # Evaluate support at the frame level.  Every currently active heel or
         # toe is a claimed support channel, so all of those claims must be
         # close to their scheduled surface.  The previous implementation
@@ -403,6 +402,13 @@ def _replay_support(solver, contact_plan, qpos_sequence: np.ndarray) -> dict:
             # deferred marker for diagnostics and for the bounded-ramp rule.
             expected_channels = transition_channels or label_transition_channels
             deferred_indices.append(index)
+            # A low-confidence landing ramp has an explicit bounded reason
+            # for not asserting a 5 mm support gap yet.  Defer only this
+            # channel (and only when no stable channel exists); the bounded
+            # deferred-run guard below rejects an indefinitely floating
+            # sequence. Stable channels on the same frame are checked.
+            if bool(frame.get("support_transition", False)) and not label_transition_channels:
+                continue
         # The detector's SUPPORTED state is evidence that at least one foot was
         # carrying load. If no canonical heel/toe channel survives, keep this
         # frame visible rather than declaring it covered by an unrelated
@@ -588,11 +594,16 @@ def _replay_contacts(solver, contact_plan, qpos_sequence: np.ndarray) -> dict:
             activation = float(item.get("activation", item.get("score", 0.0)))
             if activation <= 1e-3:
                 continue
-            point = solver.contact.points[channel].value(solver.configuration)
             state = str(item.get("state", "NONE"))
             normal_key = "anchor_normal_solver" if state == "STATIC" and "anchor_normal_solver" in item else "surface_normal_solver"
             normal = np.asarray(item.get(normal_key, [0, 0, 1]), dtype=float)
             normal /= max(float(np.linalg.norm(normal)), 1e-12)
+            support_value = getattr(solver.contact, "support_value", None)
+            point = (
+                support_value(solver.configuration, channel, normal)
+                if support_value is not None and channel in getattr(solver.contact, "support_geom_ids", {})
+                else solver.contact.points[channel].value(solver.configuration)
+            )
             surface = np.asarray(item.get("surface_point_solver", point), dtype=float)
             normal_residual = abs(float(normal @ (point - surface) - solver.contact.clearance))
             tangent = solver.contact._tangent_basis(normal)

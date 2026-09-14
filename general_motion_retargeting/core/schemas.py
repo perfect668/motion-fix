@@ -33,6 +33,21 @@ class FloorPolicy(str, Enum):
     DISABLED = "disabled"
 
 
+class TaskFamily(str, Enum):
+    FLAT_MOTION = "flat_motion"
+    TERRAIN_LOCOMOTION = "terrain_locomotion"
+
+
+class TerrainKind(str, Enum):
+    FLAT = "flat"
+    STAIRS = "stairs"
+    RAMP = "ramp"
+
+
+class InteractionMode(str, Enum):
+    FEET_ONLY = "feet_only"
+
+
 @dataclass(frozen=True)
 class MotionReference:
     path: Path
@@ -91,11 +106,26 @@ class RetargetJob:
     contact_policy: dict[str, Any] = field(default_factory=dict)
     solver_policy: dict[str, Any] = field(default_factory=dict)
     output_policy: dict[str, Any] = field(default_factory=dict)
+    task_family: TaskFamily = TaskFamily.FLAT_MOTION
+    terrain_kind: TerrainKind = TerrainKind.FLAT
+    interaction_mode: InteractionMode = InteractionMode.FEET_ONLY
+    scope_evidence: dict[str, Any] = field(default_factory=dict)
     time_range: tuple[int | None, int | None] = (None, None)
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "task_family", TaskFamily(self.task_family))
+        object.__setattr__(self, "terrain_kind", TerrainKind(self.terrain_kind))
+        object.__setattr__(self, "interaction_mode", InteractionMode(self.interaction_mode))
         if self.robot.lower() != "ne01":
             raise ValueError(f"Unsupported V5 robot profile: {self.robot}")
+        if self.interaction_mode != InteractionMode.FEET_ONLY:
+            raise ValueError(
+                "WholeBody V5 terrain-only supports interaction_mode=feet_only"
+            )
+        if self.task_family == TaskFamily.FLAT_MOTION and self.terrain_kind != TerrainKind.FLAT:
+            raise ValueError("flat_motion requires terrain_kind=flat")
+        if self.task_family == TaskFamily.TERRAIN_LOCOMOTION and self.terrain_kind == TerrainKind.FLAT:
+            raise ValueError("terrain_locomotion requires terrain_kind=stairs or ramp")
         start, end = self.time_range
         if start is not None and start < 0:
             raise ValueError("time_range start must be non-negative")

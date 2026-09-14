@@ -35,7 +35,13 @@ from general_motion_retargeting.core.schemas import (
     SceneRelation,
     PoseTrajectory,
 )
-from general_motion_retargeting.input import resolver_for_motion
+from general_motion_retargeting.input import (
+    ScopeAdmissionError,
+    preflight_scope,
+    resolver_for_motion,
+    validate_loaded_scope,
+)
+from general_motion_retargeting.input.eligibility import file_sha256
 from general_motion_retargeting.motion_adapters import load_canonical_motion
 from general_motion_retargeting.scene import SceneAssembler, alignment_sanity
 from general_motion_retargeting.terrain_geometry import SceneTransform
@@ -98,6 +104,49 @@ def _deep_merge(base, override):
         else:
             merged[key]=value
     return merged
+
+
+def _effective_config(base: dict, job: dict, args) -> dict:
+    """Resolve the one configuration consumed by every V5 stage."""
+    result = copy.deepcopy(base)
+    if job:
+        mappings = (
+            ("transform", "scene"),
+            ("morphology", "morphology"),
+            ("contact", "terrain_contact"),
+            ("solver", "solver"),
+            ("validation", "validation"),
+        )
+        for source_key, target_key in mappings:
+            override = job.get(source_key)
+            if not isinstance(override, dict):
+                continue
+            if source_key == "solver":
+                override = {key: value for key, value in override.items() if key != "config"}
+            result[target_key] = _deep_merge(result.get(target_key, {}), override)
+        scene_override = job.get("scene", {})
+        if isinstance(scene_override, dict):
+            policy_keys = {
+                key: value for key, value in scene_override.items()
+                if key in {"rotation", "translation", "scene_scale", "floor_inference"}
+            }
+            result["scene"] = _deep_merge(result.get("scene", {}), policy_keys)
+    return result
+
+
+def _scope_declaration(job: dict, args) -> dict:
+    """Merge only explicit scope fields; argparse defaults never masquerade as policy."""
+    scope = dict(job.get("scope", {}) if job else {})
+    for key in ("task_family", "terrain_kind", "interaction_mode"):
+        value = getattr(args, key, None)
+        if value is not None:
+            scope[key] = value
+    return scope
+
+
+def _raise_unless_admitted(decision) -> None:
+    if not decision.admitted:
+        raise ScopeAdmissionError(decision)
 
 
 def _configured_robot_xml(config_path: Path, config: dict) -> Path:
@@ -362,18 +411,28 @@ def run(args):
         manifest=manifest,
         motion_format=requested_format,
     )
-    cfg=_config(config)
+    cfg=_effective_config(_config(config), job, args)
+    scope_decision = preflight_scope(
+        bundle.motion.path,
+        bundle.motion.format,
+        _scope_declaration(job, args),
+    )
+    _raise_unless_admitted(scope_decision)
     retarget_job = RetargetJob(
         motion=bundle.motion,
         source_scene=bundle.source_scene,
         target_scene=bundle.target_scene,
         scene_relation=bundle.scene_relation,
         robot=robot,
-        transform_policy=(job.get("transform", {}) if job else cfg.get("scene", {})),
-        morphology_policy=(job.get("morphology", {}) if job else cfg.get("morphology", {})),
-        contact_policy=(job.get("contact", {}) if job else cfg.get("terrain_contact", {})),
-        solver_policy=(job.get("solver", {}) if job else cfg.get("solver", {})),
+        transform_policy=cfg.get("scene", {}),
+        morphology_policy=cfg.get("morphology", {}),
+        contact_policy=cfg.get("terrain_contact", {}),
+        solver_policy=cfg.get("solver", {}),
         output_policy=(job.get("output", {}) if job else {}),
+        task_family=scope_decision.task_family,
+        terrain_kind=scope_decision.terrain_kind,
+        interaction_mode=scope_decision.interaction_mode,
+        scope_evidence=scope_decision.to_dict(),
     )
     map_path=args.joint_map
     if map_path is None and bundle.motion.format.startswith("holosoma"):
@@ -383,7 +442,10 @@ def run(args):
     # adapter registry, rather than extension heuristics, owns parsing.
     canonical=load_canonical_motion(bundle.motion.path,
         joint_map=map_path, body_models=args.body_models,
-        target_fps=args.tgt_fps, motion_format=bundle.motion.format)
+        target_fps=args.tgt_fps, motion_format=bundle.motion.format,
+        bvh_format=args.bvh_format)
+    scope_decision = validate_loaded_scope(scope_decision, canonical, bundle)
+    _raise_unless_admitted(scope_decision)
     relation = bundle.scene_relation
     floor_policy=FloorPolicy(str(job.get("scene",{}).get("floor_policy","auto") if job else "auto"))
     # A GRAIL bundle may carry an exact obj_R/obj_t/obj_scale record.  The
@@ -443,8 +505,8 @@ def run(args):
         floor_height = 0.0 if relation == SceneRelation.MOTION_ONLY else None
         floor_provenance = {"method": "policy", "floor_policy": floor_policy.value}
     elif relation == SceneRelation.MOTION_ONLY:
-        floor_height = _estimate_auto_floor(canonical, transform)
-        floor_provenance = {"method": "motion_support_quantile", "source": "canonical_heel_toe"}
+        floor_height = 0.0
+        floor_provenance = {"method": "solver_world_support_calibration", "source": "canonical_heel_toe"}
     else:
         # For a paired scene, prefer the scene geometry's support baseline.
         # GRAIL's SMPL-X heel markers are body landmarks, not a guaranteed
@@ -462,8 +524,14 @@ def run(args):
     # never moved to follow the actor.
     if relation == SceneRelation.MOTION_ONLY and floor_policy == FloorPolicy.AUTO:
         floor_offset = _estimate_auto_floor(canonical, transform)
-        canonical.positions[:, :, 2] -= floor_offset
+        translation = np.asarray(transform.translation, dtype=float).copy()
+        translation[2] -= floor_offset
+        transform = SceneTransform(transform.rotation, transform.scale, translation)
         floor_height = 0.0
+        floor_provenance.update({
+            "solver_world_offset": float(floor_offset),
+            "applied_via_scene_transform": True,
+        })
     scene_assembly = scene_assembler.with_floor(
         prepared_scene, floor_policy=floor_policy, floor_height=floor_height,
     )
@@ -654,11 +722,11 @@ def run(args):
     effective_config["morphology"]["chain_scales"] = dict(morphology.chain_scales)
     scene_alignment = {"status": "NOT_APPLICABLE", "assets": [], "transform_mismatches": []}
     scene_manifest_payload = None
-    if scene_ref is not None and scene_ref.path is not None and scene_ref.path.suffix.lower() in {".obj", ".usd", ".usda", ".usdc"}:
+    if scene_ref is not None and (scene_assembly.geometry.meshes or scene_assembly.geometry.boxes):
         from general_motion_retargeting.scene_mujoco import build_scene_model
         combined = output.with_name(f".{output.stem}_v5_combined.xml")
         combined_info = build_scene_model(
-            xml, scene_assembly.geometry.meshes, combined,
+            xml, scene_assembly.geometry, combined,
             cache_root=ROOT / ".cache" / "scene_collision",
             # Use the V5-configured decomposition explicitly.  In particular,
             # a cached coarse hull must not be reused for a stair/chair whose
@@ -707,6 +775,14 @@ def run(args):
         "schema_version": 2,
         "algorithm": "wholebody_omni_gmr_v5",
         "retarget_job": jsonable(retarget_job),
+        "scope_admission": scope_decision.to_dict(),
+        "run_identity": {
+            "input_sha256": scope_decision.evidence.get("input_sha256"),
+            "config_sha256": file_sha256(config),
+            "robot_model_sha256": file_sha256(robot_xml_for_task),
+            "scene_sha256": file_sha256(scene_ref.path) if scene_ref is not None and scene_ref.path is not None and scene_ref.path.is_file() else None,
+        },
+        "effective_config": jsonable(effective_config),
         "status": validation["status"],
         "validation": validation,
         "failure": result.failure,
@@ -777,7 +853,55 @@ def run(args):
 
 
 def main():
-    parser=argparse.ArgumentParser(); parser.add_argument("--job",type=Path); parser.add_argument("--motion",type=Path); parser.add_argument("--robot",default="ne01"); parser.add_argument("--output",type=Path); parser.add_argument("--manifest",type=Path); parser.add_argument("--joint_map",type=Path); parser.add_argument("--motion_format",default="auto",choices=("auto","canonical_npz","smplx_npz","grail_smplx_recon","holosoma_global_positions","bvh","fbx")); parser.add_argument("--config",type=Path,default=DEFAULT_CONFIG); parser.add_argument("--body_models",type=Path,default=ROOT/"assets/body_models"); parser.add_argument("--tgt_fps",type=float,default=50.); parser.add_argument("--solver",choices=("daqp","proxqp"),default="daqp"); parser.add_argument("--max_frames",type=int,default=None); parser.add_argument("--save-invalid-debug",action="store_true"); args=parser.parse_args(); result=run(args)
+    parser=argparse.ArgumentParser(); parser.add_argument("--job",type=Path); parser.add_argument("--motion",type=Path); parser.add_argument("--robot",default="ne01"); parser.add_argument("--output",type=Path); parser.add_argument("--manifest",type=Path); parser.add_argument("--joint_map",type=Path); parser.add_argument("--motion_format",default="auto",choices=("auto","canonical_npz","smplx_npz","grail_smplx_recon","holosoma_global_positions","bvh","fbx")); parser.add_argument("--bvh-format",default="lafan1",choices=("lafan1","xsens","nokov"),help="explicit BVH unit/axis profile"); parser.add_argument("--config",type=Path,default=DEFAULT_CONFIG); parser.add_argument("--body_models",type=Path,default=ROOT/"assets/body_models"); parser.add_argument("--tgt_fps",type=float,default=50.); parser.add_argument("--solver",choices=("daqp","proxqp"),default="daqp"); parser.add_argument("--task-family",choices=("flat_motion","terrain_locomotion"),default=None); parser.add_argument("--terrain-kind",choices=("flat","stairs","ramp"),default=None); parser.add_argument("--interaction-mode",choices=("feet_only",),default=None); parser.add_argument("--max_frames",type=int,default=None); parser.add_argument("--save-invalid-debug",action="store_true"); args=parser.parse_args()
+    try:
+        result=run(args)
+    except ScopeAdmissionError as error:
+        output = args.output
+        if args.job is not None:
+            job = json.loads(args.job.read_text(encoding="utf-8"))
+            output = Path(job.get("output", {}).get("path", output or "work/v5_result.pkl"))
+            if not output.is_absolute():
+                output = (args.job.parent / output).resolve()
+        output = Path(output or "work/v5_result.pkl").expanduser().resolve()
+        report_path = output.with_suffix(".status.json")
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report = {
+            **error.decision.to_dict(),
+            "motion": str(args.motion) if args.motion is not None else None,
+            "job": str(args.job) if args.job is not None else None,
+            "formal_motion_written": False,
+        }
+        report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        print(f"WholeBody V5: {error.decision.status.value}\nReport: {report_path}")
+        raise SystemExit(3 if error.decision.status.value == "EXCLUDED" else 4)
+    except (FileNotFoundError, ValueError) as error:
+        # Input/scene contract failures are first-class batch outcomes, not
+        # unstructured tracebacks.  Keep the report next to the requested
+        # output while preserving a non-zero exit code.
+        output = args.output or Path("work/v5_result.pkl")
+        if args.job is not None:
+            try:
+                job = json.loads(args.job.read_text(encoding="utf-8"))
+                output = Path(job.get("output", {}).get("path", output))
+                if not output.is_absolute():
+                    output = (args.job.parent / output).resolve()
+            except Exception:
+                pass
+        output = Path(output).expanduser().resolve()
+        report_path = output.with_suffix(".status.json")
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(json.dumps({
+            "status": "INPUT_ERROR", "reason_code": type(error).__name__,
+            "error": str(error), "formal_motion_written": False,
+        }, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        print(f"WholeBody V5: INPUT_ERROR\nReport: {report_path}")
+        raise SystemExit(4)
+    except RuntimeError as error:
+        if "V5 validation failed" not in str(error):
+            raise
+        print(f"WholeBody V5: INVALID\n{error}")
+        raise SystemExit(2)
     # A debug artifact may be written for an invalid solve, but the CLI must
     # still be machine-detectable as failed.  Callers can explicitly opt into
     # inspecting the ``.INVALID_DEBUG`` files without mistaking them for a
