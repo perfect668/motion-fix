@@ -443,6 +443,9 @@ class _ContactTask(Task):
         names = list(self.points); self.names = names
         self.normal_cost = float(config.get("normal_cost", 40.))
         self.tangent_cost = float(config.get("tangent_cost", 12.))
+        self.static_transition_cost = float(
+            config.get("static_transition_cost", self.tangent_cost)
+        )
         # A sliding contact follows the source tangential trajectory with a
         # deliberately softer objective.  Leaving all tangential rows at
         # zero lets a foot drift off a stair tread while its normal distance
@@ -459,6 +462,9 @@ class _ContactTask(Task):
         # still entering. Ordinary IK leaves this at zero and uses the
         # detector activation unchanged.
         self.activation_floor = 0.0
+        self.task_activation_floor = float(
+            config.get("task_activation_floor", 0.20)
+        )
         # Support validation uses the actual foot collision spheres rather
         # than the visual/contact site centres.  Keep this mapping inferred
         # from model names so another robot profile can provide its own
@@ -490,6 +496,22 @@ class _ContactTask(Task):
         """Return the lowest physical collision-surface point for a foot."""
         point, _ = self._support_point_and_geom(configuration, channel, normal)
         return point
+
+    def tangent_value(self, configuration, channel: str) -> np.ndarray:
+        """Return the stable physical feature used for tangential sticking.
+
+        Normal support is measured at the lowest collision-sphere surface,
+        which changes as the sole normal changes and as the minimum switches
+        between the inner and outer sphere.  That is intentionally *not* a
+        valid temporal anchor.  The configured contact proxy is fixed in the
+        foot body frame and therefore owns all tangent anchors and drift
+        measurements.
+        """
+        return self.points[channel].value(configuration)
+
+    def tangent_jacobian(self, configuration, channel: str) -> np.ndarray:
+        """Return the Jacobian of :meth:`tangent_value`."""
+        return self.points[channel].jacobian(configuration)
 
     def _support_point_and_geom(self, configuration, channel: str, normal: np.ndarray):
         """Return the selected physical foot support point and its geom id.
@@ -563,12 +585,8 @@ class _ContactTask(Task):
             normal /= max(float(np.linalg.norm(normal)), 1e-12)
             if name in self.support_geom_ids:
                 point, jacobian = self.support_jacobian(configuration, name, normal)
-                # A sphere's lowest surface point is the right normal-support
-                # proxy, but it moves around the sphere when the ankle rolls.
-                # Keep tangential sticking on the stable XML guard site so a
-                # foot roll does not manufacture artificial skating error.
-                tangent_point = self.points[name].value(configuration)
-                tangent_jacobian = self.points[name].jacobian(configuration)
+                tangent_point = self.tangent_value(configuration, name)
+                tangent_jacobian = self.tangent_jacobian(configuration, name)
             else:
                 point = self.points[name].value(configuration)
                 jacobian = self.points[name].jacobian(configuration)
@@ -582,7 +600,14 @@ class _ContactTask(Task):
             # the frame-smoothed task weight supplied by the source contact
             # detector.  Keeping these separate avoids a hard QP objective
             # discontinuity when a heel or butt contact enters/leaves.
-            active = float(item.get("activation", item.get("score", 0.0)))
+            confidence = float(item.get("activation", item.get("score", 0.0)))
+            # Detector confidence is intentionally smoothed for hysteresis,
+            # but it is not permission to keep attracting a released contact
+            # to the surface.  NONE keeps only the independent terrain
+            # non-penetration limit; all desired-contact rows are disabled.
+            active = 0.0 if state == "NONE" else confidence
+            if state != "NONE":
+                active = max(active, self.task_activation_floor)
             if state != "NONE" and self.activation_floor > 0.0:
                 active = max(active, self.activation_floor)
             tangent = self._tangent_basis(normal)
@@ -610,7 +635,11 @@ class _ContactTask(Task):
             tangent_weight = 0.0
             if not self.normal_only:
                 if state == "STATIC":
-                    tangent_weight = self.tangent_cost * active
+                    if bool(item.get("robot_static_anchor_bound", True)):
+                        transition = int(item.get("robot_static_anchor_age", 1)) <= 0
+                        tangent_weight = (
+                            self.static_transition_cost if transition else self.tangent_cost
+                        ) * active
                 elif state == "SLIDING":
                     tangent_weight = self.sliding_tangent_cost * active
             weights.extend((self.normal_cost * active, tangent_weight, tangent_weight))
@@ -702,7 +731,9 @@ class _FootNormalTask(Task):
             skew_current = np.array([[0., -current[2], current[1]], [current[2], 0., -current[0]], [-current[1], current[0], 0.]])
             skew_target = np.array([[0., -target[2], target[1]], [target[2], 0., -target[0]], [-target[1], target[0], 0.]])
             errors.extend(np.cross(current, target))
-            jacobian = skew_target @ (-skew_current @ angular)
+            # e = current x target, d(current) = omega x current.
+            # Therefore de = [target]x [current]x omega.
+            jacobian = skew_target @ skew_current @ angular
             jacobians.extend(tuple(jacobian[row] for row in range(3)))
             costs.extend((self.cost_value * activation,) * 3)
         return np.asarray(errors), np.asarray(jacobians), np.asarray(costs)
@@ -712,6 +743,246 @@ class _FootNormalTask(Task):
 
     def compute_jacobian(self, configuration):
         _, jacobian, costs = self._rows(configuration); self.cost = costs; return jacobian
+
+
+class _FootMotionTask(Task):
+    """Track source foot motion without flattening heel/toe roll phases.
+
+    The forward axis is active whenever a valid foot-to-toe vector exists.
+    The source sole normal is active only in flight; desired-contact normal
+    alignment remains exclusively owned by ``_FootNormalTask`` when heel and
+    toe are both on the same surface.
+    """
+
+    def __init__(self, model, config):
+        self.model = model
+        self.channels = (
+            ("left", "ANKLE_ROLL_L_LINK"),
+            ("right", "ANKLE_ROLL_R_LINK"),
+        )
+        self.body_ids = []
+        self.local_forward = []
+        self.local_normal = []
+        self.targets: dict[str, dict[str, Any]] = {}
+        self.previous_forward: dict[str, np.ndarray] = {}
+        self.previous_normal: dict[str, np.ndarray] = {}
+        self.swing_forward_cost = float(config.get("swing_forward_cost", 0.10))
+        self.support_forward_cost = float(config.get("support_forward_cost", 0.08))
+        self.swing_normal_cost = float(config.get("swing_normal_cost", 0.06))
+        data = mj.MjData(model)
+        data.qpos[:] = model.qpos0
+        mj.mj_forward(model, data)
+        for _, body_name in self.channels:
+            body_id = int(mj.mj_name2id(model, mj.mjtObj.mjOBJ_BODY, body_name))
+            if body_id < 0:
+                raise KeyError(f"V5 foot motion body does not exist: {body_name}")
+            rotation = data.xmat[body_id].reshape(3, 3)
+            self.body_ids.append(body_id)
+            self.local_forward.append(rotation.T @ np.array([1.0, 0.0, 0.0]))
+            self.local_normal.append(rotation.T @ np.array([0.0, 0.0, 1.0]))
+        super().__init__(
+            cost=np.zeros(12),
+            gain=float(config.get("gain", 0.30)),
+            lm_damping=1.0,
+        )
+
+    @staticmethod
+    def _unit(value: np.ndarray, fallback: np.ndarray) -> np.ndarray:
+        value = np.asarray(value, dtype=float).reshape(3)
+        length = float(np.linalg.norm(value))
+        return value / length if length > 1e-8 else np.asarray(fallback, dtype=float)
+
+    def set_target(self, source, contacts):
+        lateral = self._unit(
+            np.asarray(source["left_hip"]) - np.asarray(source["right_hip"]),
+            np.array([0.0, 1.0, 0.0]),
+        )
+        for side, _ in self.channels:
+            forward = self._unit(
+                np.asarray(source[f"{side}_toe"])
+                - np.asarray(source[f"{side}_foot"]),
+                self.previous_forward.get(side, np.array([1.0, 0.0, 0.0])),
+            )
+            if side in self.previous_forward and float(
+                forward @ self.previous_forward[side]
+            ) < -0.25:
+                forward = self.previous_forward[side].copy()
+            normal = self._unit(
+                np.cross(forward, lateral),
+                self.previous_normal.get(side, np.array([0.0, 0.0, 1.0])),
+            )
+            if normal[2] < 0.0:
+                normal *= -1.0
+            if side in self.previous_normal and float(
+                normal @ self.previous_normal[side]
+            ) < 0.0:
+                normal *= -1.0
+            # Re-orthogonalize forward so its residual cannot ask the ankle
+            # to satisfy an internally inconsistent source frame.
+            forward = self._unit(
+                forward - normal * float(forward @ normal),
+                self.previous_forward.get(side, np.array([1.0, 0.0, 0.0])),
+            )
+            self.previous_forward[side] = forward.copy()
+            self.previous_normal[side] = normal.copy()
+            heel_state = str(contacts.get(f"{side}_heel", {}).get("state", "NONE"))
+            toe_state = str(contacts.get(f"{side}_toe", {}).get("state", "NONE"))
+            flight = heel_state == "NONE" and toe_state == "NONE"
+            self.targets[side] = {
+                "forward": forward,
+                "normal": normal,
+                "forward_cost": (
+                    self.swing_forward_cost if flight else self.support_forward_cost
+                ),
+                "normal_cost": self.swing_normal_cost if flight else 0.0,
+                "mode": (
+                    "FLIGHT" if flight
+                    else "HEEL" if heel_state != "NONE" and toe_state == "NONE"
+                    else "TOE" if heel_state == "NONE" and toe_state != "NONE"
+                    else "DOUBLE"
+                ),
+            }
+
+    @staticmethod
+    def _skew(value):
+        x, y, z = np.asarray(value, dtype=float)
+        return np.array([[0.0, -z, y], [z, 0.0, -x], [-y, x, 0.0]])
+
+    def _rows(self, configuration):
+        configuration.update()
+        errors, jacobians, costs = [], [], []
+        for index, (side, _) in enumerate(self.channels):
+            target = self.targets.get(side)
+            body_id = self.body_ids[index]
+            position = np.zeros((3, self.model.nv))
+            angular = np.zeros_like(position)
+            mj.mj_jacBody(self.model, configuration.data, position, angular, body_id)
+            rotation = configuration.data.xmat[body_id].reshape(3, 3)
+            current_normal = rotation @ self.local_normal[index]
+            current_forward = rotation @ self.local_forward[index]
+            if target is None:
+                errors.extend(np.zeros(6))
+                jacobians.extend((np.zeros(self.model.nv),) * 6)
+                costs.extend(np.zeros(6))
+                continue
+            target_normal = target["normal"]
+            target_forward = target["forward"]
+            errors.extend(np.cross(current_normal, target_normal))
+            errors.extend(np.cross(current_forward, target_forward))
+            normal_jacobian = (
+                self._skew(target_normal) @ self._skew(current_normal) @ angular
+            )
+            forward_jacobian = (
+                self._skew(target_forward) @ self._skew(current_forward) @ angular
+            )
+            jacobians.extend(tuple(normal_jacobian[row] for row in range(3)))
+            jacobians.extend(tuple(forward_jacobian[row] for row in range(3)))
+            costs.extend((float(target["normal_cost"]),) * 3)
+            costs.extend((float(target["forward_cost"]),) * 3)
+        return np.asarray(errors), np.asarray(jacobians), np.asarray(costs)
+
+    def compute_error(self, configuration):
+        error, _, costs = self._rows(configuration)
+        self.cost = costs
+        return error
+
+    def compute_jacobian(self, configuration):
+        _, jacobian, costs = self._rows(configuration)
+        self.cost = costs
+        return jacobian
+
+
+class _FootTemporalTask(Task):
+    """Suppress STATIC tangent velocity between exported 50 Hz frames."""
+
+    CHANNELS = ("left_heel", "left_toe", "right_heel", "right_toe")
+
+    def __init__(self, model, contact: _ContactTask, dt: float, config):
+        self.model = model
+        self.contact = contact
+        self.dt = max(float(dt), 1e-9)
+        self.cost_value = float(config.get("cost", 0.08))
+        self.contacts: dict[str, dict[str, Any]] = {}
+        self.previous_output: dict[str, np.ndarray] = {}
+        self.frame_previous: dict[str, np.ndarray] = {}
+        self.previous_static: dict[str, bool] = {}
+        self.frame_active: dict[str, bool] = {}
+        super().__init__(
+            cost=np.zeros(8),
+            gain=float(config.get("gain", 0.35)),
+            lm_damping=1.0,
+        )
+
+    def begin_frame(self, configuration, contacts):
+        self.contacts = contacts or {}
+        self.frame_active = {}
+        self.frame_previous = {
+            name: self.previous_output.get(
+                name, self.contact.tangent_value(configuration, name)
+            ).copy()
+            for name in self.CHANNELS
+            if name in self.contact.points
+        }
+        for name in self.CHANNELS:
+            item = self.contacts.get(name, {})
+            self.frame_active[name] = bool(
+                self.previous_static.get(name, False)
+                and str(item.get("state", "NONE")) == "STATIC"
+                and bool(item.get("robot_static_anchor_bound", False))
+            )
+
+    def end_frame(self, configuration):
+        self.previous_output = {
+            name: self.contact.tangent_value(configuration, name).copy()
+            for name in self.CHANNELS
+            if name in self.contact.points
+        }
+        self.previous_static = {
+            name: bool(
+                str(self.contacts.get(name, {}).get("state", "NONE")) == "STATIC"
+                and self.contacts.get(name, {}).get("robot_static_anchor_bound", False)
+            )
+            for name in self.CHANNELS
+        }
+
+    def _rows(self, configuration):
+        errors, jacobians, costs = [], [], []
+        for name in self.CHANNELS:
+            item = self.contacts.get(name, {})
+            state = str(item.get("state", "NONE"))
+            active = (
+                self.frame_active.get(name, False)
+                and name in self.frame_previous
+            )
+            normal = np.asarray(
+                item.get("anchor_normal_solver", [0.0, 0.0, 1.0]),
+                dtype=float,
+            )
+            normal /= max(float(np.linalg.norm(normal)), 1e-12)
+            tangent = self.contact._tangent_basis(normal)
+            if active:
+                point = self.contact.tangent_value(configuration, name)
+                velocity = (point - self.frame_previous[name]) / self.dt
+                jacobian = self.contact.tangent_jacobian(configuration, name) / self.dt
+                activation = float(item.get("activation", item.get("score", 0.0)))
+            else:
+                velocity = np.zeros(3)
+                jacobian = np.zeros((3, self.model.nv))
+                activation = 0.0
+            errors.extend(tangent @ velocity)
+            jacobians.extend((tangent[0] @ jacobian, tangent[1] @ jacobian))
+            costs.extend((self.cost_value * activation,) * 2)
+        return np.asarray(errors), np.asarray(jacobians), np.asarray(costs)
+
+    def compute_error(self, configuration):
+        error, _, costs = self._rows(configuration)
+        self.cost = costs
+        return error
+
+    def compute_jacobian(self, configuration):
+        _, jacobian, costs = self._rows(configuration)
+        self.cost = costs
+        return jacobian
 
 
 class _SceneCollisionLimit(Limit):
@@ -1007,6 +1278,7 @@ class WholeBodyRetargetSolver:
         self._root_reference_surface_z: float | None = None
         self._robot_root_support_height: float | None = None
         self._root_vertical_scale = self.robot_height / max(self.human_height, 1e-6)
+        self.reference_metadata: dict[str, Any] = {}
         for name,bounds in self.config.get("joint_position_limits",{}).items():
             if name in [mj.mj_id2name(self.model,mj.mjtObj.mjOBJ_JOINT,i) for i in range(self.model.njnt)]:
                 jid=_joint_id(self.model, name)
@@ -1047,6 +1319,13 @@ class WholeBodyRetargetSolver:
         self.contact=_ContactTask(self.model,self.config.get("contact_tasks",{}).get("robot_points",{}),self.config.get("contact_tasks",{}))
         self.foot_normal = _FootNormalTask(
             self.model, self.config.get("foot_orientation", {})
+        )
+        self.foot_motion = _FootMotionTask(
+            self.model, self.config.get("foot_motion", {})
+        )
+        self.foot_temporal = _FootTemporalTask(
+            self.model, self.contact, self.dt,
+            self.config.get("foot_temporal", {}),
         )
         self.terrain_limit=TerrainNonPenetrationLimit(self.model,terrain,self.config.get("terrain_nonpenetration",{})); self.trust=_TrustLimit(self.model,self.config.get("solver",{}).get("trust_region",.12)); self.scene_collision=_SceneCollisionLimit(self.model,self.config.get("scene_collision",{}))
         self.frame_displacement = _FrameDisplacementLimit(
@@ -1150,115 +1429,15 @@ class WholeBodyRetargetSolver:
         return float(low), bool(safe)
 
     def root_target(self, source, frame, contact_frame):
-        """Return a root target with generic support-aware vertical policy.
-
-        Scene geometry remains metric and root XY/yaw follows the source.  Z
-        is the only coordinate adjusted: active lower-body contacts place the
-        robot's corresponding proxy on the inferred surface; with no active
-        support, morphology maps the source pelvis height relative to the
-        analytic floor.  This prevents adult-scale pelvis Z from making a
-        shorter robot float while preserving flight/crouch trajectories.
-        """
+        """Return the pelvis target from the unified robot reference motion."""
+        del source, contact_frame
         pelvis_target, pelvis_quaternion = frame.get("pelvis", frame.get("root"))
-        target = np.asarray(pelvis_target, dtype=float).copy()
-        if self.root_policy in {"source", "disabled"}:
-            return target, np.asarray(pelvis_quaternion, dtype=float)
-        # V5 is deliberately a foot-supported terrain solver.  Keep this
-        # policy feet-only even when an inherited/legacy config still carries
-        # body-contact names: root height is never inferred from butt/back or
-        # hand contacts in the terrain-only scope.
-        configured_support = self.config.get("morphology", {}).get(
-            "root_support_channels",
-            ("left_heel", "left_toe", "right_heel", "right_toe"),
+        return (
+            np.asarray(pelvis_target, dtype=float).copy(),
+            np.asarray(pelvis_quaternion, dtype=float).copy(),
         )
-        support_channels = tuple(
-            name for name in configured_support
-            if name in {"left_heel", "left_toe", "right_heel", "right_toe"}
-        )
-        contacts = contact_frame.get("contacts", {}) if isinstance(contact_frame, dict) else {}
-        foot_corrections = []
-        for channel in support_channels:
-            item = contacts.get(channel, {})
-            state = str(item.get("state", "NONE"))
-            activation = float(item.get("activation", item.get("score", 0.0)))
-            # Root support correction follows the physical scene surface;
-            # robot static anchors only define tangential sticking.
-            surface = item.get("surface_point_solver")
-            if state == "NONE" or activation <= 0.05 or surface is None or channel not in self.contact.points:
-                continue
-            normal = np.asarray(item.get(
-                "anchor_normal_solver" if state == "STATIC" else "surface_normal_solver",
-                [0., 0., 1.],
-            ), dtype=float)
-            normal /= max(float(np.linalg.norm(normal)), 1e-12)
-            if channel in self.contact.support_geom_ids:
-                robot_point = self.contact.support_value(self.configuration, channel, normal)
-            else:
-                robot_point = self.contact.points[channel].value(self.configuration)
-            # A vertical root correction is valid for support surfaces whose
-            # normal has an upward component.  Side-wall hand contacts never
-            # become accidental root supports.
-            if normal[2] <= 0.6:
-                continue
-            surface = np.asarray(surface, dtype=float)
-            correction = (
-                float(
-                    (self.contact.clearance - normal @ (robot_point - surface))
-                    / max(float(normal[2]), 1e-6)
-                ),
-                float(np.clip(activation, 0.0, 1.0)),
-            )
-            foot_corrections.append(correction)
-        if foot_corrections:
-            # A weighted median is robust when heel and toe are briefly on
-            # different stair facets.  A weighted mean would let one noisy
-            # proxy pull the entire floating base down.  The correction is
-            # additionally bounded by policy; large residuals indicate a
-            # morphology/scene mismatch and must be reported by validation,
-            # not hidden by a root teleport.
-            ordered = sorted(foot_corrections, key=lambda item: item[0])
-            total_weight = sum(item[1] for item in ordered)
-            if total_weight > 1e-9:
-                half = 0.5 * total_weight
-                cumulative = 0.0
-                target_delta = ordered[-1][0]
-                for value, weight in ordered:
-                    cumulative += weight
-                    if cumulative >= half:
-                        target_delta = value
-                        break
-                max_correction = float(
-                    self.config.get("morphology", {}).get(
-                        "root_max_vertical_correction", 0.03
-                    )
-                )
-                target_delta = float(np.clip(target_delta, -max_correction, max_correction))
-                target[2] = float(
-                    self.configuration.data.xpos[self.root.body_id, 2] + target_delta
-                )
-            return target, np.asarray(pelvis_quaternion, dtype=float)
-        floor = getattr(self.terrain, "floor_z", None)
-        source_pelvis = np.asarray(source.get("pelvis", target), dtype=float)
-        if self._root_reference_pelvis_z is not None and self._robot_root_support_height is not None:
-            # The source reference is a support-phase pelvis height, not an
-            # absolute origin.  This preserves jumps/crouches while making a
-            # standing frame place the robot's measured sole proxies on the
-            # scene support surface.
-            surface_z = self._root_reference_surface_z
-            if surface_z is None:
-                surface_z = float(floor) if floor is not None else 0.0
-            target[2] = float(
-                surface_z
-                + self._robot_root_support_height
-                + (float(source_pelvis[2]) - self._root_reference_pelvis_z)
-                * self._root_vertical_scale
-            )
-        elif floor is not None and np.isfinite(float(floor)) and self.human_height > 1e-6:
-            relative = max(0.0, float(source_pelvis[2] - float(floor)))
-            target[2] = float(floor) + relative * self._root_vertical_scale
-        return target, np.asarray(pelvis_quaternion, dtype=float)
 
-    def _configure_root_reference(self, source_frames, contact_frames) -> None:
+    def _configure_root_reference(self, source_frames, contact_frames) -> np.ndarray:
         """Measure one source/robot support baseline before the IK loop.
 
         Contact detection remains source-only.  This method only converts the
@@ -1269,16 +1448,25 @@ class WholeBodyRetargetSolver:
         root_z = float(self.configuration.data.xpos[self.root.body_id, 2])
         foot_heights = []
         for name in ("left_heel", "left_toe", "right_heel", "right_toe"):
-            point = self.contact.points.get(name)
-            if point is not None:
-                foot_heights.append(float(point.value(self.configuration)[2]))
+            if name in self.contact.support_geom_ids:
+                foot_heights.append(float(self.contact.support_value(
+                    self.configuration, name, np.array([0.0, 0.0, 1.0])
+                )[2]))
+            elif name in self.contact.points:
+                foot_heights.append(float(
+                    self.contact.points[name].value(self.configuration)[2]
+                ))
         if not foot_heights:
-            return
+            return np.zeros(len(source_frames), dtype=float)
         self._robot_root_support_height = root_z - float(np.median(foot_heights))
 
-        pelvis_values = []
-        surface_values = []
-        for source, frame in zip(source_frames, contact_frames):
+        pelvis_values = np.asarray([
+            float(np.asarray(source["pelvis"], dtype=float)[2])
+            for source in source_frames
+        ])
+        observed_surfaces = np.full(len(source_frames), np.nan, dtype=float)
+        clearances = []
+        for index, (source, frame) in enumerate(zip(source_frames, contact_frames)):
             pelvis = source.get("pelvis")
             if pelvis is None:
                 continue
@@ -1296,28 +1484,87 @@ class WholeBodyRetargetSolver:
                 if surface is not None and np.isfinite(np.asarray(surface, dtype=float)).all() and normal[2] > 0.6:
                     candidates.append(float(np.asarray(surface, dtype=float).reshape(3)[2]))
             if candidates and (support_state in {"SUPPORTED", ""} or contacts):
-                pelvis_values.append(float(np.asarray(pelvis, dtype=float)[2]))
-                surface_values.append(float(np.median(candidates)))
-        if pelvis_values:
-            self._root_reference_pelvis_z = float(np.median(pelvis_values))
-            self._root_reference_surface_z = float(np.median(surface_values))
-            return
+                observed_surfaces[index] = float(np.median(candidates))
+                clearances.append(pelvis_values[index] - observed_surfaces[index])
 
-        # No declared contact episode: use a robust source foot baseline as a
-        # fallback, but never let this become a successful no-contact claim in
-        # final validation.
-        source_support = []
-        for source in source_frames:
-            for channel in ("left_heel", "left_toe", "right_heel", "right_toe", "left_foot", "right_foot"):
-                if channel in source:
-                    source_support.append(float(np.asarray(source[channel], dtype=float)[2]))
-        if source_support and source_frames:
-            self._root_reference_surface_z = float(
-                getattr(self.terrain, "floor_z", 0.0) if getattr(self.terrain, "floor_z", None) is not None else 0.0
+        known = np.flatnonzero(np.isfinite(observed_surfaces))
+        floor = getattr(self.terrain, "floor_z", None)
+        fallback_surface = float(floor) if floor is not None else 0.0
+        if len(known):
+            surface_track = np.interp(
+                np.arange(len(source_frames), dtype=float),
+                known.astype(float),
+                observed_surfaces[known],
             )
-            self._root_reference_pelvis_z = float(
-                np.median([float(np.asarray(source.get("pelvis"), dtype=float)[2]) for source in source_frames if source.get("pelvis") is not None])
+            baseline_clearance = float(np.median(clearances))
+        else:
+            surface_track = np.full(len(source_frames), fallback_surface)
+            foot_clearances = []
+            for source in source_frames:
+                feet = [
+                    float(np.asarray(source[name], dtype=float)[2])
+                    for name in ("left_heel", "left_toe", "right_heel", "right_toe",
+                                 "left_foot", "right_foot")
+                    if name in source
+                ]
+                if feet:
+                    foot_clearances.append(
+                        float(np.asarray(source["pelvis"], dtype=float)[2])
+                        - min(feet)
+                    )
+            baseline_clearance = float(np.median(foot_clearances)) if foot_clearances else float(
+                np.median(pelvis_values - fallback_surface)
             )
+        self._root_reference_pelvis_z = baseline_clearance
+        self._root_reference_surface_z = float(np.median(surface_track))
+        target_pelvis_z = (
+            surface_track
+            + float(self._robot_root_support_height)
+            + (pelvis_values - surface_track - baseline_clearance)
+            * self._root_vertical_scale
+        )
+        offsets = target_pelvis_z - pelvis_values
+        self.reference_metadata = {
+            "policy": "terrain_relative_robot_reference",
+            "robot_root_support_height": float(self._robot_root_support_height),
+            "source_support_clearance": baseline_clearance,
+            "vertical_scale": float(self._root_vertical_scale),
+            "observed_support_frames": int(len(known)),
+            "minimum_vertical_offset": float(np.min(offsets, initial=0.0)),
+            "maximum_vertical_offset": float(np.max(offsets, initial=0.0)),
+        }
+        return offsets
+
+    def _prepare_robot_reference_motion(
+        self, source_frames, solver_frames, contact_frames
+    ):
+        """Apply one shared height correction to every robot target point."""
+        references = [
+            {name: np.asarray(value, dtype=float).copy() for name, value in frame.items()}
+            for frame in source_frames
+        ]
+        targets = [
+            {
+                name: (
+                    np.asarray(value[0], dtype=float).copy(),
+                    np.asarray(value[1], dtype=float).copy(),
+                )
+                for name, value in frame.items()
+            }
+            for frame in solver_frames
+        ]
+        if self.root_policy in {"source", "disabled"}:
+            self.reference_metadata = {"policy": self.root_policy}
+            return references, targets
+        offsets = self._configure_root_reference(references, contact_frames)
+        for index, offset in enumerate(offsets):
+            translation = np.array([0.0, 0.0, float(offset)])
+            for name in references[index]:
+                if references[index][name].shape == (3,):
+                    references[index][name] += translation
+            for name, (position, quaternion) in targets[index].items():
+                targets[index][name] = (position + translation, quaternion)
+        return references, targets
 
     def _update_scene_time(self, timestamp: float) -> None:
         """Update dynamic query geometry and MuJoCo mocap bodies together."""
@@ -1459,7 +1706,9 @@ class WholeBodyRetargetSolver:
             normal /= max(float(np.linalg.norm(normal)), 1e-12)
             if channel in self.contact.support_geom_ids:
                 point = self.contact.support_value(self.configuration, channel, normal)
-                tangent_point = self.contact.points[channel].value(self.configuration)
+                tangent_point = self.contact.tangent_value(
+                    self.configuration, channel
+                )
             else:
                 point = self.contact.points[channel].value(self.configuration)
                 tangent_point = point
@@ -1659,6 +1908,16 @@ class WholeBodyRetargetSolver:
             support_posture.set_target(before)
             polish_tasks.append(support_posture)
         original_radius = self.trust.radius
+        original_normal_only = bool(self.contact.normal_only)
+        # A newly bound STATIC support may still need a small normal polish,
+        # but releasing its tangential rows during that probe lets the
+        # articulated correction move the freshly locked feature by an entire
+        # frame.  Preserve the anchor for STATIC channels while leaving
+        # SLIDING/swing behavior unchanged.
+        if str(item.get("state", "NONE")) == "STATIC" and bool(
+            item.get("robot_static_anchor_bound", False)
+        ):
+            self.contact.normal_only = False
         self.trust.radius = min(
             original_radius,
             max(float(contact_cfg.get("polish_trust_region", 0.02)), 1e-4),
@@ -1678,6 +1937,7 @@ class WholeBodyRetargetSolver:
             reason = f"qp {type(error).__name__}: {error}"
         finally:
             self.trust.radius = original_radius
+            self.contact.normal_only = original_normal_only
             self.frame_displacement.linear_limit = old_linear_limit
             self.frame_displacement.angular_limit = old_angular_limit
         if correction is None:
@@ -1801,15 +2061,35 @@ class WholeBodyRetargetSolver:
         creates large lateral leg twists.
         """
         contacts = {}
+        solver_config = getattr(self, "config", {})
+        contact_config = solver_config.get("contact_tasks", {})
+        bind_activation = float(
+            contact_config.get("static_anchor_activation", 0.25)
+        )
+        bind_normal_error = float(
+            contact_config.get("static_anchor_max_normal_error", 0.012)
+        )
+        default_release_steps = 3 if hasattr(self, "config") else 1
+        release_steps = max(
+            1, int(contact_config.get("static_anchor_release_steps", default_release_steps))
+        )
         assets = {
             str(asset.asset_id): asset for asset in getattr(self.scene_model, "assets", [])
         }
         active_channels = set()
+        seen_channels = set()
         for channel, original in contact_frame.get("contacts", {}).items():
+            seen_channels.add(channel)
             item = dict(original)
             state = str(item.get("state", "NONE"))
             if state != "STATIC" or channel not in self.contact.points:
-                self._robot_static_anchors.pop(channel, None)
+                anchor = self._robot_static_anchors.get(channel)
+                if anchor is not None:
+                    anchor["inactive_steps"] = int(
+                        anchor.get("inactive_steps", 0)
+                    ) + 1
+                    if anchor["inactive_steps"] >= release_steps:
+                        self._robot_static_anchors.pop(channel, None)
                 contacts[channel] = item
                 continue
             active_channels.add(channel)
@@ -1819,17 +2099,47 @@ class WholeBodyRetargetSolver:
                 str(item.get("anchor_surface_id", item.get("surface_id", ""))),
             )
             anchor = self._robot_static_anchors.get(channel)
-            if anchor is None or anchor.get("episode_key") != episode_key:
+            if anchor is not None and anchor.get("episode_key") != episode_key:
+                anchor = None
+                self._robot_static_anchors.pop(channel, None)
+            activation = float(item.get("activation", item.get("score", 0.0)))
+            activation_declared = "activation" in item or "score" in item
+            normal = np.asarray(
+                item.get("surface_normal_solver", [0.0, 0.0, 1.0]),
+                dtype=float,
+            )
+            normal /= max(float(np.linalg.norm(normal)), 1e-12)
+            surface_value = item.get("surface_point_solver")
+            normal_error = 0.0
+            if surface_value is not None:
+                surface = np.asarray(surface_value, dtype=float).reshape(3)
                 if channel in getattr(self.contact, "support_geom_ids", {}):
-                    anchor_normal = np.asarray(
-                        original.get("surface_normal_solver", [0., 0., 1.]),
-                        dtype=float,
+                    support = self.contact.support_value(
+                        self.configuration, channel, normal
                     )
-                    world_point = self.contact.support_value(
-                        self.configuration, channel, anchor_normal
+                else:
+                    support = self.contact.points[channel].value(
+                        self.configuration
+                    )
+                normal_error = abs(float(
+                    normal @ (support - surface)
+                    - float(getattr(self.contact, "clearance", 0.0))
+                ))
+            bind_ready = (
+                (activation >= bind_activation or not activation_declared)
+                and normal_error <= bind_normal_error
+            )
+            created_anchor = False
+            if anchor is None and bind_ready:
+                tangent_value = getattr(self.contact, "tangent_value", None)
+                if tangent_value is not None:
+                    world_point = tangent_value(
+                        self.configuration, channel
                     ).copy()
                 else:
-                    world_point = self.contact.points[channel].value(self.configuration).copy()
+                    world_point = self.contact.points[channel].value(
+                        self.configuration
+                    ).copy()
                 asset = assets.get(object_id)
                 local_point = None
                 if asset is not None:
@@ -1842,8 +2152,20 @@ class WholeBodyRetargetSolver:
                     "episode_key": episode_key,
                     "world_point": world_point,
                     "asset_local_point": local_point,
+                    "feature": "configured_body_local_contact_proxy",
+                    "inactive_steps": 0,
+                    "age": 0,
                 }
                 self._robot_static_anchors[channel] = anchor
+                created_anchor = True
+            if anchor is None:
+                item["robot_static_anchor_bound"] = False
+                item["robot_static_anchor_normal_error"] = float(normal_error)
+                contacts[channel] = item
+                continue
+            anchor["inactive_steps"] = 0
+            if not created_anchor:
+                anchor["age"] = int(anchor.get("age", 0)) + 1
             asset = assets.get(object_id)
             if asset is not None and anchor["asset_local_point"] is not None:
                 pose = asset.pose_at(timestamp)
@@ -1859,9 +2181,13 @@ class WholeBodyRetargetSolver:
             ).copy()
             item["tangent_anchor_solver"] = tangent_anchor.copy()
             item["robot_tangent_anchor_provenance"] = "realized_robot_static_episode"
+            item["robot_tangent_feature"] = str(anchor["feature"])
+            item["robot_static_anchor_bound"] = True
+            item["robot_static_anchor_age"] = int(anchor.get("age", 0))
+            item["robot_static_anchor_normal_error"] = float(normal_error)
             contacts[channel] = item
         for channel in tuple(self._robot_static_anchors):
-            if channel not in active_channels:
+            if channel not in seen_channels:
                 self._robot_static_anchors.pop(channel, None)
         return {**contact_frame, "contacts": contacts}
 
@@ -1879,7 +2205,9 @@ class WholeBodyRetargetSolver:
         if source_frames is not None and len(source_frames) != len(solver_frames):
             raise ValueError(f"V5 source/solver timeline mismatch: {len(source_frames)} != {len(solver_frames)}")
         if source_frames is not None:
-            self._configure_root_reference(source_frames, contacts)
+            source_frames, solver_frames = self._prepare_robot_reference_motion(
+                source_frames, solver_frames, contacts
+            )
         for index,(frame,contact_frame) in enumerate(zip(solver_frames,contacts)):
             self._update_scene_time(index * self.dt)
             contact_frame = self._contact_frame_at_time(contact_frame, index * self.dt)
@@ -2394,6 +2722,7 @@ class WholeBodyRetargetSolver:
             self.terrain_limit.prepare_active_set(self.configuration, solve_dt)
             self.scene_collision.prepare_active_set(self.configuration, solve_dt)
             output=self.configuration.data.qpos.copy()
+            self.foot_temporal.end_frame(self.configuration)
             interaction_error = float(np.linalg.norm(self.interaction.compute_error(self.configuration)))
             contact_metrics = {}
             for channel, item in contact_frame.get("contacts", {}).items():
@@ -2422,7 +2751,16 @@ class WholeBodyRetargetSolver:
                     anchor = np.asarray(item.get("tangent_anchor_solver", surface), dtype=float)
                     tangent = self.contact._tangent_basis(normal)
                     if state == "STATIC":
-                        actual_tangent = float(np.linalg.norm(tangent @ (robot_point - anchor)))
+                        tangent_value = getattr(self.contact, "tangent_value", None)
+                        tangent_point = (
+                            tangent_value(self.configuration, channel)
+                            if tangent_value is not None
+                            else self.contact.points[channel].value(self.configuration)
+                        )
+                        if bool(item.get("robot_static_anchor_bound", True)):
+                            actual_tangent = float(
+                                np.linalg.norm(tangent @ (tangent_point - anchor))
+                            )
                 contact_metrics[channel] = {
                     "source_state": str(item.get("source_state", item.get("state", "NONE"))),
                     "robot_state": str(item.get("state", "NONE")),
@@ -2464,10 +2802,12 @@ class WholeBodyRetargetSolver:
             metadata={
                 "provenance": "v5_solver_runtime_realization",
                 "source_frame_count": len(contacts),
+                "robot_reference": copy.deepcopy(self.reference_metadata),
             },
         )
         return RetargetResult(
-            np.asarray(outputs), self.fps, self.diagnostics,
+            np.asarray(outputs, dtype=float).reshape((-1, self.model.nq)),
+            self.fps, self.diagnostics,
             contact_plan=runtime_plan, status=status, failure=fatal_failure
         )
 

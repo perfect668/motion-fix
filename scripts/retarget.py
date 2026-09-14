@@ -584,7 +584,7 @@ def run(args):
     # transform exactly once before constructing solver targets.
     source_positions_for_contacts = contact_motion_full.positions.copy()
     canonical.positions = transform.transform_points(canonical.positions)
-    source_frames,solver_frames,_=build_solver_inputs(canonical)
+    source_evidence_frames,solver_frames,_=build_solver_inputs(canonical)
     morphology_policy = (job.get("morphology", {}) if job else {}) or cfg.get("morphology", {})
     base_robot_xml = _configured_robot_xml(config, cfg)
     robot_chain_lengths, robot_provenance = measure_robot_chain_lengths(
@@ -597,7 +597,9 @@ def run(args):
         robot_chain_lengths=robot_chain_lengths,
         robot_provenance=robot_provenance,
     )
-    source_frames, solver_frames = _apply_morphology_inputs(source_frames, solver_frames, morphology)
+    robot_reference_frames, solver_frames = _apply_morphology_inputs(
+        source_evidence_frames, solver_frames, morphology
+    )
     # Positions are already in solver coordinates.  Applying the transform a
     # second time here would scale/translate contact references twice and is a
     # direct source of bent legs and detached scene assets.
@@ -761,7 +763,7 @@ def run(args):
         canonical,
         solver_frames,
         realized_schedule,
-        source_frames,
+        robot_reference_frames,
         source_scene_ok=motion_scene_alignment.get("status") != "INCONSISTENT_EVIDENCE",
         scene_alignment_ok=scene_alignment.get("status") != "FAIL",
     )
@@ -809,6 +811,7 @@ def run(args):
         "canonical_provenance": canonical.landmark_provenance,
         "canonical_metadata": jsonable(canonical.metadata),
         "morphology": jsonable(morphology),
+        "robot_reference": jsonable(solver.reference_metadata),
         "scene_relation": bundle.scene_relation.value,
         "scene_alignment": scene_alignment,
         "scene_manifest": scene_manifest_payload,

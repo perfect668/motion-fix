@@ -27,7 +27,7 @@
     "root_support_channels": ["left_heel", "left_toe", "right_heel", "right_toe"],
     "root_max_vertical_correction": 0.03
   },
-  "global_anchor": {"source": "pelvis", "robot_body": "base_link", "cost": [60.0, 60.0, 12.0, 8.0, 8.0, 8.0]},
+  "global_anchor": {"source": "pelvis", "robot_body": "base_link", "cost": [8.0, 8.0, 12.0, 4.0, 4.0, 4.0]},
   "semantic_points": {
     "pelvis": {"source": "pelvis", "robot": {"body": "base_link", "offsets": [[0, 0, 0]]}},
     "left_hip": {"source": "left_hip", "robot": {"body": "HIP_PITCH_L_LINK", "offsets": [[0, 0, 0]]}},
@@ -49,8 +49,9 @@
   "bone_direction": {"cost": 1.5, "gain": 0.3},
   "limb_plane": {"cost": 0.6, "gain": 0.2},
   "contact_tasks": {
-    "normal_cost": 240.0, "tangent_cost": 12.0, "sliding_tangent_ratio": 0.75, "sliding_tangent_cost": 20.0, "clearance": 0.004,
-    "polish_iterations": 2, "polish_trust_region": 0.015,
+    "normal_cost": 240.0, "tangent_cost": 45.0, "static_transition_cost": 90.0, "sliding_tangent_ratio": 0.75, "sliding_tangent_cost": 33.75, "task_activation_floor": 0.20, "clearance": 0.004,
+    "static_anchor_activation": 0.25, "static_anchor_max_normal_error": 0.012, "static_anchor_release_steps": 3,
+    "polish_iterations": 3, "polish_trust_region": 0.015,
     "polish_residual_threshold": 0.008, "support_polish_residual_threshold": 0.001, "support_polish_activation": 0.25, "per_channel_polish": false, "per_channel_fallback": false, "per_channel_max_attempts": 0, "per_channel_min_improvement": 0.00001, "support_polish_base_linear_velocity_limit": 0.20, "support_polish_base_angular_velocity_limit": 0.50, "support_polish_leg_preference": true, "support_polish_root_cost": 30.0, "support_polish_other_cost": 15.0, "support_polish_hip_cost": 0.20, "support_polish_knee_cost": 0.08, "support_polish_ankle_cost": 0.02, "support_polish_posture_gain": 0.50, "polish_activation": 0.25, "polish_tangent": false, "polish_tangent_threshold": 0.04,
     "robot_points": {
       "left_heel": {"sites": ["ground_guard_left_heel_inner", "ground_guard_left_heel_outer"]},
@@ -63,6 +64,16 @@
     "cost": 0.25,
     "gain": 0.35,
     "activation_floor": 0.3
+  },
+  "foot_motion": {
+    "swing_forward_cost": 0.10,
+    "support_forward_cost": 0.08,
+    "swing_normal_cost": 0.06,
+    "gain": 0.30
+  },
+  "foot_temporal": {
+    "cost": 0.20,
+    "gain": 0.35
   },
   "terrain_contact": {
     "contact_enter_distance": 0.03,
@@ -100,7 +111,7 @@
   "solver": {
     "damping": 0.1,
     "trust_region": 0.12,
-    "joint_velocity_limit": 9.4247779608, "base_linear_velocity_limit": 1.0, "base_angular_velocity_limit": 4.0,
+    "joint_velocity_limit": 9.4247779608, "base_linear_velocity_limit": 2.5, "base_angular_velocity_limit": 4.0,
     "first_frame_iterations": 8,
     "progress_interval": 25,
     "iterations": 4,

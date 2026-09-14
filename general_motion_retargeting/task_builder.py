@@ -25,12 +25,18 @@ class TaskBuilder:
         solver.torso.set_source(source, root[1], solver.configuration.data.qpos)
         solver.contact.set_contacts(contact_frame.get("contacts", {}))
         solver.foot_normal.set_contacts(contact_frame.get("contacts", {}))
+        solver.foot_motion.set_target(source, contact_frame.get("contacts", {}))
+        solver.foot_temporal.begin_frame(
+            solver.configuration, contact_frame.get("contacts", {})
+        )
         tasks = [
             solver.interaction,
             solver.bone_direction,
             solver.limb_plane,
             solver.contact,
             solver.foot_normal,
+            solver.foot_motion,
+            solver.foot_temporal,
             solver.root,
             solver.torso.task,
             solver.nominal,

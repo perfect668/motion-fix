@@ -300,6 +300,7 @@ def _replay_support(solver, contact_plan, qpos_sequence: np.ndarray) -> dict:
     expected = covered = failed = unknown = 0
     failed_indices: list[int] = []
     deferred_indices: list[int] = []
+    covered_indices: set[int] = set()
     state_counts = {"SUPPORTED": 0, "FLIGHT": 0, "UNKNOWN": 0}
     maximum_gap = 0.0
     activation_floor = float(
@@ -468,6 +469,7 @@ def _replay_support(solver, contact_plan, qpos_sequence: np.ndarray) -> dict:
             solver.config.get("validation", {}).get("max_support_penetration", 0.002)
         ) and max(frame_gaps) <= gap_limit:
             covered += 1
+            covered_indices.add(index)
         else:
             failed += 1
             failed_indices.append(index)
@@ -488,7 +490,11 @@ def _replay_support(solver, contact_plan, qpos_sequence: np.ndarray) -> dict:
             overflow = run[blend_window:]
             # Transition frames that already failed the physical gap check
             # must not be counted twice when the bounded-ramp rule is applied.
-            new_failures = [frame_index for frame_index in overflow if frame_index not in failed_indices]
+            new_failures = [
+                frame_index for frame_index in overflow
+                if frame_index not in failed_indices
+                and frame_index not in covered_indices
+            ]
             failed_indices.extend(new_failures)
             failed += len(new_failures)
         run = [] if index is None else [index]
@@ -608,9 +614,17 @@ def _replay_contacts(solver, contact_plan, qpos_sequence: np.ndarray) -> dict:
             normal_residual = abs(float(normal @ (point - surface) - solver.contact.clearance))
             tangent = solver.contact._tangent_basis(normal)
             anchor = np.asarray(item.get("tangent_anchor_solver", surface), dtype=float)
+            tangent_value = getattr(solver.contact, "tangent_value", None)
+            tangent_point = (
+                tangent_value(solver.configuration, channel)
+                if tangent_value is not None
+                else solver.contact.points[channel].value(solver.configuration)
+            )
             tangent_residual = (
-                float(np.linalg.norm(tangent @ (point - anchor)))
-                if state == "STATIC" else 0.0
+                float(np.linalg.norm(tangent @ (tangent_point - anchor)))
+                if state == "STATIC"
+                and bool(item.get("robot_static_anchor_bound", True))
+                else 0.0
             )
             raw_maximum_normal = max(raw_maximum_normal, normal_residual)
             raw_maximum_tangent = max(raw_maximum_tangent, tangent_residual)

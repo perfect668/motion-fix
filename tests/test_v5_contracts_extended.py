@@ -173,6 +173,304 @@ def test_v5_frame_displacement_limit_is_expressed_in_delta_q():
     assert updated.h[x_row] == pytest.approx(0.005)
 
 
+def _v5_ne01_contact_config():
+    import json
+    from pathlib import Path
+
+    path = (
+        Path(__file__).parents[1]
+        / "general_motion_retargeting/ik_configs/smplx_to_ne01_wholebody_omni_gmr_v5.json"
+    )
+    return json.loads(path.read_text())["contact_tasks"]
+
+
+def test_v5_none_contact_disables_attraction_but_not_terrain_limit():
+    import mink
+    import mujoco as mj
+    from general_motion_retargeting.wholebody_omni_gmr_v5 import _ContactTask
+    from general_motion_retargeting.v5_terrain_limit import TerrainNonPenetrationLimit
+
+    model = mj.MjModel.from_xml_path(
+        "assets/ne01/ne01_desktop_assets_wholebody_omni_gmr_v2.xml"
+    )
+    configuration = mink.Configuration(model)
+    config = _v5_ne01_contact_config()
+    task = _ContactTask(model, config["robot_points"], config)
+    task.set_contacts({
+        "left_heel": {
+            "state": "NONE",
+            "activation": 0.855,
+            "surface_point_solver": [0.0, 0.0, 0.0],
+            "surface_normal_solver": [0.0, 0.0, 1.0],
+        }
+    })
+    task.compute_error(configuration)
+    np.testing.assert_allclose(task.cost, 0.0)
+
+    task.set_contacts({
+        "left_heel": {
+            "state": "SLIDING",
+            "activation": 0.01,
+            "surface_point_solver": [0.0, 0.0, 0.0],
+            "surface_normal_solver": [0.0, 0.0, 1.0],
+        }
+    })
+    task.compute_error(configuration)
+    assert task.cost[0] >= config.get("task_activation_floor", 0.20) * config["normal_cost"]
+
+    terrain_limit = TerrainNonPenetrationLimit(
+        model,
+        TerrainField([], floor_z=0.0),
+        {"margin": 0.004, "adaptive_activation": False},
+    )
+    terrain_limit.prepare_active_set(configuration, 0.02)
+    constraint = terrain_limit.compute_qp_inequalities(configuration, 0.02)
+    assert constraint.G.shape[0] > 0
+
+
+@pytest.mark.parametrize(
+    ("side", "angle"),
+    (("L", 0.15), ("L", -0.22), ("R", 0.18), ("R", -0.12)),
+)
+def test_v5_foot_normal_jacobian_matches_ne01_finite_difference(side, angle):
+    import mink
+    import mujoco as mj
+    from general_motion_retargeting.wholebody_omni_gmr_v5 import _FootNormalTask
+
+    model = mj.MjModel.from_xml_path(
+        "assets/ne01/ne01_desktop_assets_wholebody_omni_gmr_v2.xml"
+    )
+    configuration = mink.Configuration(model)
+    qpos = configuration.data.qpos.copy()
+    joint_name = f"ANKLE_PITCH_{side}_JOINT"
+    joint_id = int(mj.mj_name2id(model, mj.mjtObj.mjOBJ_JOINT, joint_name))
+    qpos[int(model.jnt_qposadr[joint_id])] = angle
+    configuration.update(qpos)
+    task = _FootNormalTask(model, {"cost": 1.0, "activation_floor": 0.0})
+    prefix = "left" if side == "L" else "right"
+    task.set_contacts({
+        f"{prefix}_heel": {
+            "state": "STATIC", "activation": 1.0, "surface_id": "floor",
+            "anchor_normal_solver": [0.0, 0.0, 1.0],
+        },
+        f"{prefix}_toe": {
+            "state": "STATIC", "activation": 1.0, "surface_id": "floor",
+            "anchor_normal_solver": [0.0, 0.0, 1.0],
+        },
+    })
+    row = 0 if side == "L" else 3
+    dof = int(model.jnt_dofadr[joint_id])
+    direction = np.zeros(model.nv)
+    direction[dof] = 1.0
+    error = task.compute_error(configuration).copy()
+    analytic = task.compute_jacobian(configuration)[row:row + 3] @ direction
+    perturbed = qpos.copy()
+    epsilon = 1e-7
+    mj.mj_integratePos(model, perturbed, direction, epsilon)
+    configuration.update(perturbed)
+    numeric = (task.compute_error(configuration)[row:row + 3] - error[row:row + 3]) / epsilon
+    np.testing.assert_allclose(analytic, numeric, atol=2e-6, rtol=2e-5)
+
+
+def test_v5_foot_normal_one_ik_step_reduces_error():
+    import mink
+    import mujoco as mj
+    from general_motion_retargeting.wholebody_omni_gmr_v5 import _FootNormalTask
+
+    model = mj.MjModel.from_xml_path(
+        "assets/ne01/ne01_desktop_assets_wholebody_omni_gmr_v2.xml"
+    )
+    configuration = mink.Configuration(model)
+    joint_id = int(mj.mj_name2id(
+        model, mj.mjtObj.mjOBJ_JOINT, "ANKLE_PITCH_L_JOINT"
+    ))
+    qpos = configuration.data.qpos.copy()
+    qpos[int(model.jnt_qposadr[joint_id])] = 0.15
+    configuration.update(qpos)
+    task = _FootNormalTask(
+        model, {"cost": 1.0, "activation_floor": 0.0, "gain": 0.2}
+    )
+    task.set_contacts({
+        name: {
+            "state": "STATIC", "activation": 1.0, "surface_id": "floor",
+            "anchor_normal_solver": [0.0, 0.0, 1.0],
+        }
+        for name in ("left_heel", "left_toe")
+    })
+    before = float(np.linalg.norm(task.compute_error(configuration)))
+    velocity = mink.solve_ik(configuration, [task], 0.02, "daqp", 0.1)
+    configuration.integrate_inplace(velocity, 0.02)
+    after = float(np.linalg.norm(task.compute_error(configuration)))
+    assert after < before
+
+
+def test_v5_static_anchor_uses_same_ne01_tangent_feature_as_task():
+    from types import SimpleNamespace
+    import mink
+    import mujoco as mj
+    from general_motion_retargeting.wholebody_omni_gmr_v5 import (
+        _ContactTask,
+        WholeBodyRetargetSolver,
+    )
+
+    model = mj.MjModel.from_xml_path(
+        "assets/ne01/ne01_desktop_assets_wholebody_omni_gmr_v2.xml"
+    )
+    configuration = mink.Configuration(model)
+    config = _v5_ne01_contact_config()
+    contact = _ContactTask(model, config["robot_points"], config)
+    fake = SimpleNamespace(
+        configuration=configuration,
+        contact=contact,
+        scene_model=None,
+        _robot_static_anchors={},
+    )
+    support = contact.support_value(
+        configuration, "left_heel", np.array([0.0, 0.0, 1.0])
+    )
+    surface = support - np.array([0.0, 0.0, contact.clearance])
+    frame = {"contacts": {"left_heel": {
+        "state": "STATIC",
+        "activation": 1.0,
+        "object_id": "floor",
+        "surface_id": "floor",
+        "anchor_surface_id": "floor",
+        "surface_point_solver": surface,
+        "surface_normal_solver": [0.0, 0.0, 1.0],
+    }}}
+    bound = WholeBodyRetargetSolver._bind_robot_static_anchors(fake, frame, 0.0)
+    contact.set_contacts(bound["contacts"])
+    error, _, _ = contact._rows(configuration)
+    np.testing.assert_allclose(error[1:3], 0.0, atol=1e-10)
+    assert bound["contacts"]["left_heel"]["robot_tangent_feature"] == (
+        "configured_body_local_contact_proxy"
+    )
+
+    anchor = bound["contacts"]["left_heel"]["tangent_anchor_solver"].copy()
+    second = WholeBodyRetargetSolver._bind_robot_static_anchors(fake, frame, 0.02)
+    np.testing.assert_allclose(
+        second["contacts"]["left_heel"]["tangent_anchor_solver"], anchor
+    )
+
+
+def test_v5_static_transition_and_temporal_costs_do_not_cross_contact_boundary():
+    import mink
+    import mujoco as mj
+    from general_motion_retargeting.wholebody_omni_gmr_v5 import (
+        _ContactTask,
+        _FootTemporalTask,
+    )
+
+    model = mj.MjModel.from_xml_path(
+        "assets/ne01/ne01_desktop_assets_wholebody_omni_gmr_v2.xml"
+    )
+    configuration = mink.Configuration(model)
+    config = _v5_ne01_contact_config()
+    contact = _ContactTask(model, config["robot_points"], config)
+    point = contact.tangent_value(configuration, "left_heel")
+    support = contact.support_value(
+        configuration, "left_heel", np.array([0.0, 0.0, 1.0])
+    )
+    item = {
+        "state": "STATIC",
+        "activation": 1.0,
+        "surface_point_solver": support - np.array([0.0, 0.0, contact.clearance]),
+        "surface_normal_solver": [0.0, 0.0, 1.0],
+        "tangent_anchor_solver": point,
+        "robot_static_anchor_bound": True,
+        "robot_static_anchor_age": 0,
+    }
+    contact.set_contacts({"left_heel": item})
+    contact.compute_error(configuration)
+    assert contact.cost[1] == pytest.approx(config["static_transition_cost"])
+    item["robot_static_anchor_age"] = 1
+    contact.compute_error(configuration)
+    assert contact.cost[1] == pytest.approx(config["tangent_cost"])
+
+    temporal = _FootTemporalTask(model, contact, 0.02, {"cost": 0.2})
+    temporal.begin_frame(configuration, {"left_heel": item})
+    temporal.compute_error(configuration)
+    np.testing.assert_allclose(temporal.cost, 0.0)
+    temporal.end_frame(configuration)
+    temporal.begin_frame(configuration, {"left_heel": item})
+    temporal.compute_error(configuration)
+    assert temporal.cost[0] > 0.0
+
+
+def test_v5_foot_motion_preserves_flight_and_rolling_support_modes():
+    import mink
+    import mujoco as mj
+    from general_motion_retargeting.wholebody_omni_gmr_v5 import _FootMotionTask
+
+    model = mj.MjModel.from_xml_path(
+        "assets/ne01/ne01_desktop_assets_wholebody_omni_gmr_v2.xml"
+    )
+    configuration = mink.Configuration(model)
+    task = _FootMotionTask(model, {
+        "swing_forward_cost": 0.10,
+        "support_forward_cost": 0.08,
+        "swing_normal_cost": 0.06,
+    })
+    source = {
+        "left_hip": np.array([0.0, 0.1, 0.8]),
+        "right_hip": np.array([0.0, -0.1, 0.8]),
+        "left_foot": np.array([0.0, 0.1, 0.1]),
+        "left_toe": np.array([0.2, 0.1, 0.15]),
+        "right_foot": np.array([0.0, -0.1, 0.1]),
+        "right_toe": np.array([0.2, -0.1, 0.1]),
+    }
+    task.set_target(source, {})
+    task.compute_error(configuration)
+    assert task.targets["left"]["mode"] == "FLIGHT"
+    assert np.all(np.asarray(task.cost)[0:3] > 0.0)
+    assert np.all(np.asarray(task.cost)[3:6] > 0.0)
+
+    task.set_target(source, {"left_toe": {"state": "STATIC"}})
+    task.compute_error(configuration)
+    assert task.targets["left"]["mode"] == "TOE"
+    np.testing.assert_allclose(np.asarray(task.cost)[0:3], 0.0)
+    assert np.all(np.asarray(task.cost)[3:6] > 0.0)
+
+
+def test_v5_foot_motion_jacobian_matches_ne01_finite_difference():
+    import mink
+    import mujoco as mj
+    from general_motion_retargeting.wholebody_omni_gmr_v5 import _FootMotionTask
+
+    model = mj.MjModel.from_xml_path(
+        "assets/ne01/ne01_desktop_assets_wholebody_omni_gmr_v2.xml"
+    )
+    configuration = mink.Configuration(model)
+    joint_id = int(mj.mj_name2id(
+        model, mj.mjtObj.mjOBJ_JOINT, "ANKLE_PITCH_R_JOINT"
+    ))
+    qpos = configuration.data.qpos.copy()
+    qpos[int(model.jnt_qposadr[joint_id])] = -0.17
+    configuration.update(qpos)
+    task = _FootMotionTask(model, {})
+    source = {
+        "left_hip": np.array([0.0, 0.1, 0.8]),
+        "right_hip": np.array([0.0, -0.1, 0.8]),
+        "left_foot": np.array([0.0, 0.1, 0.1]),
+        "left_toe": np.array([0.2, 0.1, 0.1]),
+        "right_foot": np.array([0.0, -0.1, 0.1]),
+        "right_toe": np.array([0.2, -0.1, 0.16]),
+    }
+    task.set_target(source, {})
+    error = task.compute_error(configuration).copy()
+    analytic = task.compute_jacobian(configuration)
+    direction = np.zeros(model.nv)
+    direction[int(model.jnt_dofadr[joint_id])] = 1.0
+    perturbed = qpos.copy()
+    epsilon = 1e-7
+    mj.mj_integratePos(model, perturbed, direction, epsilon)
+    configuration.update(perturbed)
+    numeric = (task.compute_error(configuration) - error) / epsilon
+    np.testing.assert_allclose(
+        analytic @ direction, numeric, atol=2e-6, rtol=2e-5
+    )
+
+
 def test_terrain_limit_adaptive_activation_and_full_measurement_set():
     import mujoco as mj
     import mink
@@ -978,7 +1276,9 @@ def test_robot_static_tangent_anchor_locks_realized_robot_point():
     )
     sliding = {"contacts": {"left_heel": {"state": "SLIDING"}}}
     WholeBodyRetargetSolver._bind_robot_static_anchors(fake, sliding, 0.04)
-    third = WholeBodyRetargetSolver._bind_robot_static_anchors(fake, frame, 0.06)
+    WholeBodyRetargetSolver._bind_robot_static_anchors(fake, sliding, 0.08)
+    WholeBodyRetargetSolver._bind_robot_static_anchors(fake, sliding, 0.10)
+    third = WholeBodyRetargetSolver._bind_robot_static_anchors(fake, frame, 0.12)
     np.testing.assert_allclose(
         third["contacts"]["left_heel"]["tangent_anchor_solver"],
         [0.5, 0.4, 0.01],

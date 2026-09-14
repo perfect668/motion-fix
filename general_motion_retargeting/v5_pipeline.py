@@ -28,7 +28,7 @@ def solve_and_validate(
     canonical,
     solver_frames: Sequence[dict[str, Any]],
     realized_schedule,
-    source_frames: Sequence[dict[str, Any]] | None = None,
+    robot_reference_frames: Sequence[dict[str, Any]] | None = None,
     *,
     source_scene_ok: bool = True,
     scene_alignment_ok: bool = True,
@@ -43,7 +43,7 @@ def solve_and_validate(
         canonical,
         list(solver_frames),
         list(realized_schedule.per_frame_states),
-        source_frames,
+        robot_reference_frames,
     )
     runtime_schedule = result.contact_plan or realized_schedule
     kinematics = solver.forward_kinematics(result.qpos)

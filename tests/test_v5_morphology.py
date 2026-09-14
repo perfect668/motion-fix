@@ -99,3 +99,82 @@ def test_recursive_mapping_does_not_mix_raw_and_mapped_proximals():
     mapped = map_semantic_frame(frame, targets)
     np.testing.assert_allclose(mapped["left_foot"], [0.0, 1.5, 0.0])
     np.testing.assert_allclose(mapped["left_toe"], [0.5, 1.5, 0.0])
+
+
+def test_known_ne01_pose_has_consistent_root_and_interaction_reference():
+    import json
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    import mink
+    import mujoco as mj
+    from general_motion_retargeting.wholebody_omni_gmr_v5 import (
+        _ContactTask,
+        _InteractionTask,
+        _RootTask,
+        WholeBodyRetargetSolver,
+    )
+
+    root = Path(__file__).parents[1]
+    config = json.loads((
+        root
+        / "general_motion_retargeting/ik_configs/smplx_to_ne01_wholebody_omni_gmr_v5.json"
+    ).read_text())
+    model = mj.MjModel.from_xml_path(str(root / config["robot_xml"]))
+    configuration = mink.Configuration(model)
+    contact_config = config["contact_tasks"]
+    contact = _ContactTask(
+        model, contact_config["robot_points"], contact_config
+    )
+    interaction = _InteractionTask(
+        model, config["semantic_points"], np.empty((0, 3)),
+        config["interaction_graph"],
+    )
+    reference = {
+        name: point.value(configuration).copy()
+        for name, point in interaction.points.items()
+    }
+    surface_z = float(np.median([
+        contact.support_value(configuration, name, np.array([0.0, 0.0, 1.0]))[2]
+        for name in ("left_heel", "left_toe", "right_heel", "right_toe")
+    ]))
+    contacts = [{
+        "support_state": "SUPPORTED",
+        "contacts": {
+            name: {
+                "state": "STATIC", "activation": 1.0,
+                "surface_point_solver": [0.0, 0.0, surface_z],
+                "surface_normal_solver": [0.0, 0.0, 1.0],
+            }
+            for name in ("left_heel", "left_toe", "right_heel", "right_toe")
+        },
+    }]
+    pelvis_quaternion = configuration.data.xquat[model.body("base_link").id].copy()
+    targets = [{
+        name: (value.copy(), pelvis_quaternion.copy())
+        for name, value in reference.items()
+    }]
+    solver = WholeBodyRetargetSolver.__new__(WholeBodyRetargetSolver)
+    solver.model = model
+    solver.configuration = configuration
+    solver.contact = contact
+    solver.root = SimpleNamespace(body_id=int(model.body("base_link").id))
+    solver.terrain = SimpleNamespace(floor_z=surface_z)
+    solver.root_policy = "support_aware"
+    solver._root_vertical_scale = 1.0
+    solver._root_reference_pelvis_z = None
+    solver._root_reference_surface_z = None
+    solver._robot_root_support_height = None
+    solver.reference_metadata = {}
+
+    references, aligned_targets = solver._prepare_robot_reference_motion(
+        [reference], targets, contacts
+    )
+    np.testing.assert_allclose(references[0]["pelvis"], reference["pelvis"])
+    interaction.set_target(references[0])
+    np.testing.assert_allclose(
+        interaction.compute_error(configuration), 0.0, atol=1e-10
+    )
+    root_task = _RootTask(model, "base_link", [1.0] * 6)
+    root_task.set_target(*aligned_targets[0]["pelvis"])
+    np.testing.assert_allclose(root_task.compute_error(configuration), 0.0, atol=1e-10)
