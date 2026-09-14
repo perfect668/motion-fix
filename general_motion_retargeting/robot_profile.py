@@ -9,11 +9,25 @@ import mujoco as mj
 import numpy as np
 
 
+def is_dof_joint_type(joint_type: int) -> bool:
+    """Return whether a MuJoCo joint contributes one scalar robot DOF.
+
+    ``MjModel.jnt_type`` is a NumPy scalar in some MuJoCo releases and an
+    enum-like scalar in others.  Comparing it through ``int`` keeps model
+    indexing, velocity limits, exports and validation consistent across both
+    APIs.
+    """
+    return int(joint_type) in {
+        int(mj.mjtJoint.mjJNT_HINGE),
+        int(mj.mjtJoint.mjJNT_SLIDE),
+    }
+
+
 def joint_names(model: mj.MjModel) -> tuple[str, ...]:
     return tuple(
         mj.mj_id2name(model, mj.mjtObj.mjOBJ_JOINT, i) or str(i)
         for i in range(model.njnt)
-        if model.jnt_type[i] in (mj.mjtJoint.mjJNT_HINGE, mj.mjtJoint.mjJNT_SLIDE)
+        if is_dof_joint_type(model.jnt_type[i])
     )
 
 

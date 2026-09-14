@@ -19,14 +19,18 @@ class TaskBuilder:
         solver.bone_direction.set_source(source)
         solver.limb_plane.set_source(source)
         root = frame.get("pelvis") or frame.get("root")
-        solver.root.set_target(source.get("pelvis", root[0]), root[1])
+        if root is None:
+            raise ValueError("V5 solver frame lacks pelvis/root target")
+        solver.root.set_target(*solver.root_target(source, frame, contact_frame))
         solver.torso.set_source(source, root[1], solver.configuration.data.qpos)
         solver.contact.set_contacts(contact_frame.get("contacts", {}))
+        solver.foot_normal.set_contacts(contact_frame.get("contacts", {}))
         tasks = [
             solver.interaction,
             solver.bone_direction,
             solver.limb_plane,
             solver.contact,
+            solver.foot_normal,
             solver.root,
             solver.torso.task,
             solver.nominal,
@@ -42,7 +46,13 @@ class TaskBuilder:
 
     def build_limits(self, include_velocity: bool):
         solver = self.solver
-        limits = [solver.config_limit, solver.terrain_limit, solver.scene_collision, solver.trust]
+        limits = [
+            solver.config_limit,
+            solver.terrain_limit,
+            solver.scene_collision,
+            solver.trust,
+            solver.frame_displacement,
+        ]
         if include_velocity:
             limits.append(solver.velocity)
         return limits

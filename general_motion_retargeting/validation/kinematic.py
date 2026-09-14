@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import numpy as np
 import mujoco as mj
+from scipy.spatial.transform import Rotation
 
 from ..core.schemas import RetargetResult
+from ..robot_profile import is_dof_joint_type
 
 
 class FinalValidator:
@@ -21,7 +23,38 @@ def validate_result(result: RetargetResult, solver=None, contact_plan=None) -> d
     return FinalValidator(solver, contact_plan).validate(result)
 
 
+def _schedule_frames(contact_plan):
+    """Return normalized per-frame contact records or ``None``.
+
+    V5 keeps the in-memory ``TargetContactSchedule`` during solving, while
+    exported artifacts store the same schedule as ``{"frames": [...]}``.
+    Validation is a replay boundary and must accept both forms without
+    treating an empty/malformed schedule as evidence that the motion is in
+    flight.
+    """
+    if contact_plan is None:
+        return None
+    if isinstance(contact_plan, dict):
+        frames = contact_plan.get("frames", contact_plan.get("per_frame_states"))
+    else:
+        frames = getattr(contact_plan, "per_frame_states", contact_plan)
+    if frames is None:
+        return None
+    frames = list(frames)
+    if not frames:
+        return None
+    if not all(isinstance(frame, dict) for frame in frames):
+        return None
+    return frames
+
+
 def _validate(result: RetargetResult, solver=None, contact_plan=None) -> dict:
+    # The exported result owns the authoritative contact schedule.  Callers
+    # such as standalone validators and dataset QA tools often only pass the
+    # result and solver; silently treating a missing explicit argument as
+    # "no contacts" would make a floating trajectory appear valid.
+    if contact_plan is None:
+        contact_plan = getattr(result, "contact_plan", None)
     q = np.asarray(result.qpos, dtype=float)
     finite = bool(np.isfinite(q).all())
     failures = sum(bool(item.get("qp_failures")) for item in result.diagnostics)
@@ -42,6 +75,21 @@ def _validate(result: RetargetResult, solver=None, contact_plan=None) -> dict:
         checks["finite_joint_jerk"] = bool(np.isfinite(derivatives["jerk"]).all())
         checks["finite_body_states"] = bool(
             np.isfinite(fk["body_pos_w"]).all() and np.isfinite(fk["body_quat_w"]).all()
+        )
+        expected_joint_names = tuple(getattr(solver.robot_profile, "joint_names", ()))
+        exported_joint_names = tuple(fk.get("robot_joint_names", ()))
+        expected_joint_count = len(expected_joint_names)
+        model_joint_count = sum(
+            is_dof_joint_type(solver.model.jnt_type[joint_id])
+            for joint_id in range(solver.model.njnt)
+        )
+        checks["joint_contract"] = bool(
+            model_joint_count > 0
+            and expected_joint_count == model_joint_count
+            and expected_joint_count > 0
+            and exported_joint_names == expected_joint_names
+            and fk["joint_pos"].shape == (len(q), expected_joint_count)
+            and fk["joint_vel"].shape == (len(q), expected_joint_count)
         )
         # Final validation replays every exported qpos through MuJoCo rather
         # than trusting the solver's last active set.
@@ -76,7 +124,9 @@ def _validate(result: RetargetResult, solver=None, contact_plan=None) -> dict:
             solver.config.get("validation", {}).get("max_terrain_violation", 0.002)
         )
         checks["joint_position_limits"] = _joint_limits_ok(solver, q)
+        joint_limit_violations = _joint_limit_violations(solver, q)
         checks["joint_velocity_limits"] = _joint_velocities_ok(solver, fk["joint_vel"])
+        checks["base_velocity_limits"] = _base_velocities_ok(solver, q)
         solver_limits = solver.config.get("solver", {})
         max_acceleration = float(solver_limits.get("joint_acceleration_limit", np.inf))
         max_jerk = float(solver_limits.get("joint_jerk_limit", np.inf))
@@ -92,6 +142,11 @@ def _validate(result: RetargetResult, solver=None, contact_plan=None) -> dict:
         ) and contact_metrics["max_tangent_residual"] <= float(
             solver.config.get("validation", {}).get("max_contact_tangent_residual", 0.08)
         )
+        support_metrics = _replay_support(solver, contact_plan, q)
+        checks["support_contact_coverage"] = bool(
+            support_metrics["failed_frames"] == 0
+            and support_metrics.get("verified_schedule", False)
+        )
         self_collision = _replay_self_collision(solver, q)
         checks["self_collision"] = self_collision["maximum_penetration"] <= float(
             solver.config.get("validation", {}).get("max_self_penetration", 0.002)
@@ -105,12 +160,16 @@ def _validate(result: RetargetResult, solver=None, contact_plan=None) -> dict:
         checks["finite_final_scene_distance"] = True
         checks["terrain_nonpenetration"] = True
         checks["joint_position_limits"] = True
+        checks["joint_contract"] = True
+        joint_limit_violations = []
         checks["joint_velocity_limits"] = True
+        checks["base_velocity_limits"] = True
         checks["contact_residuals"] = True
         checks["self_collision"] = True
         minimum_scene_distance = float("inf")
         minimum_terrain_distance_final = float("inf")
         contact_metrics = {"max_normal_residual": 0.0, "max_tangent_residual": 0.0, "contact_frames": 0}
+        support_metrics = {"expected_frames": 0, "covered_frames": 0, "failed_frames": 0, "max_support_gap": 0.0}
         self_collision = {"maximum_penetration": 0.0, "minimum_distance": float("inf")}
         final_scene_penetration = 0.0
         max_terrain_violation = 0.0
@@ -143,7 +202,7 @@ def _validate(result: RetargetResult, solver=None, contact_plan=None) -> dict:
     # in the authoritative V5 validation payload as well as the standalone
     # debug script.
     from ..scene_diagnostics import summarize_scene_diagnostics
-    schedule_frames = getattr(contact_plan, "per_frame_states", contact_plan) if contact_plan is not None else []
+    schedule_frames = _schedule_frames(contact_plan) or []
     reduced_summary = summarize_scene_diagnostics(result.diagnostics, schedule_frames)
     sequence_summary = {
         "max_penetration": float(np.max(scene_penetrations, initial=0.0)),
@@ -170,6 +229,8 @@ def _validate(result: RetargetResult, solver=None, contact_plan=None) -> dict:
         "maximum_scene_penetration": float(final_scene_penetration),
             "maximum_terrain_violation": float(max_terrain_violation if solver is not None and len(q) else 0.0),
         "contact_metrics": contact_metrics,
+        "support_metrics": support_metrics,
+        "joint_limit_violations": joint_limit_violations,
         "self_collision": self_collision,
         "motion_quality": {
             "max_joint_velocity": float(np.max(np.abs(fk["joint_vel"]), initial=0.0)) if solver is not None and len(q) else 0.0,
@@ -185,13 +246,276 @@ def _joint_limits_ok(solver, qpos_sequence: np.ndarray) -> bool:
     for joint_id in range(solver.model.njnt):
         if not solver.model.jnt_limited[joint_id]:
             continue
-        if solver.model.jnt_type[joint_id] not in (mj.mjtJoint.mjJNT_HINGE, mj.mjtJoint.mjJNT_SLIDE):
+        if not is_dof_joint_type(solver.model.jnt_type[joint_id]):
             continue
         address = int(solver.model.jnt_qposadr[joint_id])
         lower, upper = solver.model.jnt_range[joint_id]
         if np.any(qpos_sequence[:, address] < lower - 1e-7) or np.any(qpos_sequence[:, address] > upper + 1e-7):
             return False
     return True
+
+
+def _joint_limit_violations(solver, qpos_sequence: np.ndarray) -> list[dict]:
+    """Return concrete frame/joint violations instead of only a boolean."""
+    qpos_sequence = np.asarray(qpos_sequence, dtype=float)
+    violations: list[dict] = []
+    for joint_id in range(solver.model.njnt):
+        if not solver.model.jnt_limited[joint_id] or not is_dof_joint_type(solver.model.jnt_type[joint_id]):
+            continue
+        address = int(solver.model.jnt_qposadr[joint_id])
+        lower, upper = (float(x) for x in solver.model.jnt_range[joint_id])
+        values = qpos_sequence[:, address]
+        indices = np.flatnonzero((values < lower - 1e-7) | (values > upper + 1e-7))
+        name = mj.mj_id2name(solver.model, mj.mjtObj.mjOBJ_JOINT, joint_id) or str(joint_id)
+        for index in indices[:32]:
+            violations.append({
+                "frame": int(index), "joint": name, "value": float(values[index]),
+                "lower": lower, "upper": upper,
+            })
+    return violations
+
+
+def _replay_support(solver, contact_plan, qpos_sequence: np.ndarray) -> dict:
+    """Check source-indicated support against final robot foot proxies.
+
+    Non-penetration alone only provides a lower bound and therefore cannot
+    reject a trajectory that floats above the floor.  The detector marks
+    ``support_expected`` from source geometry; this replay then checks that at
+    least one configured heel/toe proxy is actually on a supportable surface.
+    Flight frames carry no such mark and are not forced onto the ground.
+    """
+    frames = _schedule_frames(contact_plan)
+    schedule_missing = frames is None
+    if frames is None:
+        frames = []
+    gap_limit = float(solver.config.get("validation", {}).get("max_support_gap", 0.005))
+    required = ("left_heel", "left_toe", "right_heel", "right_toe")
+    expected = covered = failed = unknown = 0
+    failed_indices: list[int] = []
+    deferred_indices: list[int] = []
+    state_counts = {"SUPPORTED": 0, "FLIGHT": 0, "UNKNOWN": 0}
+    maximum_gap = 0.0
+    activation_floor = float(
+        solver.config.get("validation", {}).get(
+            "support_activation_min", solver.config.get("validation", {}).get("contact_min_activation", 0.5)
+        )
+    )
+    # A result without a source schedule has no evidence that any frame is a
+    # jump/flight phase.  Validate it conservatively against every configured
+    # foot proxy instead of treating an empty list as success.  This closes
+    # the historical hole where a completely floating motion had zero contact
+    # residual and was nevertheless marked VALID.
+    if schedule_missing:
+        frames = [None] * len(qpos_sequence)
+    for index, frame in enumerate(frames):
+        if frame is None:
+            support_state = "SUPPORTED"
+            state_counts["SUPPORTED"] += 1
+        else:
+            support_state = str(frame.get(
+                "support_state", "SUPPORTED" if frame.get("support_expected", False) else "UNKNOWN"
+            ))
+            state_counts[support_state if support_state in state_counts else "UNKNOWN"] += 1
+        # FLIGHT is the only state that is intentionally exempt.  UNKNOWN is
+        # not a successful no-contact result: it means the source support
+        # evidence is incomplete/inconsistent and must fail closed rather
+        # than allowing an unconstrained robot to float.
+        if support_state == "FLIGHT":
+            continue
+        if index >= len(qpos_sequence):
+            failed += 1
+            failed_indices.append(index)
+            continue
+        expected += 1
+        if support_state == "UNKNOWN":
+            unknown += 1
+            failed += 1
+            failed_indices.append(index)
+            continue
+        solver.configuration.update(qpos_sequence[index])
+        if frame is not None and bool(frame.get("support_transition", False)):
+            # Contact tasks still run on these frames, but a fast source
+            # landing/terrain transfer is not yet a stable load-bearing
+            # assertion.  The detector bounds this exemption to a short
+            # configured window; later frames must pass the physical gap
+            # replay below.
+            deferred_indices.append(index)
+            continue
+        # Evaluate support at the frame level.  Every currently active heel or
+        # toe is a claimed support channel, so all of those claims must be
+        # close to their scheduled surface.  The previous implementation
+        # accumulated candidates across channels and allowed one valid toe to
+        # hide a floating heel; retain both min/max values for diagnostics.
+        frame_gaps = []
+        expected_channels = []
+        transition_channels = []
+        label_transition_channels = []
+        if schedule_missing:
+            expected_channels = [
+                channel for channel in required if channel in solver.contact.points
+            ]
+        for channel in (required if not schedule_missing else ()):
+            item = frame.get("contacts", {}).get(channel, {})
+            if channel not in solver.contact.points:
+                continue
+            # Coverage validates a source contact which was actually active
+            # in this frame.  An episode may be winding down while another
+            # foot takes over; accepting an arbitrary nearby robot foot in
+            # that case hides missed contact, while requiring inactive
+            # heel/toe channels creates false failures at the blend boundary.
+            if str(item.get("state", "NONE")) == "NONE":
+                continue
+            if float(item.get("activation", item.get("score", 0.0))) <= 1e-3:
+                continue
+            # A large source-surface jump means this channel has just crossed
+            # a terrain/object edge (for example a foot transferring from the
+            # floor to a stair tread).  At 50 Hz the target height may be
+            # physically unreachable in this single frame.  Treat it as a
+            # bounded transition channel; if another foot is already carrying
+            # support, validate that stable support and check this channel on
+            # subsequent frames instead of reporting a false whole-frame gap.
+            if bool(item.get("surface_transition", False)):
+                transition_channels.append(channel)
+                continue
+            if "activation" in item and float(item.get("activation", 0.0)) < activation_floor:
+                transition_channels.append(channel)
+                continue
+            expected_channels.append(channel)
+        for channel in (required if not schedule_missing else ()):
+            item = frame.get("contacts", {}).get(channel, {})
+            if (
+                channel not in expected_channels
+                and channel not in transition_channels
+                and item.get("label_contact", False)
+                and float(item.get("activation", 0.0)) < activation_floor
+            ):
+                label_transition_channels.append(channel)
+        # Contact activation is intentionally blended over several frames.
+        # Those transition frames are not yet a meaningful final-support
+        # assertion; defer their coverage check until the task reaches its
+        # configured weight.  A legacy/minimal schedule without activation
+        # fields remains fail-closed (and is covered by the test contract).
+        if not schedule_missing and not expected_channels and (transition_channels or label_transition_channels):
+            # A ramp frame still has measurable support evidence.  Replay the
+            # physical heel/toe gap instead of skipping it wholesale: this
+            # accepts a real foot already on the surface while preserving the
+            # fail-closed behavior for a floating activation ramp.  Keep the
+            # deferred marker for diagnostics and for the bounded-ramp rule.
+            expected_channels = transition_channels or label_transition_channels
+            deferred_indices.append(index)
+        # The detector's SUPPORTED state is evidence that at least one foot was
+        # carrying load. If no canonical heel/toe channel survives, keep this
+        # frame visible rather than declaring it covered by an unrelated
+        # proxy; diagnostics distinguish it clearly.
+        if not expected_channels:
+            failed += 1
+            failed_indices.append(index)
+            continue
+        for channel in expected_channels:
+            item = {} if schedule_missing else frame.get("contacts", {}).get(channel, {})
+            point = solver.contact.points[channel].value(solver.configuration)
+            # Contact episodes deliberately lock a surface id/anchor across
+            # mesh and stair edges.  Re-querying the nearest support from the
+            # robot point here can select the lower tread (or the floor) when
+            # the proxy is just outside an edge, reporting a large false gap
+            # even though the solver satisfied the scheduled contact.  Replay
+            # the same surface frame used by the contact task; only schedules
+            # without a surface anchor fall back to a fresh terrain query.
+            gap = None
+            if not schedule_missing:
+                state = str(item.get("state", "NONE"))
+                # Tangent anchors represent sticking only; support height is
+                # always measured against the actual scene surface.
+                surface = item.get("surface_point_solver")
+                if surface is None and state == "STATIC":
+                    # Legacy/minimal schedules may not carry a source surface
+                    # point.  Preserve their locked-anchor replay behavior,
+                    # while full V5 schedules always provide the real surface
+                    # and therefore cannot validate a floating point against
+                    # its own anchor.
+                    surface = item.get("tangent_anchor_solver")
+                normal = item.get(
+                    "anchor_normal_solver" if state == "STATIC" else "surface_normal_solver"
+                )
+                if surface is not None and normal is not None:
+                    surface = np.asarray(surface, dtype=float).reshape(3)
+                    normal = np.asarray(normal, dtype=float).reshape(3)
+                    normal /= max(float(np.linalg.norm(normal)), 1e-12)
+                    if np.isfinite(surface).all() and np.isfinite(normal).all() and normal[2] > 0.6:
+                        support_value = getattr(solver.contact, "support_value", None)
+                        if support_value is not None:
+                            point = support_value(solver.configuration, channel, normal)
+                        gap = float(normal @ (point - surface))
+            if gap is None:
+                hit = solver.terrain.support_surface(point)
+                if not hit.supportable:
+                    continue
+                support_value = getattr(solver.contact, "support_value", None)
+                if support_value is not None:
+                    point = support_value(solver.configuration, channel, hit.normal)
+                gap = float(hit.signed_distance)
+                if support_value is not None:
+                    gap = float(np.asarray(hit.normal, dtype=float) @ (point - hit.closest_point))
+            maximum_gap = max(maximum_gap, max(0.0, gap))
+            frame_gaps.append(float(gap))
+        if frame_gaps and min(frame_gaps) >= -float(
+            solver.config.get("validation", {}).get("max_support_penetration", 0.002)
+        ) and max(frame_gaps) <= gap_limit:
+            covered += 1
+        else:
+            failed += 1
+            failed_indices.append(index)
+    # A contact episode may legitimately begin in its blend ramp, but a long
+    # run of deferred frames is not a valid support exemption.  Bound the
+    # exemption by the detector's configured blend window so an entire
+    # floating prefix cannot be hidden simply because a later frame eventually
+    # reaches contact.
+    blend_window = int(solver.config.get("terrain_contact", {}).get(
+        "contact_blend_frames", 7
+    )) if solver is not None else 7
+    run = []
+    for index in sorted(deferred_indices) + [None]:
+        if index is not None and (not run or index == run[-1] + 1):
+            run.append(index)
+            continue
+        if len(run) > blend_window:
+            overflow = run[blend_window:]
+            # Transition frames that already failed the physical gap check
+            # must not be counted twice when the bounded-ramp rule is applied.
+            new_failures = [frame_index for frame_index in overflow if frame_index not in failed_indices]
+            failed_indices.extend(new_failures)
+            failed += len(new_failures)
+        run = [] if index is None else [index]
+    # A sequence containing only ramp frames has no evidence that the
+    # exported robot ever reached support.
+    if expected and covered == 0 and deferred_indices:
+        new_failures = [frame_index for frame_index in deferred_indices if frame_index not in failed_indices]
+        failed += len(new_failures)
+        failed_indices.extend(new_failures)
+    # A missing schedule is not evidence of flight.  It is only accepted when
+    # every frame was explicitly supplied as FLIGHT; otherwise the validator
+    # must fail closed and require a measurable support proxy.
+    explicit_flight = bool(
+        not schedule_missing
+        and len(frames) == len(qpos_sequence)
+        and len(frames) > 0
+        and all(str(frame.get("support_state", "")) == "FLIGHT" for frame in frames)
+    )
+    verified_schedule = bool(not schedule_missing and len(frames) == len(qpos_sequence))
+    return {
+        "expected_frames": expected,
+        "covered_frames": covered,
+        "failed_frames": failed,
+        "coverage_ratio": covered / max(expected, 1),
+        "max_support_gap": maximum_gap,
+        "support_state_frames": state_counts,
+        "unknown_frames": unknown,
+        "failed_frame_indices": failed_indices,
+        "deferred_frames": deferred_indices,
+        "schedule_missing": bool(schedule_missing),
+        "explicit_flight_only": explicit_flight,
+        "verified_schedule": verified_schedule,
+    }
 
 
 def _joint_derivatives(velocity: np.ndarray, dt: float) -> dict[str, np.ndarray]:
@@ -217,6 +541,27 @@ def _joint_velocities_ok(solver, velocities: np.ndarray) -> bool:
     return bool(np.isfinite(velocities).all() and np.max(np.abs(velocities), initial=0.0) <= limit + 1e-6)
 
 
+def _base_velocities_ok(solver, qpos_sequence: np.ndarray) -> bool:
+    """Validate free-base finite differences, which Mink's joint limit omits."""
+    qpos_sequence = np.asarray(qpos_sequence, dtype=float)
+    if len(qpos_sequence) < 2:
+        return True
+    cfg = solver.config.get("solver", {})
+    linear_limit = float(cfg.get("base_linear_velocity_limit", np.inf))
+    angular_limit = float(cfg.get("base_angular_velocity_limit", np.inf))
+    dt = float(solver.dt)
+    linear = np.linalg.norm(np.diff(qpos_sequence[:, :3], axis=0), axis=1) / dt
+    if not np.isfinite(linear).all() or np.max(linear, initial=0.0) > linear_limit + 1e-6:
+        return False
+    if not np.isfinite(angular_limit):
+        return True
+    angular = []
+    for previous, current in zip(qpos_sequence[:-1, 3:7], qpos_sequence[1:, 3:7]):
+        relative = Rotation.from_quat(previous, scalar_first=True).inv() * Rotation.from_quat(current, scalar_first=True)
+        angular.append(np.linalg.norm(relative.as_rotvec()) / dt)
+    return bool(np.isfinite(angular).all() and max(angular, default=0.0) <= angular_limit + 1e-6)
+
+
 def _replay_contacts(solver, contact_plan, qpos_sequence: np.ndarray) -> dict:
     maximum_normal = 0.0
     maximum_tangent = 0.0
@@ -227,7 +572,9 @@ def _replay_contacts(solver, contact_plan, qpos_sequence: np.ndarray) -> dict:
     raw_maximum_tangent = 0.0
     if contact_plan is None:
         return {"max_normal_residual": 0.0, "max_tangent_residual": 0.0, "contact_frames": 0}
-    frames = getattr(contact_plan, "per_frame_states", contact_plan)
+    frames = _schedule_frames(contact_plan)
+    if frames is None:
+        return {"max_normal_residual": 0.0, "max_tangent_residual": 0.0, "contact_frames": 0}
     for frame_index, frame in enumerate(frames):
         if frame_index >= len(qpos_sequence):
             break
@@ -246,8 +593,7 @@ def _replay_contacts(solver, contact_plan, qpos_sequence: np.ndarray) -> dict:
             normal_key = "anchor_normal_solver" if state == "STATIC" and "anchor_normal_solver" in item else "surface_normal_solver"
             normal = np.asarray(item.get(normal_key, [0, 0, 1]), dtype=float)
             normal /= max(float(np.linalg.norm(normal)), 1e-12)
-            surface_key = "tangent_anchor_solver" if state == "STATIC" and "tangent_anchor_solver" in item else "surface_point_solver"
-            surface = np.asarray(item.get(surface_key, point), dtype=float)
+            surface = np.asarray(item.get("surface_point_solver", point), dtype=float)
             normal_residual = abs(float(normal @ (point - surface) - solver.contact.clearance))
             tangent = solver.contact._tangent_basis(normal)
             anchor = np.asarray(item.get("tangent_anchor_solver", surface), dtype=float)

@@ -46,41 +46,29 @@ def build_solver_inputs(motion):
     Canonical adapters already normalized names.  This module deliberately
     contains no V3/V4 imports and no dataset-specific branches.
     """
-    names = set(motion.joint_names); index = {n: i for i, n in enumerate(motion.joint_names)}
-    aliases = {
-        "pelvis": ("pelvis", "Hips", "hips"), "spine3": ("spine3", "Spine1", "spine"),
-        "left_hip": ("left_hip", "LeftUpLeg"), "right_hip": ("right_hip", "RightUpLeg"),
-        "left_knee": ("left_knee", "LeftLeg"), "right_knee": ("right_knee", "RightLeg"),
-        "left_foot": ("left_foot", "LeftFoot"), "right_foot": ("right_foot", "RightFoot"),
-        "left_toe": ("left_toe", "LeftToeBase", "LeftToe"), "right_toe": ("right_toe", "RightToeBase", "RightToe"),
-        "left_shoulder": ("left_shoulder", "LeftArm"), "right_shoulder": ("right_shoulder", "RightArm"),
-        "left_elbow": ("left_elbow", "LeftForeArm"), "right_elbow": ("right_elbow", "RightForeArm"),
-        "left_wrist": ("left_wrist", "LeftHandMiddle3", "LeftHand"), "right_wrist": ("right_wrist", "RightHandMiddle3", "RightHand"),
-    }
-    resolved = {key: next((name for name in values if name in names), None) for key, values in aliases.items()}
-    derivable_toes = {
-        "left_toe": ("left_big_toe", "left_small_toe"),
-        "right_toe": ("right_big_toe", "right_small_toe"),
-    }
-    required = [key for key in aliases if resolved[key] is None and not (
-        key in derivable_toes and all(item in names for item in derivable_toes[key])
-    )]
-    if required: raise ValueError(f"Canonical motion is missing required landmarks: {required}")
+    # ``canonical_named_positions`` is the single semantic boundary.  Do not
+    # resolve a second set of aliases from the raw adapter names here: that
+    # previously made SMPL-X ``left_foot`` disagree with its canonical ankle
+    # point and caused contact and solver targets to use different geometry.
+    canonical_frames = motion.canonical_named_positions()
+    required = (
+        "pelvis", "spine3", "left_hip", "right_hip", "left_knee", "right_knee",
+        "left_foot", "right_foot", "left_toe", "right_toe", "left_shoulder",
+        "right_shoulder", "left_elbow", "right_elbow", "left_wrist", "right_wrist",
+    )
+    missing = [name for name in required if any(name not in frame for frame in canonical_frames)]
+    if missing:
+        raise ValueError(f"Canonical motion is missing required landmarks: {missing}")
     source_frames = []
     solver_frames = []
     previous_pelvis_quaternion: np.ndarray | None = None
     for t in range(motion.frame_count):
-        source={}
-        for semantic, original in resolved.items():
-            if original is not None:
-                source[semantic] = motion.positions[t, index[original]].copy()
-                source[original] = source[semantic].copy()
-        for semantic, (first, second) in derivable_toes.items():
-            if semantic not in source and first in index and second in index:
-                source[semantic] = 0.5 * (motion.positions[t, index[first]] + motion.positions[t, index[second]])
+        source = {
+            name: np.asarray(value, dtype=float).copy()
+            for name, value in canonical_frames[t].items()
+        }
         for side in ("left", "right"):
-            if f"{side}_wrist" in source:
-                source[f"{side}_hand"] = source[f"{side}_wrist"].copy()
+            source[f"{side}_hand"] = source[f"{side}_wrist"].copy()
         source_frames.append(source)
         # The global/root orientation is always rebuilt from positions.  The
         # adapter may retain validated local orientations for future point
@@ -88,9 +76,7 @@ def build_solver_inputs(motion):
         pelvis_quaternion = _pelvis_orientation(source, previous_pelvis_quaternion)
         previous_pelvis_quaternion = pelvis_quaternion
         targets = {}
-        for semantic, original in resolved.items():
-            if semantic not in source:
-                continue
+        for semantic in required:
             quat = pelvis_quaternion if semantic == "pelvis" else np.array([1., 0., 0., 0.])
             targets[semantic]=(source[semantic],quat)
         solver_frames.append(targets)

@@ -34,6 +34,15 @@ def test_obj_loader_preserves_object_pose(tmp_path):
     np.testing.assert_allclose(np.diag(mesh.object_pose)[:3], [2, 3, 4])
 
 
+def test_obj_loader_applies_unit_scale_only_when_vertices_are_not_baked(tmp_path):
+    path = tmp_path / "chair.obj"
+    _write_obj(path)
+    unbaked = load_scene_asset(path, {"unit_scale": 0.01, "asset_scale_baked": False})
+    baked = load_scene_asset(path, {"unit_scale": 0.01, "asset_scale_baked": True})
+    np.testing.assert_allclose(np.max(np.abs(unbaked.vertices)), 0.005)
+    np.testing.assert_allclose(np.max(np.abs(baked.vertices)), 0.5)
+
+
 def test_usd_loader_merges_mesh_prims_and_parent_transforms(tmp_path):
     from pxr import Gf, Usd, UsdGeom
 

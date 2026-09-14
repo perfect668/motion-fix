@@ -388,6 +388,48 @@ def _smplx_arrays(human: dict[str, Any]) -> tuple[np.ndarray, np.ndarray, np.nda
     return root_orient, pose_body, trans, gender, fps
 
 
+def _resample_translation(translation: np.ndarray, frame_count: int) -> np.ndarray:
+    """Match an SMPL-X root translation stream to FK/resampled landmarks.
+
+    SMPL-X FK is resampled on normalized clip time by
+    :func:`get_smplx_data_offline_fast`.  Dataset-owned per-frame transforms
+    must use exactly the same timeline: applying a raw translation array to
+    a 50 Hz landmark stream silently creates a time-varying body scale.
+    """
+    translation = np.asarray(translation, dtype=float).reshape((-1, 3))
+    if len(translation) == frame_count:
+        return translation.copy()
+    if not len(translation):
+        raise MotionFormatError("SMPL-X translation stream is empty")
+    source_time = np.linspace(0.0, 1.0, len(translation))
+    target_time = np.linspace(0.0, 1.0, frame_count)
+    return np.column_stack([
+        np.interp(target_time, source_time, translation[:, axis])
+        for axis in range(3)
+    ])
+
+
+def _human_geometry_scale(human: dict[str, Any], source_format: str) -> float:
+    """Return a declared dataset body scale, without conflating it with scene scale.
+
+    GRAIL reconstruction records contain a scalar ``human_data.scale``.  It
+    scales the reconstructed SMPL-X body about its per-frame translation;
+    treating it as an object/scene scale moves feet away from their authored
+    support surfaces.  Other SMPL-X sources do not implicitly opt into this
+    field because their scale conventions are not part of the generic
+    contract.
+    """
+    if not source_format.startswith("grail") or "scale" not in human:
+        return 1.0
+    value = np.asarray(human["scale"], dtype=float).reshape(-1)
+    if value.size != 1 or not np.isfinite(value[0]) or value[0] <= 0.0:
+        raise MotionFormatError(
+            "GRAIL human_data.scale must be one finite positive scalar; "
+            f"got shape {np.shape(human.get('scale'))}"
+        )
+    return float(value[0])
+
+
 def _load_smplx(path: Path, human: dict[str, Any], body_models: str | Path, target_fps: float | None, source_format: str, scene: dict[str, Any] | None = None, metadata: dict[str, Any] | None = None) -> CanonicalMotion:
     from .utils.smpl import get_smplx_data_offline_fast, load_smplx_file
 
@@ -422,6 +464,14 @@ def _load_smplx(path: Path, human: dict[str, Any], body_models: str | Path, targ
         raise MotionFormatError(f"SMPL-X input contains no frames: {path}")
     names = list(frames[0].keys())
     positions = np.asarray([[np.asarray(frame[name][0], dtype=float) for name in names] for frame in frames])
+    body_scale = _human_geometry_scale(human, source_format)
+    if not np.isclose(body_scale, 1.0):
+        # The GRAIL scale is a body-local similarity around the authored
+        # translation (not a world/scenario scale).  This preserves the root
+        # trajectory and the metric object pose while correctly scaling every
+        # SMPL-X landmark, including the heel/toe surface points.
+        roots = _resample_translation(trans, len(positions))
+        positions = roots[:, None, :] + body_scale * (positions - roots[:, None, :])
     orientation_valid_mask = np.asarray([
         [frame[name][1] is not None for name in names] for frame in frames
     ], dtype=bool)
@@ -433,6 +483,43 @@ def _load_smplx(path: Path, human: dict[str, Any], body_models: str | Path, targ
          else np.array([1.0, 0.0, 0.0, 0.0]) for name in names] for frame in frames
     ])
     orientations = _continuous_quaternions(raw_orientations)
+    contact_metadata = dict(metadata or {})
+    # GRAIL's four-channel probabilities are source evidence only.  They are
+    # retained through the canonical boundary; the geometry detector still
+    # requires a compatible surface distance before declaring support.  The
+    # raw reconstruction does not include an ordered channel-name field, so
+    # do not invent one here: a caller may declare its schema explicitly,
+    # whereas automatic contact logic remains geometry-driven by default.
+    if "foot_contact_probs" in human:
+        probabilities = np.asarray(human["foot_contact_probs"], dtype=float)
+        if probabilities.ndim == 2 and probabilities.shape[1] >= 4 and probabilities.shape[0] > 0:
+            # FK/resampling can produce a different frame count than the
+            # stored classifier sequence.  Resample labels on normalized clip
+            # time instead of dropping them (or indexing past the end).
+            if probabilities.shape[0] != len(positions):
+                source_time = np.linspace(0.0, 1.0, probabilities.shape[0])
+                target_time = np.linspace(0.0, 1.0, len(positions))
+                probabilities = np.column_stack([
+                    np.interp(target_time, source_time, probabilities[:, channel])
+                    for channel in range(probabilities.shape[1])
+                ])
+            contact_metadata["foot_contact_probs"] = probabilities[:, :4]
+            if source_format.startswith("grail"):
+                # GRAIL's reconstruction contact head is ordered by side and
+                # then surface: left heel, left toe, right heel, right toe.
+                # Keep this declaration at the adapter boundary; generic
+                # canonical files without an explicit schema remain
+                # deliberately unverified.
+                contact_metadata["foot_contact_channel_order"] = [
+                    "left_heel", "left_toe", "right_heel", "right_toe"
+                ]
+                contact_metadata["foot_contact_label_schema"] = "grail_four_channel_v1"
+            else:
+                contact_metadata["foot_contact_channel_order"] = None
+                contact_metadata["foot_contact_label_schema"] = "unverified_four_channel"
+    if source_format.startswith("grail"):
+        contact_metadata["human_geometry_scale"] = body_scale
+        contact_metadata["human_geometry_scale_origin"] = "per_frame_smplx_translation"
     return CanonicalMotion(
         positions=positions,
         joint_names=names,
@@ -444,8 +531,8 @@ def _load_smplx(path: Path, human: dict[str, Any], body_models: str | Path, targ
         scene=dict(scene or {}),
         source_format=source_format,
         source_path=str(path),
-        metadata=dict(metadata or {}),
-        human_height=float(human_height),
+        metadata=contact_metadata,
+        human_height=float(human_height) * body_scale,
         source_to_canonical={name: name for name in names},
         scene_objects=list((scene or {}).get("objects", [])) if isinstance(scene, dict) else [],
     )
@@ -614,6 +701,11 @@ def load_canonical_motion(
             "object_path": record.get("object_path", ""),
             "obj_data": record.get("obj_data", {}),
             "meta": record.get("meta", {}),
+            # Preserve the dataset declaration through CanonicalMotion.  The
+            # scene resolver must know whether the selected mesh already has
+            # the reconstruction scale baked into its vertices; otherwise a
+            # later pose builder can apply ``obj_scale`` a second time.
+            "asset_scale_baked": record.get("asset_scale_baked"),
         }
         return _load_smplx(
             source,

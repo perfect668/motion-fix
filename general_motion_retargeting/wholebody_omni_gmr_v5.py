@@ -10,6 +10,7 @@ making the task-level data flow explicit.
 from __future__ import annotations
 
 import json
+import copy
 import time
 from pathlib import Path
 from typing import Any
@@ -22,9 +23,10 @@ from mink.tasks.task import Task
 from scipy.spatial.transform import Rotation
 
 from .core.schemas import ContactPlan, RetargetResult, RetargetTask
-from .robot_profile import RobotProfile
+from .robot_profile import RobotProfile, is_dof_joint_type
 from .task_builder import TaskBuilder
 from .terrain_geometry import TerrainField
+from .v5_terrain_limit import TerrainNonPenetrationLimit
 
 
 def _named_id(model: mj.MjModel, object_type: Any, name: str) -> int:
@@ -45,6 +47,28 @@ def _joint_qposadr(model: mj.MjModel, name: str) -> int:
 
 def _joint_dofadr(model: mj.MjModel, name: str) -> int:
     return int(np.asarray(model.jnt_dofadr[_joint_id(model, name)]).reshape(-1)[0])
+
+
+def _interpolate_qpos(
+    model: mj.MjModel,
+    start_qpos: np.ndarray,
+    end_qpos: np.ndarray,
+    fraction: float,
+) -> np.ndarray:
+    """Interpolate configurations on MuJoCo's joint manifold.
+
+    Raw array interpolation is invalid for free/ball-joint quaternions.  The
+    difference/integration pair follows the same manifold convention as Mink
+    and is therefore suitable for collision line searches.
+    """
+    start = np.asarray(start_qpos, dtype=float).reshape(model.nq)
+    end = np.asarray(end_qpos, dtype=float).reshape(model.nq)
+    value = float(np.clip(fraction, 0.0, 1.0))
+    tangent = np.zeros(model.nv, dtype=float)
+    mj.mj_differentiatePos(model, tangent, 1.0, start, end)
+    result = start.copy()
+    mj.mj_integratePos(model, result, tangent, value)
+    return result
 
 
 def _load_config(path: Path) -> dict[str, Any]:
@@ -301,23 +325,51 @@ class _LimbPlaneTask(Task):
 class _RootTask(Task):
     def __init__(self, model, body_name, cost):
         self.model = model; self.body_id = int(model.body(body_name).id)
-        self.target_position = np.zeros(3); self.target_yaw = 0.0
-        super().__init__(cost=np.asarray(cost, dtype=float), gain=.45, lm_damping=1.0)
+        self.target_position = np.zeros(3)
+        self.target_rotation = np.eye(3)
+        raw_cost = np.asarray(cost, dtype=float).reshape(-1)
+        if raw_cost.size == 4:
+            # Preserve the historical [x, y, z, yaw] config shape while
+            # giving the floating base explicit roll/pitch stabilization.
+            raw_cost = np.r_[raw_cost[:3], np.repeat(raw_cost[3], 3)]
+        elif raw_cost.size == 3:
+            raw_cost = np.r_[raw_cost, np.full(3, 1.0)]
+        if raw_cost.size != 6:
+            raise ValueError("V5 global_anchor.cost must contain 3 position and 3 orientation costs")
+        super().__init__(cost=raw_cost, gain=.45, lm_damping=1.0)
 
     def set_target(self, position, quaternion):
         self.target_position = np.asarray(position, dtype=float)
-        self.target_yaw = float(Rotation.from_quat(quaternion, scalar_first=True).as_euler("zyx")[0])
+        quat = np.asarray(quaternion, dtype=float).reshape(4)
+        quat /= max(float(np.linalg.norm(quat)), 1e-12)
+        self.target_rotation = Rotation.from_quat(quat, scalar_first=True).as_matrix()
 
     def compute_error(self, configuration):
         p = configuration.data.xpos[self.body_id]
-        r = Rotation.from_matrix(configuration.data.xmat[self.body_id].reshape(3, 3))
-        yaw = float(r.as_euler("zyx")[0]); error = (yaw - self.target_yaw + np.pi) % (2*np.pi) - np.pi
+        current = configuration.data.xmat[self.body_id].reshape(3, 3)
+        # Express orientation error in the target frame.  This closes the
+        # otherwise unbounded floating-base pitch/roll null mode while still
+        # allowing the articulated waist to express torso motion.
+        error = Rotation.from_matrix(self.target_rotation.T @ current).as_rotvec()
         return np.r_[p - self.target_position, error]
 
     def compute_jacobian(self, configuration):
         jp = np.zeros((3, self.model.nv)); jr = np.zeros_like(jp)
         mj.mj_jacBody(self.model, configuration.data, jp, jr, self.body_id)
-        return np.vstack((jp, np.array([0., 0., 1.]) @ jr))
+        current = configuration.data.xmat[self.body_id].reshape(3, 3)
+        phi = Rotation.from_matrix(self.target_rotation.T @ current).as_rotvec()
+        theta = float(np.linalg.norm(phi))
+        hat = np.array([[0.0, -phi[2], phi[1]],
+                        [phi[2], 0.0, -phi[0]],
+                        [-phi[1], phi[0], 0.0]])
+        if theta < 1e-5:
+            right_jacobian_inv = np.eye(3) + 0.5 * hat + (hat @ hat) / 12.0
+        else:
+            half = 0.5 * theta
+            denom = max(2.0 * theta * np.sin(theta), 1e-9)
+            coefficient = 1.0 / (theta * theta) - (1.0 + np.cos(theta)) / denom
+            right_jacobian_inv = np.eye(3) + 0.5 * hat + coefficient * (hat @ hat)
+        return np.vstack((jp, right_jacobian_inv @ self.target_rotation.T @ jr))
 
 
 class _TorsoCoherenceTask:
@@ -391,12 +443,97 @@ class _ContactTask(Task):
         names = list(self.points); self.names = names
         self.normal_cost = float(config.get("normal_cost", 40.))
         self.tangent_cost = float(config.get("tangent_cost", 12.))
+        # A sliding contact follows the source tangential trajectory with a
+        # deliberately softer objective.  Leaving all tangential rows at
+        # zero lets a foot drift off a stair tread while its normal distance
+        # still looks valid; treating it as STATIC, on the other hand, locks
+        # the foot to one world anchor.  This intermediate cost preserves the
+        # intended surface point without over-constraining swing/transfer.
+        self.sliding_tangent_ratio = float(config.get("sliding_tangent_ratio", 0.35))
+        self.sliding_tangent_cost = float(config.get(
+            "sliding_tangent_cost", self.tangent_cost * self.sliding_tangent_ratio
+        ))
+        self.normal_only = False
+        # Support polish may temporarily give a source-confirmed heel/toe a
+        # small minimum task weight while the detector's multi-frame ramp is
+        # still entering. Ordinary IK leaves this at zero and uses the
+        # detector activation unchanged.
+        self.activation_floor = 0.0
+        # Support validation uses the actual foot collision spheres rather
+        # than the visual/contact site centres.  Keep this mapping inferred
+        # from model names so another robot profile can provide its own
+        # ``*_support_geoms`` configuration without changing the validator.
+        configured_support = config.get("support_geoms", {})
+        self.support_geom_ids = {}
+        for side in ("left", "right"):
+            for channel, region in ((f"{side}_heel", "rear"), (f"{side}_toe", "front")):
+                names = configured_support.get(channel)
+                if names is None:
+                    names = [
+                        f"{side}_foot_{region}_left_collision",
+                        f"{side}_foot_{region}_right_collision",
+                    ]
+                ids = []
+                for name in names:
+                    geom_id = int(mj.mj_name2id(model, mj.mjtObj.mjOBJ_GEOM, str(name)))
+                    if geom_id >= 0:
+                        ids.append(geom_id)
+                self.support_geom_ids[channel] = tuple(ids)
         # Every channel has one normal and two tangent rows.  Keeping the row
         # layout fixed is important: changing task dimensions as contacts
         # enter/leave would make the QP warm-start and damping discontinuous.
         super().__init__(cost=np.zeros(3 * len(names)), gain=.5, lm_damping=1.0)
 
     def set_contacts(self, contacts): self.contacts = contacts or {}
+
+    def support_value(self, configuration, channel: str, normal: np.ndarray) -> np.ndarray:
+        """Return the lowest physical collision-surface point for a foot."""
+        point, _ = self._support_point_and_geom(configuration, channel, normal)
+        return point
+
+    def _support_point_and_geom(self, configuration, channel: str, normal: np.ndarray):
+        """Return the selected physical foot support point and its geom id.
+
+        Foot contact tasks must use the same sphere surface that terrain
+        non-penetration and final support replay measure.  The XML guard
+        sites are useful for broad coverage, but they are not the physical
+        shoe surface and can be several millimetres above/below it.
+        """
+        configuration.update()
+        ids = self.support_geom_ids.get(str(channel), ())
+        if not ids:
+            return self.points[channel].value(configuration), None
+        normal = np.asarray(normal, dtype=float).reshape(3)
+        normal /= max(float(np.linalg.norm(normal)), 1e-12)
+        candidates = []
+        for geom_id in ids:
+            # Foot support geoms are spheres.  geom_rbound is a conservative
+            # fallback for a profile that uses a capsule/cylinder proxy.
+            radius = float(self.model.geom_size[geom_id, 0])
+            if int(self.model.geom_type[geom_id]) != int(mj.mjtGeom.mjGEOM_SPHERE):
+                radius = float(self.model.geom_rbound[geom_id])
+            point = configuration.data.geom_xpos[geom_id] - radius * normal
+            candidates.append((float(normal @ point), point.copy(), int(geom_id)))
+        _, point, geom_id = min(candidates, key=lambda item: item[0])
+        return point, geom_id
+
+    def support_jacobian(self, configuration, channel: str, normal: np.ndarray):
+        """Return the Jacobian of the selected physical support point."""
+        point, geom_id = self._support_point_and_geom(configuration, channel, normal)
+        if geom_id is None:
+            return point, self.points[channel].jacobian(configuration)
+        body_id = int(self.model.geom_bodyid[geom_id])
+        position = np.zeros((3, self.model.nv))
+        rotation = np.zeros_like(position)
+        mj.mj_jac(
+            self.model,
+            configuration.data,
+            position,
+            rotation,
+            point,
+            body_id,
+        )
+        return point, position
 
     @staticmethod
     def _tangent_basis(normal: np.ndarray) -> np.ndarray:
@@ -416,8 +553,6 @@ class _ContactTask(Task):
         weights = []
         for name in self.names:
             item = self.contacts.get(name, {})
-            point = self.points[name].value(configuration)
-            jacobian = self.points[name].jacobian(configuration)
             state = str(item.get("state", "NONE"))
             # STATIC episodes own one surface frame.  Reusing the per-frame
             # triangle hit here makes a tessellated chair seat move the
@@ -426,13 +561,30 @@ class _ContactTask(Task):
             normal_key = "anchor_normal_solver" if state == "STATIC" and "anchor_normal_solver" in item else "surface_normal_solver"
             normal = np.asarray(item.get(normal_key, [0., 0., 1.]), dtype=float)
             normal /= max(float(np.linalg.norm(normal)), 1e-12)
-            surface_key = "tangent_anchor_solver" if state == "STATIC" and "tangent_anchor_solver" in item else "surface_point_solver"
-            surface = np.asarray(item.get(surface_key, [0., 0., 0.]), dtype=float)
+            if name in self.support_geom_ids:
+                point, jacobian = self.support_jacobian(configuration, name, normal)
+                # A sphere's lowest surface point is the right normal-support
+                # proxy, but it moves around the sphere when the ankle rolls.
+                # Keep tangential sticking on the stable XML guard site so a
+                # foot roll does not manufacture artificial skating error.
+                tangent_point = self.points[name].value(configuration)
+                tangent_jacobian = self.points[name].jacobian(configuration)
+            else:
+                point = self.points[name].value(configuration)
+                jacobian = self.points[name].jacobian(configuration)
+                tangent_point = point
+                tangent_jacobian = jacobian
+            # A realized STATIC anchor is only a tangential sticking target.
+            # Keep the normal target on the actual source surface so a
+            # floating robot point cannot validate against itself.
+            surface = np.asarray(item.get("surface_point_solver", [0., 0., 0.]), dtype=float)
             # ``state`` is the discrete diagnostic label; ``activation`` is
             # the frame-smoothed task weight supplied by the source contact
             # detector.  Keeping these separate avoids a hard QP objective
             # discontinuity when a heel or butt contact enters/leaves.
             active = float(item.get("activation", item.get("score", 0.0)))
+            if state != "NONE" and self.activation_floor > 0.0:
+                active = max(active, self.activation_floor)
             tangent = self._tangent_basis(normal)
             # STATIC contacts stick to the episode anchor.  SLIDING contacts
             # retain normal contact but follow the currently observed tangent
@@ -442,12 +594,26 @@ class _ContactTask(Task):
                 dtype=float,
             )
             target = anchor if state == "STATIC" else surface
-            errors.extend((normal @ (point - surface) - self.clearance,
-                           *(tangent @ (point - target))))
-            jacobians.extend((normal @ jacobian, tangent[0] @ jacobian, tangent[1] @ jacobian))
-            weights.extend((self.normal_cost * active,
-                            self.tangent_cost * active if state == "STATIC" else 0.,
-                            self.tangent_cost * active if state == "STATIC" else 0.))
+            # Contact targets and collision use the same physical clearance
+            # convention.  The source surface lies at d=0; the configured
+            # robot proxy is a centre/representative point and must stay one
+            # clearance outside it in the free-space normal direction.
+            # Omitting this term asked desired contact to enter the very hull
+            # that AutomaticSceneCollisionLimit was simultaneously keeping
+            # four millimetres away from.
+            contact_target = surface + normal * self.clearance
+            errors.extend((normal @ (point - contact_target),
+                           *(tangent @ (tangent_point - target))))
+            jacobians.extend((normal @ jacobian,
+                              tangent[0] @ tangent_jacobian,
+                              tangent[1] @ tangent_jacobian))
+            tangent_weight = 0.0
+            if not self.normal_only:
+                if state == "STATIC":
+                    tangent_weight = self.tangent_cost * active
+                elif state == "SLIDING":
+                    tangent_weight = self.sliding_tangent_cost * active
+            weights.extend((self.normal_cost * active, tangent_weight, tangent_weight))
         return np.asarray(errors), np.asarray(jacobians), np.asarray(weights)
 
     def compute_error(self, configuration):
@@ -461,96 +627,110 @@ class _ContactTask(Task):
         return np.asarray(jacobian)
 
 
-class TerrainNonPenetrationLimit(Limit):
-    def __init__(self, model, terrain: TerrainField, config):
-        self.model = model; self.terrain = terrain; self.config = dict(config)
-        self.margin = float(config.get("margin", .004)); self.activate = float(config.get("activate_distance", .06))
-        self.shells = self._discover(); self.active = []
+class _FootNormalTask(Task):
+    """Align a supporting sole normal with its shared terrain surface.
 
-    def _discover(self):
-        shells = []
-        scene_bodies = {
-            body_id
-            for body_id in range(self.model.nbody)
-            if (mj.mj_id2name(self.model, mj.mjtObj.mjOBJ_BODY, body_id) or "").startswith("scene_")
-        }
-        raw_shells = []
-        for body_id in range(1, self.model.nbody):
-            if body_id in scene_bodies:
+    The task has a fixed six-row topology (three rows per foot); inactive
+    feet simply receive zero cost.  It only activates when that foot's heel
+    and toe are both reliable contacts on the same surface, so a single-point
+    toe or heel strike does not force an artificial flat-foot pose.
+    """
+
+    def __init__(self, model, config):
+        self.model = model
+        self.cost_value = float(config.get("cost", 0.25))
+        self.activation_floor = float(config.get("activation_floor", 0.3))
+        self.channels = (("left_heel", "left_toe", "ANKLE_ROLL_L_LINK"),
+                         ("right_heel", "right_toe", "ANKLE_ROLL_R_LINK"))
+        self.contacts = {}
+        self.body_ids = []
+        self.local_axes = []
+        qpos = np.asarray(model.qpos0, dtype=float).copy()
+        data = mj.MjData(model)
+        data.qpos[:] = qpos
+        mj.mj_forward(model, data)
+        for _, _, body_name in self.channels:
+            body_id = int(mj.mj_name2id(model, mj.mjtObj.mjOBJ_BODY, body_name))
+            if body_id < 0:
+                self.body_ids.append(-1)
+                self.local_axes.append(np.array([0., 0., 1.]))
                 continue
-            verts = []
-            for gid in range(self.model.ngeom):
-                if int(self.model.geom_bodyid[gid]) != body_id or self.model.geom_type[gid] != mj.mjtGeom.mjGEOM_MESH: continue
-                mid = int(self.model.geom_dataid[gid]); start = int(self.model.mesh_vertadr[mid]); count = int(self.model.mesh_vertnum[mid])
-                # Mesh vertices are in mesh coordinates.  Keep the geom-local
-                # transform so shell samples and their Jacobians refer to the
-                # same physical surface.
-                geom_rotation = np.zeros((3, 3), dtype=float)
-                mj.mju_quat2Mat(geom_rotation.reshape(-1), self.model.geom_quat[gid])
-                verts.append(
-                    (np.asarray(self.model.mesh_vert[start:start+count]) @ geom_rotation.T)
-                    + self.model.geom_pos[gid]
-                )
-            if verts:
-                samples = np.concatenate(verts)
-                raw_shells.append((body_id, samples))
-        # A fixed, deterministic proxy budget keeps exact terrain queries
-        # bounded for high-resolution robot meshes while retaining coverage
-        # on every articulated body.  The hard constraint still evaluates the
-        # exact terrain SDF at each selected point.
-        budget = max(1, int(self.config.get("mesh_proxy_points", 96)))
-        per_shell = max(4, int(np.ceil(budget / max(1, len(raw_shells)))) )
-        for body_id, samples in raw_shells:
-            stride = max(1, int(np.ceil(len(samples) / per_shell)))
-            selected = samples[::stride][:per_shell]
-            shells.append((body_id, selected))
-        return shells
+            self.body_ids.append(body_id)
+            world_axis = np.array([0., 0., 1.])
+            self.local_axes.append(data.xmat[body_id].reshape(3, 3).T @ world_axis)
+        super().__init__(cost=np.zeros(6), gain=float(config.get("gain", .35)), lm_damping=1.0)
 
-    def prepare_active_set(self, configuration, dt=0.):
-        del dt; configuration.update(); active=[]
-        for body_id, local in self.shells:
-            rot = configuration.data.xmat[body_id].reshape(3, 3)
-            points = configuration.data.xpos[body_id] + local @ rot.T
-            hits = self.terrain.nearest_surface_batch(points)
-            for point, hit in zip(points, hits):
-                if hit.signed_distance <= self.activate: active.append((body_id, point.copy(), hit))
-        self.active = active
+    def set_contacts(self, contacts):
+        self.contacts = contacts or {}
 
-    def measure_all(self, configuration):
-        """Return every discovered proxy's current terrain hit and slack."""
-        configuration.update(); values = []
-        for body_id, local in self.shells:
+    @staticmethod
+    def _normal(item):
+        key = "anchor_normal_solver" if item.get("state") == "STATIC" else "surface_normal_solver"
+        value = np.asarray(item.get(key, [0., 0., 1.]), dtype=float)
+        return value / max(float(np.linalg.norm(value)), 1e-12)
+
+    def _active_target(self, heel_name, toe_name):
+        heel = self.contacts.get(heel_name, {})
+        toe = self.contacts.get(toe_name, {})
+        if heel.get("state", "NONE") == "NONE" or toe.get("state", "NONE") == "NONE":
+            return None, 0.0
+        if float(heel.get("activation", heel.get("score", 0.0))) < self.activation_floor:
+            return None, 0.0
+        if float(toe.get("activation", toe.get("score", 0.0))) < self.activation_floor:
+            return None, 0.0
+        if str(heel.get("surface_id", "")) != str(toe.get("surface_id", "")):
+            return None, 0.0
+        normal = self._normal(heel) + self._normal(toe)
+        normal /= max(float(np.linalg.norm(normal)), 1e-12)
+        return normal, min(float(heel.get("activation", 0.0)), float(toe.get("activation", 0.0)))
+
+    def _rows(self, configuration):
+        configuration.update()
+        errors, jacobians, costs = [], [], []
+        for index, (heel, toe, _) in enumerate(self.channels):
+            target, activation = self._active_target(heel, toe)
+            body_id = self.body_ids[index]
+            if body_id < 0:
+                errors.extend((0., 0., 0.)); jacobians.extend((np.zeros(self.model.nv),) * 3); costs.extend((0., 0., 0.)); continue
             rotation = configuration.data.xmat[body_id].reshape(3, 3)
-            points = configuration.data.xpos[body_id] + local @ rotation.T
-            for point, hit in zip(points, self.terrain.nearest_surface_batch(points)):
-                values.append({"body_id": int(body_id), "point": point.copy(),
-                               "signed_distance": float(hit.signed_distance),
-                               "margin": float(self.margin),
-                               "slack": float(hit.signed_distance - self.margin),
-                               "surface_id": str(hit.surface_id),
-                               "surface_normal": np.asarray(hit.normal).copy()})
-        return values
+            current = rotation @ self.local_axes[index]
+            angular = np.zeros((3, self.model.nv)); position = np.zeros_like(angular)
+            mj.mj_jacBody(self.model, configuration.data, position, angular, body_id)
+            if target is None:
+                errors.extend((0., 0., 0.)); jacobians.extend((np.zeros(self.model.nv),) * 3); costs.extend((0., 0., 0.)); continue
+            # d(current) = omega x current = -skew(current) omega.
+            skew_current = np.array([[0., -current[2], current[1]], [current[2], 0., -current[0]], [-current[1], current[0], 0.]])
+            skew_target = np.array([[0., -target[2], target[1]], [target[2], 0., -target[0]], [-target[1], target[0], 0.]])
+            errors.extend(np.cross(current, target))
+            jacobian = skew_target @ (-skew_current @ angular)
+            jacobians.extend(tuple(jacobian[row] for row in range(3)))
+            costs.extend((self.cost_value * activation,) * 3)
+        return np.asarray(errors), np.asarray(jacobians), np.asarray(costs)
 
-    def compute_qp_inequalities(self, configuration, dt):
-        del dt; rows=[]; bounds=[]
-        for body_id, point, hit in self.active:
-            jp=np.zeros((3,self.model.nv)); jr=np.zeros_like(jp); mj.mj_jac(self.model, configuration.data, jp, jr, point, body_id)
-            rows.append(-hit.normal @ jp); bounds.append(float(hit.signed_distance - self.margin))
-        return Constraint(G=np.asarray(rows), h=np.asarray(bounds)) if rows else Constraint()
+    def compute_error(self, configuration):
+        error, _, costs = self._rows(configuration); self.cost = costs; return error
+
+    def compute_jacobian(self, configuration):
+        _, jacobian, costs = self._rows(configuration); self.cost = costs; return jacobian
 
 
 class _SceneCollisionLimit(Limit):
     """Independent MuJoCo robot-scene active-set limit for V5."""
     def __init__(self, model, config):
         self.model = model
+        self.config = dict(config)
         self.enabled = bool(config.get("enabled", True))
         self.activate = float(config.get("activate_distance", .06))
         self.margin = float(config.get("margin", .004))
         self.hard_band = max(0.0, float(config.get("hard_activation_band", 0.0)))
+        self.pair_hysteresis = max(
+            0.0, float(config.get("pair_hysteresis", 0.015))
+        )
         prefix = str(config.get("scene_body_prefix", "scene_"))
         self.scene_geoms = [g for g in range(model.ngeom) if model.geom_contype[g] and (mj.mj_id2name(model,mj.mjtObj.mjOBJ_BODY,int(model.geom_bodyid[g])) or "").startswith(prefix)]
         self.robot_geoms = [g for g in range(model.ngeom) if model.geom_contype[g] and g not in self.scene_geoms and int(model.geom_bodyid[g]) != 0]
         self.active_pairs = []
+        self.previous_selection = {}
         self.minimum_distance = np.inf
         self.maximum_penetration = 0.
         self.exact_query_pairs = 0
@@ -564,6 +744,7 @@ class _SceneCollisionLimit(Limit):
             return
         self.exact_query_pairs = 0
         self.broadphase_culled_pairs = 0
+        continuity_candidates = []
         for robot_geom in self.robot_geoms:
             for scene_geom in self.scene_geoms:
                 # A geom's bounding sphere gives a conservative lower bound
@@ -597,25 +778,105 @@ class _SceneCollisionLimit(Limit):
                 # scene into robot free space, which is the direction required
                 # by -n^T J dq <= d-margin.
                 sign = np.sign(distance) if abs(distance) > 1e-12 else 1.0
+                item = {"robot_geom":robot_geom,"scene_geom":scene_geom,"distance":distance,"normal":None,"robot_point":fromto[:3].copy()}
                 # Positive-distance pairs farther than the hard safety band
                 # are useful diagnostics but needlessly constrain the motion
                 # objective.  Any penetration (distance < 0) and every pair
                 # inside margin remain unconditionally active.
+                if distance <= self.activate:
+                    continuity_candidates.append(item)
                 if distance > self.margin + self.hard_band:
                     continue
-                pairs.append({"robot_geom":robot_geom,"scene_geom":scene_geom,"distance":distance,"normal":sign * vector/norm,"robot_point":fromto[:3].copy()})
+                item["normal"] = sign * vector/norm
+                pairs.append(item)
         # A convex decomposition can return many overlapping/near-identical
-        # pieces for one robot geom.  Enforcing every pair at once creates
-        # contradictory normals at a penetration seam.  Keep the closest
-        # deterministic pair per robot geom; the next SQP substep re-queries
-        # after the robot has moved away.
+        # pieces for one robot link.  Enforcing every pair at once creates
+        # contradictory normals at a penetration seam (this is especially
+        # common when an ankle mesh has six or more CoACD pieces touching the
+        # same stair edge).  Keep the closest deterministic pair per
+        # (robot-body, scene-piece) by default.  The next SQP substep re-
+        # queries after the link has moved away.  ``pair_grouping=geom`` is
+        # retained as an explicit diagnostic option for callers that need the
+        # old per-geom active set.
         selected = {}
+        grouping = str(self.config.get("pair_grouping", "body_scene"))
+        def group_key(item):
+            if grouping == "geom":
+                return int(item["robot_geom"])
+            body_id = int(self.model.geom_bodyid[item["robot_geom"]])
+            return (body_id, int(item["scene_geom"]))
+
+        active_by_group = {}
         for item in pairs:
-            key = int(item["robot_geom"])
-            previous = selected.get(key)
-            if previous is None or (item["distance"], item["scene_geom"]) < (previous["distance"], previous["scene_geom"]):
-                selected[key] = item
+            active_by_group.setdefault(group_key(item), []).append(item)
+        all_by_pair = {
+            (int(item["robot_geom"]), int(item["scene_geom"])): item
+            for item in continuity_candidates
+        }
+        # A previous pair can remain in the active set slightly beyond the
+        # hard activation band.  This keeps the collision normal continuous
+        # while a link crosses a CoACD seam; it is still bounded by the
+        # ordinary ``activate`` distance and is re-queried every substep.
+        group_keys = set(active_by_group)
+        for key, previous in self.previous_selection.items():
+            current = all_by_pair.get(
+                (int(previous["robot_geom"]), int(previous["scene_geom"]))
+            )
+            if current is not None and current["distance"] <= self.margin + self.hard_band + self.pair_hysteresis:
+                group_keys.add(key)
+        for key in sorted(group_keys, key=str):
+            candidates = active_by_group.get(key, [])
+            previous = self.previous_selection.get(key)
+            # Hard safety always wins over continuity: if any currently
+            # queried pair for this link is already penetrating, select the
+            # deepest one immediately.  Hysteresis is only for the positive
+            # distance band where keeping a stable normal is safe.
+            penetrating = [
+                item for item in candidates
+                if float(item["distance"]) < self.margin
+            ]
+            if penetrating:
+                selected[key] = min(
+                    penetrating,
+                    key=lambda item: (float(item["distance"]), int(item["scene_geom"]), int(item["robot_geom"])),
+                )
+                continue
+            if previous is not None:
+                retained = all_by_pair.get(
+                    (int(previous["robot_geom"]), int(previous["scene_geom"]))
+                )
+                if retained is not None and retained["distance"] <= self.margin + self.hard_band + self.pair_hysteresis:
+                    if retained["normal"] is None:
+                        # The pair was outside the hard band, so its normal
+                        # was not needed above.  Re-querying the exact pair
+                        # here avoids reusing a stale normal across motion.
+                        closest = np.zeros(6)
+                        distance = float(mj.mj_geomDistance(
+                            self.model, configuration.data,
+                            int(retained["robot_geom"]), int(retained["scene_geom"]),
+                            self.activate, closest,
+                        ))
+                        vector = closest[:3] - closest[3:]
+                        norm = float(np.linalg.norm(vector))
+                        if norm < 1e-10:
+                            retained = None
+                        else:
+                            sign = np.sign(distance) if abs(distance) > 1e-12 else 1.0
+                            retained["normal"] = sign * vector / norm
+                            retained["robot_point"] = closest[:3].copy()
+                            retained["distance"] = distance
+                    if retained is not None:
+                        selected[key] = retained
+                        continue
+            if candidates:
+                selected[key] = min(
+                    candidates,
+                    key=lambda item: (float(item["distance"]), int(item["scene_geom"]), int(item["robot_geom"])),
+                )
         self.active_pairs = list(selected.values())
+        self.previous_selection = {
+            key: dict(value) for key, value in selected.items()
+        }
         self.minimum_distance=min(all_distances,default=np.inf); self.maximum_penetration=max(0.,-self.minimum_distance)
 
     def all_distances(self, configuration) -> np.ndarray:
@@ -643,6 +904,81 @@ class _TrustLimit(Limit):
         del configuration, dt; identity=np.eye(self.model.nv); return Constraint(np.vstack((identity,-identity)), np.full(2*self.model.nv,self.radius))
 
 
+class _FrameDisplacementLimit(Limit):
+    """Bound total motion from the previous exported 50 Hz configuration.
+
+    Applying a velocity clamp after QP integration can invalidate collision
+    inequalities that the QP just satisfied.  This limit expresses the same
+    frame budget directly in Mink's ``delta-q`` variable.  An L1 ball is used
+    for free-base translation/rotation because its eight linear half-spaces
+    conservatively imply the configured Euclidean speed limit.
+    """
+
+    _SIGNS_3D = np.asarray([
+        [sx, sy, sz]
+        for sx in (-1.0, 1.0)
+        for sy in (-1.0, 1.0)
+        for sz in (-1.0, 1.0)
+    ])
+
+    def __init__(self, model: mj.MjModel, config: dict[str, Any]):
+        self.model = model
+        self.linear_limit = float(config.get("base_linear_velocity_limit", np.inf))
+        self.angular_limit = float(config.get("base_angular_velocity_limit", np.inf))
+        self.joint_limit = float(config.get("joint_velocity_limit", np.inf))
+        self.anchor_qpos: np.ndarray | None = None
+        self.frame_dt = 0.0
+        self.enabled = False
+
+    def set_frame(self, anchor_qpos: np.ndarray, frame_dt: float, *, enabled: bool) -> None:
+        self.anchor_qpos = np.asarray(anchor_qpos, dtype=float).reshape(self.model.nq).copy()
+        self.frame_dt = float(frame_dt)
+        self.enabled = bool(enabled)
+
+    def compute_qp_inequalities(self, configuration, dt):
+        del dt
+        if not self.enabled or self.anchor_qpos is None or self.frame_dt <= 0.0:
+            return Constraint()
+        current_delta = np.zeros(self.model.nv, dtype=float)
+        mj.mj_differentiatePos(
+            self.model,
+            current_delta,
+            1.0,
+            self.anchor_qpos,
+            configuration.data.qpos,
+        )
+        rows: list[np.ndarray] = []
+        bounds: list[float] = []
+        for start, speed in ((0, self.linear_limit), (3, self.angular_limit)):
+            if not np.isfinite(speed) or speed <= 0.0:
+                continue
+            for signs in self._SIGNS_3D:
+                row = np.zeros(self.model.nv, dtype=float)
+                row[start:start + 3] = signs
+                rows.append(row)
+                bounds.append(
+                    speed * self.frame_dt
+                    - float(signs @ current_delta[start:start + 3])
+                )
+        if np.isfinite(self.joint_limit) and self.joint_limit > 0.0:
+            maximum = self.joint_limit * self.frame_dt
+            for joint_id in range(self.model.njnt):
+                if not is_dof_joint_type(self.model.jnt_type[joint_id]):
+                    continue
+                dof = int(self.model.jnt_dofadr[joint_id])
+                row = np.zeros(self.model.nv, dtype=float)
+                row[dof] = 1.0
+                rows.extend((row, -row))
+                bounds.extend((
+                    maximum - float(current_delta[dof]),
+                    maximum + float(current_delta[dof]),
+                ))
+        return (
+            Constraint(G=np.asarray(rows), h=np.asarray(bounds))
+            if rows else Constraint()
+        )
+
+
 class WholeBodyRetargetSolver:
     """Independent task/QP pipeline operating on one resolved V5 task."""
     def __init__(self, task: RetargetTask, terrain: TerrainField, environment_pool: np.ndarray, fps: float = 50.0, solver: str = "daqp", scene_model=None):
@@ -656,6 +992,21 @@ class WholeBodyRetargetSolver:
             task.robot.name, self.model, task.robot.semantic_points
         )
         self.robot_profile.validate(self.model)
+        morphology_cfg = self.config.get("morphology", {})
+        scene_cfg = self.config.get("scene", {})
+        self.root_policy = str(morphology_cfg.get("root_policy", "support_aware"))
+        self.robot_height = float(scene_cfg.get("robot_height", 1.316))
+        self.human_height = float(
+            morphology_cfg.get("human_height", scene_cfg.get("default_human_height", 1.78))
+        )
+        # Filled from the complete source timeline before solving.  Root Z is
+        # anchored to the robot's measured support height and only follows
+        # source vertical *changes* thereafter; an adult pelvis world height
+        # must never be copied directly into the shorter robot.
+        self._root_reference_pelvis_z: float | None = None
+        self._root_reference_surface_z: float | None = None
+        self._robot_root_support_height: float | None = None
+        self._root_vertical_scale = self.robot_height / max(self.human_height, 1e-6)
         for name,bounds in self.config.get("joint_position_limits",{}).items():
             if name in [mj.mj_id2name(self.model,mj.mjtObj.mjOBJ_JOINT,i) for i in range(self.model.njnt)]:
                 jid=_joint_id(self.model, name)
@@ -694,8 +1045,14 @@ class WholeBodyRetargetSolver:
         root=self.config["global_anchor"]; self.root=_RootTask(self.model,root["robot_body"],root["cost"])
         self.torso = _TorsoCoherenceTask(self.model, self.config.get("torso_pelvis_coherence", {}))
         self.contact=_ContactTask(self.model,self.config.get("contact_tasks",{}).get("robot_points",{}),self.config.get("contact_tasks",{}))
+        self.foot_normal = _FootNormalTask(
+            self.model, self.config.get("foot_orientation", {})
+        )
         self.terrain_limit=TerrainNonPenetrationLimit(self.model,terrain,self.config.get("terrain_nonpenetration",{})); self.trust=_TrustLimit(self.model,self.config.get("solver",{}).get("trust_region",.12)); self.scene_collision=_SceneCollisionLimit(self.model,self.config.get("scene_collision",{}))
-        self.config_limit=mink.ConfigurationLimit(self.model); self.velocity=mink.VelocityLimit(self.model,{mj.mj_id2name(self.model,mj.mjtObj.mjOBJ_JOINT,i):float(self.config.get("solver",{}).get("joint_velocity_limit",10.)) for i in range(self.model.njnt) if self.model.jnt_type[i] in (mj.mjtJoint.mjJNT_HINGE,mj.mjtJoint.mjJNT_SLIDE)})
+        self.frame_displacement = _FrameDisplacementLimit(
+            self.model, self.config.get("solver", {})
+        )
+        self.config_limit=mink.ConfigurationLimit(self.model); self.velocity=mink.VelocityLimit(self.model,{mj.mj_id2name(self.model,mj.mjtObj.mjOBJ_JOINT,i):float(self.config.get("solver",{}).get("joint_velocity_limit",10.)) for i in range(self.model.njnt) if is_dof_joint_type(self.model.jnt_type[i])})
         posture=self.config.get("posture",{})
         costs=np.full(self.model.nv,float(posture.get("nominal_cost",.01)))
         # A free-base's xyz/roll/pitch/yaw are not ordinary joint posture.
@@ -709,6 +1066,7 @@ class WholeBodyRetargetSolver:
         if self.model.nv >= 6:
             self._temporal_costs[:6] = float(posture.get("floating_base_temporal_cost", 0.0))
         self.previous=None; self.frame_index=0; self.diagnostics=[]
+        self._robot_static_anchors: dict[str, dict[str, Any]] = {}
         self.task_builder = TaskBuilder(self)
         self.retry_damping_factors = tuple(
             float(value) for value in self.config.get("solver", {}).get(
@@ -724,6 +1082,227 @@ class WholeBodyRetargetSolver:
             raise ValueError(
                 "V5 solver retry_damping_factors and retry_trust_factors "
                 "must be non-empty arrays of equal length"
+            )
+
+    def _hard_constraint_violations(self, solve_dt: float) -> tuple[bool, bool]:
+        """Re-query nonlinear terrain and scene constraints at current qpos."""
+        self.terrain_limit.prepare_active_set(self.configuration, solve_dt)
+        self.scene_collision.prepare_active_set(self.configuration, solve_dt)
+        tolerance = float(
+            self.config.get("solver", {}).get(
+                "nonlinear_backtracking_tolerance", 1e-6
+            )
+        )
+        terrain_violation = any(
+            float(item[2].signed_distance) < self.terrain_limit.margin - tolerance
+            for item in self.terrain_limit.active
+        )
+        collision_violation = any(
+            float(item["distance"]) < self.scene_collision.margin - tolerance
+            for item in self.scene_collision.active_pairs
+        )
+        return terrain_violation, collision_violation
+
+    def _backtrack_to_safe_configuration(
+        self,
+        start_qpos: np.ndarray,
+        proposed_qpos: np.ndarray,
+        solve_dt: float,
+    ) -> tuple[float, bool]:
+        """Keep the largest collision-free prefix of a nonlinear IK step.
+
+        A local QP inequality can cross a curved mesh between linearization
+        points.  Restoring the complete previous frame is safe but can freeze
+        a trajectory indefinitely at a contact boundary.  This bounded line
+        search keeps the hard margin unchanged and retains forward progress
+        on the MuJoCo configuration manifold.
+        """
+        start = np.asarray(start_qpos, dtype=float).reshape(self.model.nq)
+        proposed = np.asarray(proposed_qpos, dtype=float).reshape(self.model.nq)
+        self.configuration.update(start)
+        if any(self._hard_constraint_violations(solve_dt)):
+            self.configuration.update(proposed)
+            self._hard_constraint_violations(solve_dt)
+            return 0.0, False
+
+        low, high = 0.0, 1.0
+        iterations = max(
+            1,
+            int(
+                self.config.get("solver", {}).get(
+                    "nonlinear_backtracking_iterations", 10
+                )
+            ),
+        )
+        for _ in range(iterations):
+            middle = 0.5 * (low + high)
+            self.configuration.update(
+                _interpolate_qpos(self.model, start, proposed, middle)
+            )
+            if any(self._hard_constraint_violations(solve_dt)):
+                high = middle
+            else:
+                low = middle
+        self.configuration.update(
+            _interpolate_qpos(self.model, start, proposed, low)
+        )
+        safe = not any(self._hard_constraint_violations(solve_dt))
+        return float(low), bool(safe)
+
+    def root_target(self, source, frame, contact_frame):
+        """Return a root target with generic support-aware vertical policy.
+
+        Scene geometry remains metric and root XY/yaw follows the source.  Z
+        is the only coordinate adjusted: active lower-body contacts place the
+        robot's corresponding proxy on the inferred surface; with no active
+        support, morphology maps the source pelvis height relative to the
+        analytic floor.  This prevents adult-scale pelvis Z from making a
+        shorter robot float while preserving flight/crouch trajectories.
+        """
+        pelvis_target, pelvis_quaternion = frame.get("pelvis", frame.get("root"))
+        target = np.asarray(pelvis_target, dtype=float).copy()
+        if self.root_policy in {"source", "disabled"}:
+            return target, np.asarray(pelvis_quaternion, dtype=float)
+        support_channels = tuple(self.config.get("morphology", {}).get(
+            "root_support_channels",
+            ("left_heel", "left_toe", "right_heel", "right_toe",
+             "left_butt", "right_butt", "lower_back", "upper_back"),
+        ))
+        contacts = contact_frame.get("contacts", {}) if isinstance(contact_frame, dict) else {}
+        foot_corrections = []
+        body_corrections = []
+        for channel in support_channels:
+            item = contacts.get(channel, {})
+            state = str(item.get("state", "NONE"))
+            activation = float(item.get("activation", item.get("score", 0.0)))
+            # Root support correction follows the physical scene surface;
+            # robot static anchors only define tangential sticking.
+            surface = item.get("surface_point_solver")
+            if state == "NONE" or activation <= 0.05 or surface is None or channel not in self.contact.points:
+                continue
+            normal = np.asarray(item.get(
+                "anchor_normal_solver" if state == "STATIC" else "surface_normal_solver",
+                [0., 0., 1.],
+            ), dtype=float)
+            normal /= max(float(np.linalg.norm(normal)), 1e-12)
+            if channel in self.contact.support_geom_ids:
+                robot_point = self.contact.support_value(self.configuration, channel, normal)
+            else:
+                robot_point = self.contact.points[channel].value(self.configuration)
+            # A vertical root correction is valid for support surfaces whose
+            # normal has an upward component.  Side-wall hand contacts never
+            # become accidental root supports.
+            if normal[2] <= 0.6:
+                continue
+            surface = np.asarray(surface, dtype=float)
+            correction = (
+                float(surface[2] + self.contact.clearance - robot_point[2]),
+                float(np.clip(activation, 0.0, 1.0)),
+            )
+            if channel in {"left_heel", "left_toe", "right_heel", "right_toe"}:
+                foot_corrections.append(correction)
+            else:
+                body_corrections.append(correction)
+        # Feet are the primary vertical support when any reliable foot
+        # episode exists.  Butt/back contacts describe seated or prone
+        # support only when no foot is carrying the root; averaging both
+        # groups made a seated butt target cancel a clearly floating foot.
+        corrections = foot_corrections or body_corrections
+        if corrections:
+            # Blend support correction by the detector's continuous episode
+            # activation.  Applying a full stair-height correction when a
+            # contact has only just re-entered creates a root Z impulse and
+            # sends the legs into an infeasible branch.  The weighted mean is
+            # smooth and the hard scene/terrain limits still bound it.
+            values = np.asarray([item[0] for item in corrections], dtype=float)
+            weights = np.asarray([item[1] for item in corrections], dtype=float)
+            if float(weights.sum()) > 1e-9:
+                target_delta = float(np.sum(values * weights) / weights.sum())
+                target_delta = float(np.clip(target_delta, -0.08, 0.08))
+                target[2] = float(
+                    self.configuration.data.xpos[self.root.body_id, 2] + target_delta
+                )
+            return target, np.asarray(pelvis_quaternion, dtype=float)
+        floor = getattr(self.terrain, "floor_z", None)
+        source_pelvis = np.asarray(source.get("pelvis", target), dtype=float)
+        if self._root_reference_pelvis_z is not None and self._robot_root_support_height is not None:
+            # The source reference is a support-phase pelvis height, not an
+            # absolute origin.  This preserves jumps/crouches while making a
+            # standing frame place the robot's measured sole proxies on the
+            # scene support surface.
+            surface_z = self._root_reference_surface_z
+            if surface_z is None:
+                surface_z = float(floor) if floor is not None else 0.0
+            target[2] = float(
+                surface_z
+                + self._robot_root_support_height
+                + (float(source_pelvis[2]) - self._root_reference_pelvis_z)
+                * self._root_vertical_scale
+            )
+        elif floor is not None and np.isfinite(float(floor)) and self.human_height > 1e-6:
+            relative = max(0.0, float(source_pelvis[2] - float(floor)))
+            target[2] = float(floor) + relative * self._root_vertical_scale
+        return target, np.asarray(pelvis_quaternion, dtype=float)
+
+    def _configure_root_reference(self, source_frames, contact_frames) -> None:
+        """Measure one source/robot support baseline before the IK loop.
+
+        Contact detection remains source-only.  This method only converts the
+        source support-phase pelvis height into a robot root baseline; it does
+        not inspect robot qpos or feed robot state back into contact labels.
+        """
+        self.configuration.update(self.model.qpos0)
+        root_z = float(self.configuration.data.xpos[self.root.body_id, 2])
+        foot_heights = []
+        for name in ("left_heel", "left_toe", "right_heel", "right_toe"):
+            point = self.contact.points.get(name)
+            if point is not None:
+                foot_heights.append(float(point.value(self.configuration)[2]))
+        if not foot_heights:
+            return
+        self._robot_root_support_height = root_z - float(np.median(foot_heights))
+
+        pelvis_values = []
+        surface_values = []
+        for source, frame in zip(source_frames, contact_frames):
+            pelvis = source.get("pelvis")
+            if pelvis is None:
+                continue
+            contacts = frame.get("contacts", {}) if isinstance(frame, dict) else {}
+            support_state = str(frame.get("support_state", "")) if isinstance(frame, dict) else ""
+            candidates = []
+            for channel in ("left_heel", "left_toe", "right_heel", "right_toe"):
+                item = contacts.get(channel, {})
+                if str(item.get("state", "NONE")) == "NONE":
+                    continue
+                if float(item.get("activation", item.get("score", 0.0))) <= 1e-3:
+                    continue
+                surface = item.get("surface_point_solver")
+                normal = np.asarray(item.get("surface_normal_solver", [0., 0., 1.]), dtype=float)
+                if surface is not None and np.isfinite(np.asarray(surface, dtype=float)).all() and normal[2] > 0.6:
+                    candidates.append(float(np.asarray(surface, dtype=float).reshape(3)[2]))
+            if candidates and (support_state in {"SUPPORTED", ""} or contacts):
+                pelvis_values.append(float(np.asarray(pelvis, dtype=float)[2]))
+                surface_values.append(float(np.median(candidates)))
+        if pelvis_values:
+            self._root_reference_pelvis_z = float(np.median(pelvis_values))
+            self._root_reference_surface_z = float(np.median(surface_values))
+            return
+
+        # No declared contact episode: use a robust source foot baseline as a
+        # fallback, but never let this become a successful no-contact claim in
+        # final validation.
+        source_support = []
+        for source in source_frames:
+            for channel in ("left_heel", "left_toe", "right_heel", "right_toe", "left_foot", "right_foot"):
+                if channel in source:
+                    source_support.append(float(np.asarray(source[channel], dtype=float)[2]))
+        if source_support and source_frames:
+            self._root_reference_surface_z = float(
+                getattr(self.terrain, "floor_z", 0.0) if getattr(self.terrain, "floor_z", None) is not None else 0.0
+            )
+            self._root_reference_pelvis_z = float(
+                np.median([float(np.asarray(source.get("pelvis"), dtype=float)[2]) for source in source_frames if source.get("pelvis") is not None])
             )
 
     def _update_scene_time(self, timestamp: float) -> None:
@@ -747,6 +1326,371 @@ class WholeBodyRetargetSolver:
             self.configuration.data.mocap_pos[mocap_id] = pose[:3, 3]
             self.configuration.data.mocap_quat[mocap_id] = Rotation.from_matrix(pose[:3, :3]).as_quat(scalar_first=True)
         self.configuration.update()
+
+    def _project_limited_qpos(self) -> None:
+        """Project only tiny numerical limit drift after integration.
+
+        Mink's velocity/configuration limits constrain the QP step, but a
+        floating-point integration can leave a hinge a few ulps outside its
+        XML range.  This is a numerical projection, not a pose correction:
+        it never expands a limit or changes the free base.
+        """
+        qpos = self.configuration.data.qpos
+        for joint_id in range(self.model.njnt):
+            if not self.model.jnt_limited[joint_id]:
+                continue
+            joint_type = int(self.model.jnt_type[joint_id])
+            if joint_type not in (int(mj.mjtJoint.mjJNT_HINGE), int(mj.mjtJoint.mjJNT_SLIDE)):
+                continue
+            address = int(self.model.jnt_qposadr[joint_id])
+            lower, upper = self.model.jnt_range[joint_id]
+            qpos[address] = np.clip(qpos[address], float(lower), float(upper))
+        self.configuration.update()
+
+    def _project_frame_velocity(self, frame_anchor_qpos: np.ndarray, dt: float) -> None:
+        """Bound cumulative frame motion after each QP integration.
+
+        Mink's joint velocity limit intentionally covers articulated DoFs;
+        MuJoCo's free joint is not represented by that limit.  During a stair
+        contact transition an otherwise feasible QP could therefore move the
+        root by several trust-region radii in one frame, producing the leg
+        twist/jump seen in the V5 replay.  Contact/collision polish steps are
+        also integrations, so the bound is measured from the frame anchor,
+        not from the immediately preceding substep.  This prevents several
+        individually-valid substeps from exceeding the exported 50 Hz
+        velocity contract.
+        """
+        frame_anchor_qpos = np.asarray(frame_anchor_qpos, dtype=float).reshape(-1)
+        if frame_anchor_qpos.size < 7 or not np.isfinite(dt) or dt <= 0.0:
+            return
+        qpos = self.configuration.data.qpos
+        linear_limit = float(self.config.get("solver", {}).get("base_linear_velocity_limit", 2.5))
+        angular_limit = float(self.config.get("solver", {}).get("base_angular_velocity_limit", 6.0))
+        if np.isfinite(linear_limit) and linear_limit > 0.0:
+            delta = np.asarray(qpos[:3] - frame_anchor_qpos[:3], dtype=float)
+            max_step = linear_limit * float(dt)
+            length = float(np.linalg.norm(delta))
+            if np.isfinite(length) and length > max_step:
+                qpos[:3] = frame_anchor_qpos[:3] + delta * (max_step / max(length, 1e-12))
+        if np.isfinite(angular_limit) and angular_limit > 0.0:
+            anchor = Rotation.from_quat(frame_anchor_qpos[3:7], scalar_first=True)
+            current = Rotation.from_quat(qpos[3:7], scalar_first=True)
+            delta_rotation = anchor.inv() * current
+            angle = float(np.linalg.norm(delta_rotation.as_rotvec()))
+            max_angle = angular_limit * float(dt)
+            if np.isfinite(angle) and angle > max_angle:
+                current = anchor * Rotation.from_rotvec(
+                    delta_rotation.as_rotvec() * (max_angle / max(angle, 1e-12))
+                )
+                qpos[3:7] = current.as_quat(scalar_first=True)
+
+        # The articulated velocity limit is expressed in scalar MuJoCo DOFs.
+        # Apply it to cumulative frame displacement as well, including the
+        # extra contact/collision polish integrations.
+        joint_limit = float(self.config.get("solver", {}).get("joint_velocity_limit", np.inf))
+        if np.isfinite(joint_limit) and joint_limit > 0.0:
+            max_joint_step = joint_limit * float(dt)
+            for joint_id in range(self.model.njnt):
+                if not is_dof_joint_type(self.model.jnt_type[joint_id]):
+                    continue
+                address = int(self.model.jnt_qposadr[joint_id])
+                delta = float(qpos[address] - frame_anchor_qpos[address])
+                qpos[address] = frame_anchor_qpos[address] + float(
+                    np.clip(delta, -max_joint_step, max_joint_step)
+                )
+        self.configuration.update()
+
+    def _contact_normal_residual(self, contact_frame: dict[str, Any]) -> float:
+        """Return the largest reliable source-contact normal residual.
+
+        This is deliberately evaluated on the post-integration configuration.
+        The ordinary IK passes can trade a few millimetres of desired contact
+        for the primary interaction objective; a bounded contact polish below
+        recovers that residual without changing the task topology or touching
+        unconstrained/low-confidence channels.
+        """
+        return self._contact_residuals(contact_frame)[0]
+
+    def _contact_residuals(
+        self,
+        contact_frame: dict[str, Any],
+        channels: set[str] | None = None,
+        activation_threshold: float | None = None,
+    ) -> tuple[float, float]:
+        """Return normal and STATIC tangential residuals for contact polish."""
+        threshold = float(
+            self.config.get("contact_tasks", {}).get(
+                "polish_activation", 0.25
+            )
+            if activation_threshold is None else activation_threshold
+        )
+        maximum = 0.0
+        tangent_maximum = 0.0
+        for channel, item in contact_frame.get("contacts", {}).items():
+            if channels is not None and channel not in channels:
+                continue
+            if channel not in self.contact.points:
+                continue
+            if str(item.get("state", "NONE")) == "NONE":
+                continue
+            if float(item.get("activation", item.get("score", 0.0))) < threshold:
+                continue
+            state = str(item.get("state", "NONE"))
+            normal_key = (
+                "anchor_normal_solver"
+                if state == "STATIC" and "anchor_normal_solver" in item
+                else "surface_normal_solver"
+            )
+            normal = np.asarray(item.get(normal_key, [0., 0., 1.]), dtype=float)
+            normal /= max(float(np.linalg.norm(normal)), 1e-12)
+            if channel in self.contact.support_geom_ids:
+                point = self.contact.support_value(self.configuration, channel, normal)
+                tangent_point = self.contact.points[channel].value(self.configuration)
+            else:
+                point = self.contact.points[channel].value(self.configuration)
+                tangent_point = point
+            surface = np.asarray(item.get("surface_point_solver", point), dtype=float)
+            residual = abs(float(normal @ (point - surface) - self.contact.clearance))
+            maximum = max(maximum, residual)
+            if state == "STATIC":
+                tangent = self.contact._tangent_basis(normal)
+                anchor = np.asarray(item.get("tangent_anchor_solver", surface), dtype=float)
+                tangent_maximum = max(
+                    tangent_maximum,
+                    float(np.linalg.norm(tangent @ (tangent_point - anchor))),
+                )
+        return maximum, tangent_maximum
+
+    def _contact_channel_residuals(
+        self,
+        contact_frame: dict[str, Any],
+        channels: set[str] | None = None,
+        activation_threshold: float = 0.0,
+    ) -> dict[str, float]:
+        """Return normal residuals per contact channel at the current qpos.
+
+        Support polish used to solve all heel/toe channels in one QP.  That
+        makes a single unreachable channel (typically a foot crossing a stair
+        edge) reject corrections that are feasible for the other foot.  The
+        per-channel map keeps the correction policy local and gives the
+        diagnostics enough information to explain which contact was actually
+        unreachable.
+        """
+        residuals: dict[str, float] = {}
+        for channel, item in contact_frame.get("contacts", {}).items():
+            if channels is not None and channel not in channels:
+                continue
+            if channel not in self.contact.points:
+                continue
+            if str(item.get("state", "NONE")) == "NONE":
+                continue
+            if float(item.get("activation", item.get("score", 0.0))) < activation_threshold:
+                continue
+            state = str(item.get("state", "NONE"))
+            normal_key = (
+                "anchor_normal_solver"
+                if state == "STATIC" and "anchor_normal_solver" in item
+                else "surface_normal_solver"
+            )
+            normal = np.asarray(item.get(normal_key, [0., 0., 1.]), dtype=float)
+            normal /= max(float(np.linalg.norm(normal)), 1e-12)
+            if channel in self.contact.support_geom_ids:
+                point = self.contact.support_value(self.configuration, channel, normal)
+            else:
+                point = self.contact.points[channel].value(self.configuration)
+            surface = np.asarray(item.get("surface_point_solver", point), dtype=float)
+            residuals[channel] = abs(
+                float(normal @ (point - surface) - self.contact.clearance)
+            )
+        return residuals
+
+    def _constraint_snapshot(self, solve_dt: float) -> dict[str, Any]:
+        """Return concrete nonlinear terrain/scene violations for diagnostics."""
+        self.terrain_limit.prepare_active_set(self.configuration, solve_dt)
+        self.scene_collision.prepare_active_set(self.configuration, solve_dt)
+        tolerance = float(
+            self.config.get("solver", {}).get(
+                "nonlinear_backtracking_tolerance", 1e-6
+            )
+        )
+        terrain_rows = []
+        for body_id, point, hit in self.terrain_limit.active:
+            signed_distance = float(hit.signed_distance)
+            if signed_distance < self.terrain_limit.margin - tolerance:
+                terrain_rows.append({
+                    "body_id": int(body_id),
+                    "signed_distance": signed_distance,
+                    "margin": float(self.terrain_limit.margin),
+                    "slack": signed_distance - float(self.terrain_limit.margin),
+                    "surface_id": str(hit.surface_id),
+                    "normal": np.asarray(hit.normal, dtype=float).copy(),
+                    "point": np.asarray(point, dtype=float).copy(),
+                })
+        scene_rows = []
+        for pair in self.scene_collision.active_pairs:
+            distance = float(pair["distance"])
+            if distance < self.scene_collision.margin - tolerance:
+                scene_rows.append({
+                    "robot_geom": int(pair["robot_geom"]),
+                    "scene_geom": int(pair["scene_geom"]),
+                    "distance": distance,
+                    "margin": float(self.scene_collision.margin),
+                    "slack": distance - float(self.scene_collision.margin),
+                })
+        return {
+            "terrain_violation_count": len(terrain_rows),
+            "terrain_violations": terrain_rows,
+            "scene_violation_count": len(scene_rows),
+            "scene_violations": scene_rows,
+            "minimum_terrain_signed_distance": float(
+                min((float(item[2].signed_distance) for item in self.terrain_limit.active), default=np.inf)
+            ),
+            "minimum_scene_distance": float(self.scene_collision.minimum_distance),
+        }
+
+    def _try_contact_channel_correction(
+        self,
+        channel: str,
+        item: dict[str, Any],
+        contact_frame: dict[str, Any],
+        solve_dt: float,
+        contact_cfg: dict[str, Any],
+        activation_floor: float,
+    ) -> tuple[bool, str, dict[str, Any]]:
+        """Try one bounded support correction and keep it only if safe.
+
+        This is deliberately a feasibility probe around the existing Mink QP;
+        it does not alter task priorities or disable terrain/scene limits.
+        """
+        before = self.configuration.data.qpos.copy()
+        before_residual = self._contact_channel_residuals(
+            contact_frame, {channel}, activation_threshold=0.0
+        ).get(channel, np.inf)
+        self.contact.set_contacts({channel: item})
+        self.contact.activation_floor = float(activation_floor)
+        self.terrain_limit.prepare_active_set(self.configuration, solve_dt)
+        self.scene_collision.prepare_active_set(self.configuration, solve_dt)
+        # A support-only correction should use the articulated leg/ankle
+        # chain first.  Letting the free base consume the whole correction
+        # budget lowers the pelvis into a chair/riser and is the common cause
+        # of a combined support polish rollback.  The limits are restored
+        # immediately after this one bounded probe.
+        old_linear_limit = self.frame_displacement.linear_limit
+        old_angular_limit = self.frame_displacement.angular_limit
+        configured_linear = contact_cfg.get(
+            "support_polish_base_linear_velocity_limit", None
+        )
+        configured_angular = contact_cfg.get(
+            "support_polish_base_angular_velocity_limit", None
+        )
+        if configured_linear is not None:
+            self.frame_displacement.linear_limit = min(
+                old_linear_limit, float(configured_linear)
+            )
+        if configured_angular is not None:
+            self.frame_displacement.angular_limit = min(
+                old_angular_limit, float(configured_angular)
+            )
+        limits = self.task_builder.build_limits(include_velocity=True)
+        polish_tasks = [self.contact]
+        if bool(contact_cfg.get("support_polish_leg_preference", True)):
+            side_token = "_L_" if str(channel).startswith("left_") else "_R_"
+            costs = np.full(
+                self.model.nv,
+                float(contact_cfg.get("support_polish_other_cost", 15.0)),
+            )
+            if self.model.nv >= 6:
+                costs[:6] = float(
+                    contact_cfg.get("support_polish_root_cost", 30.0)
+                )
+            for joint_id in range(self.model.njnt):
+                if not is_dof_joint_type(self.model.jnt_type[joint_id]):
+                    continue
+                name = mj.mj_id2name(
+                    self.model, mj.mjtObj.mjOBJ_JOINT, joint_id
+                ) or ""
+                dof = int(self.model.jnt_dofadr[joint_id])
+                if side_token not in name:
+                    continue
+                if "ANKLE_" in name:
+                    costs[dof] = float(
+                        contact_cfg.get("support_polish_ankle_cost", 0.02)
+                    )
+                elif "KNEE_" in name:
+                    costs[dof] = float(
+                        contact_cfg.get("support_polish_knee_cost", 0.08)
+                    )
+                elif "HIP_" in name:
+                    costs[dof] = float(
+                        contact_cfg.get("support_polish_hip_cost", 0.20)
+                    )
+            support_posture = mink.PostureTask(
+                self.model,
+                costs,
+                gain=float(contact_cfg.get("support_polish_posture_gain", 0.5)),
+                lm_damping=1.0,
+            )
+            support_posture.set_target(before)
+            polish_tasks.append(support_posture)
+        original_radius = self.trust.radius
+        self.trust.radius = min(
+            original_radius,
+            max(float(contact_cfg.get("polish_trust_region", 0.02)), 1e-4),
+        )
+        correction = None
+        reason = ""
+        try:
+            correction = mink.solve_ik(
+                self.configuration,
+                polish_tasks,
+                solve_dt,
+                self.solver,
+                float(self.config.get("solver", {}).get("damping", .1)),
+                limits=limits,
+            )
+        except Exception as error:
+            reason = f"qp {type(error).__name__}: {error}"
+        finally:
+            self.trust.radius = original_radius
+            self.frame_displacement.linear_limit = old_linear_limit
+            self.frame_displacement.angular_limit = old_angular_limit
+        if correction is None:
+            return False, reason or "qp returned no correction", self._constraint_snapshot(solve_dt)
+        if not np.isfinite(correction).all():
+            return False, "qp produced non-finite correction", self._constraint_snapshot(solve_dt)
+        self.configuration.integrate_inplace(correction, solve_dt)
+        self._project_limited_qpos()
+        snapshot = self._constraint_snapshot(solve_dt)
+        if snapshot["terrain_violation_count"] or snapshot["scene_violation_count"]:
+            self.configuration.update(before)
+            safe_snapshot = self._constraint_snapshot(solve_dt)
+            return (
+                False,
+                "nonlinear terrain/scene violation after correction",
+                {"candidate": snapshot, "restored": safe_snapshot},
+            )
+        after_residual = self._contact_channel_residuals(
+            contact_frame, {channel}, activation_threshold=0.0
+        ).get(channel, np.inf)
+        minimum_improvement = float(
+            contact_cfg.get("per_channel_min_improvement", 1e-5)
+        )
+        if not np.isfinite(after_residual) or after_residual > before_residual - minimum_improvement:
+            self.configuration.update(before)
+            safe_snapshot = self._constraint_snapshot(solve_dt)
+            return (
+                False,
+                "correction did not reduce channel residual",
+                {
+                    "candidate": snapshot,
+                    "restored": safe_snapshot,
+                    "residual_before": float(before_residual),
+                    "residual_after": float(after_residual),
+                },
+            )
+        snapshot["residual_before"] = float(before_residual)
+        snapshot["residual_after"] = float(after_residual)
+        return True, "accepted", snapshot
 
     def _seed_initial_pose(self, source: dict[str, np.ndarray], root_quaternion: np.ndarray) -> None:
         """Choose a non-mirrored, bent-knee warm start without random IK seeds."""
@@ -818,12 +1762,98 @@ class WholeBodyRetargetSolver:
             contacts[channel] = item
         return {**contact_frame, "contacts": contacts} if changed else contact_frame
 
+    def _bind_robot_static_anchors(
+        self, contact_frame: dict[str, Any], timestamp: float
+    ) -> dict[str, Any]:
+        """Lock STATIC tangential motion at the robot's realized contact.
+
+        Source anchors identify the desired scene surface and continue to own
+        the normal-position target.  Sticking, however, is a temporal robot
+        condition: once a configured robot proxy establishes STATIC contact,
+        its tangential point must stop moving.  Locking the source-human point
+        directly over-constrains robots with different pelvis/sole width and
+        creates large lateral leg twists.
+        """
+        contacts = {}
+        assets = {
+            str(asset.asset_id): asset for asset in getattr(self.scene_model, "assets", [])
+        }
+        active_channels = set()
+        for channel, original in contact_frame.get("contacts", {}).items():
+            item = dict(original)
+            state = str(item.get("state", "NONE"))
+            if state != "STATIC" or channel not in self.contact.points:
+                self._robot_static_anchors.pop(channel, None)
+                contacts[channel] = item
+                continue
+            active_channels.add(channel)
+            object_id = str(item.get("object_id", ""))
+            episode_key = (
+                object_id,
+                str(item.get("anchor_surface_id", item.get("surface_id", ""))),
+            )
+            anchor = self._robot_static_anchors.get(channel)
+            if anchor is None or anchor.get("episode_key") != episode_key:
+                if channel in getattr(self.contact, "support_geom_ids", {}):
+                    anchor_normal = np.asarray(
+                        original.get("surface_normal_solver", [0., 0., 1.]),
+                        dtype=float,
+                    )
+                    world_point = self.contact.support_value(
+                        self.configuration, channel, anchor_normal
+                    ).copy()
+                else:
+                    world_point = self.contact.points[channel].value(self.configuration).copy()
+                asset = assets.get(object_id)
+                local_point = None
+                if asset is not None:
+                    pose = asset.pose_at(timestamp)
+                    local_point = np.linalg.solve(
+                        np.asarray(pose[:3, :3], dtype=float),
+                        world_point - np.asarray(pose[:3, 3], dtype=float),
+                    )
+                anchor = {
+                    "episode_key": episode_key,
+                    "world_point": world_point,
+                    "asset_local_point": local_point,
+                }
+                self._robot_static_anchors[channel] = anchor
+            asset = assets.get(object_id)
+            if asset is not None and anchor["asset_local_point"] is not None:
+                pose = asset.pose_at(timestamp)
+                tangent_anchor = (
+                    np.asarray(pose[:3, :3], dtype=float)
+                    @ np.asarray(anchor["asset_local_point"], dtype=float)
+                    + np.asarray(pose[:3, 3], dtype=float)
+                )
+            else:
+                tangent_anchor = np.asarray(anchor["world_point"], dtype=float)
+            item["source_tangent_anchor_solver"] = np.asarray(
+                item.get("tangent_anchor_solver", tangent_anchor), dtype=float
+            ).copy()
+            item["tangent_anchor_solver"] = tangent_anchor.copy()
+            item["robot_tangent_anchor_provenance"] = "realized_robot_static_episode"
+            contacts[channel] = item
+        for channel in tuple(self._robot_static_anchors):
+            if channel not in active_channels:
+                self._robot_static_anchors.pop(channel, None)
+        return {**contact_frame, "contacts": contacts}
+
     def solve(self, motion, solver_frames, contacts, source_frames=None) -> RetargetResult:
-        outputs=[]; first_iterations=int(self.config.get("solver",{}).get("first_frame_iterations",8)); iterations=int(self.config.get("solver",{}).get("iterations",4)); fatal_failure = None
+        outputs=[]
+        runtime_contact_frames = []
+        solve_started = time.perf_counter()
+        progress_interval = max(
+            0,
+            int(self.config.get("solver", {}).get("progress_interval", 0)),
+        )
+        first_iterations=int(self.config.get("solver",{}).get("first_frame_iterations",8)); iterations=int(self.config.get("solver",{}).get("iterations",4)); fatal_failure = None
         if len(solver_frames) != len(contacts):
             raise ValueError(f"V5 solver/contact timeline mismatch: {len(solver_frames)} != {len(contacts)}")
         if source_frames is not None and len(source_frames) != len(solver_frames):
             raise ValueError(f"V5 source/solver timeline mismatch: {len(source_frames)} != {len(solver_frames)}")
+        if source_frames is not None:
+            self._configure_root_reference(source_frames, contacts)
         for index,(frame,contact_frame) in enumerate(zip(solver_frames,contacts)):
             self._update_scene_time(index * self.dt)
             contact_frame = self._contact_frame_at_time(contact_frame, index * self.dt)
@@ -832,6 +1862,22 @@ class WholeBodyRetargetSolver:
             if root is None: raise ValueError("V5 solver frame lacks pelvis/root")
             if index==0:
                 self._seed_initial_pose(source, root[1])
+            contact_frame = self._bind_robot_static_anchors(
+                contact_frame, index * self.dt
+            )
+            # Preserve the exact contact realization used by the task and
+            # diagnostics.  In particular STATIC tangent anchors are bound to
+            # the robot proxy here, so validators and exporters must not fall
+            # back to the pre-solve source schedule.
+            runtime_contact_frames.append(copy.deepcopy(contact_frame))
+            # All ordinary and polish integrations for this output frame share
+            # one motion budget.  Without an anchor, four IK passes plus
+            # contact/collision polish could each satisfy the local velocity
+            # limit while the exported frame still jumped discontinuously.
+            frame_anchor_qpos = self.configuration.data.qpos.copy()
+            self.frame_displacement.set_frame(
+                frame_anchor_qpos, self.dt, enabled=bool(index)
+            )
             # Config files retain the historical source labels for backwards
             # compatibility, but V5 consumes canonical semantic names first.
             semantics={}
@@ -850,6 +1896,7 @@ class WholeBodyRetargetSolver:
             qp_solve_total = 0.0
             qp_iterations = 0
             qp_retries = 0
+            nonlinear_safe_step_fraction = 1.0
             for _ in range(passes):
                 collision_start = time.perf_counter()
                 self.terrain_limit.prepare_active_set(self.configuration,self.dt/max(passes,1)); self.scene_collision.prepare_active_set(self.configuration,self.dt/max(passes,1))
@@ -913,6 +1960,299 @@ class WholeBodyRetargetSolver:
                 qp_solve_total += qp_solve_time
                 qp_iterations += 1
                 self.configuration.integrate_inplace(velocity, solve_dt)
+                self._project_limited_qpos()
+            # A contact is a soft objective, so the full Omni/GMR solve may
+            # legitimately leave a small normal residual when it competes
+            # with interaction preservation.  Before exporting the frame,
+            # perform a bounded feasibility polish for reliable contacts only.
+            # This keeps the primary task and scene constraints intact while
+            # preventing a supported foot from remaining visibly floating over
+            # a stair tread.
+            contact_cfg = self.config.get("contact_tasks", {})
+            contact_polish_iterations = max(
+                0, int(contact_cfg.get("polish_iterations", 1))
+            )
+            contact_polish_threshold = float(
+                contact_cfg.get("polish_residual_threshold", 0.008)
+            )
+            support_polish_threshold = float(
+                contact_cfg.get("support_polish_residual_threshold", 0.001)
+            )
+            support_polish_activation = float(
+                contact_cfg.get("support_polish_activation", 0.25)
+            )
+            support_channels = {
+                "left_heel", "left_toe", "right_heel", "right_toe"
+            }
+            contact_polish_failures = []
+            contact_polish_attempts = []
+            contact_polish_accepted_channels = []
+            contact_unreachable_channels = []
+            collision_polish_failures = []
+            if not failures and contact_polish_iterations:
+                full_contact_items = dict(contact_frame.get("contacts", {}))
+                support_contact_items = {
+                    channel: item
+                    for channel, item in full_contact_items.items()
+                    if channel in support_channels
+                }
+                self.contact.set_contacts(full_contact_items)
+                # Tangential sticking remains part of the ordinary soft task;
+                # enabling it inside the bounded polish is opt-in because an
+                # unreachable static source anchor can otherwise turn a
+                # feasible frame into repeated safety rollbacks.
+                polish_tangent = bool(contact_cfg.get("polish_tangent", False))
+                polish_tangent_threshold = float(contact_cfg.get(
+                    "polish_tangent_threshold", contact_polish_threshold
+                ))
+                self.contact.normal_only = not polish_tangent
+                for _ in range(contact_polish_iterations):
+                    normal_residual, tangent_residual = self._contact_residuals(contact_frame)
+                    support_normal_residual, support_tangent_residual = self._contact_residuals(
+                        contact_frame,
+                        support_channels,
+                        activation_threshold=0.0,
+                    )
+                    if (
+                        normal_residual <= contact_polish_threshold
+                        and support_normal_residual <= support_polish_threshold
+                        and (not polish_tangent or tangent_residual <= polish_tangent_threshold)
+                    ):
+                        break
+                    # Probe support channels independently.  A combined
+                    # heel/toe correction is overly conservative at stair
+                    # edges: one foot can be feasible while the other foot's
+                    # target requires a transient height jump or collides
+                    # with a riser.  Keep every accepted correction, but only
+                    # mark a channel unreachable after its own nonlinear
+                    # feasibility check fails.
+                    per_channel_polish = bool(
+                        contact_cfg.get("per_channel_polish", True)
+                    )
+                    if (
+                        per_channel_polish
+                        and support_normal_residual > support_polish_threshold
+                        and support_contact_items
+                    ):
+                        channel_residuals = self._contact_channel_residuals(
+                            contact_frame,
+                            support_channels,
+                            activation_threshold=0.0,
+                        )
+                        candidates = sorted(
+                            (
+                                (residual, channel)
+                                for channel, residual in channel_residuals.items()
+                                if residual > support_polish_threshold
+                            ),
+                            reverse=True,
+                        )
+                        max_probe_attempts = max(
+                            1,
+                            int(contact_cfg.get("per_channel_max_attempts", 1)),
+                        )
+                        accepted = False
+                        for residual, channel in candidates[:max_probe_attempts]:
+                            ok, reason, snapshot = self._try_contact_channel_correction(
+                                channel,
+                                support_contact_items[channel],
+                                contact_frame,
+                                solve_dt,
+                                contact_cfg,
+                                support_polish_activation,
+                            )
+                            attempt = {
+                                "channel": channel,
+                                "residual_before": float(residual),
+                                "accepted": bool(ok),
+                                "reason": str(reason),
+                                "constraints": snapshot,
+                            }
+                            contact_polish_attempts.append(attempt)
+                            if ok:
+                                contact_polish_accepted_channels.append(channel)
+                                accepted = True
+                                break
+                            contact_unreachable_channels.append(channel)
+                            contact_polish_failures.append(
+                                f"{channel}: {reason}"
+                            )
+                        if accepted:
+                            # Recompute all residuals at the newly accepted
+                            # configuration on the next bounded iteration.
+                            continue
+                        if candidates:
+                            contact_polish_failures.append(
+                                "no feasible per-channel support correction"
+                            )
+                            break
+                    # When only the physical foot support is out of tolerance,
+                    # solve a support-only polish.  Butt/back/palm normals
+                    # remain in the ordinary contact objective, but cannot
+                    # consume the limited correction budget needed to bring a
+                    # real heel/toe collision surface onto its support plane.
+                    self.contact.set_contacts(
+                        support_contact_items
+                        if support_normal_residual > support_polish_threshold
+                        and support_contact_items
+                        else full_contact_items
+                    )
+                    # A source-confirmed support channel may still be inside
+                    # the detector's entry ramp.  Give only this bounded
+                    # support correction a modest minimum weight; ordinary
+                    # IK and all non-foot contacts keep their smooth source
+                    # activation unchanged.
+                    self.contact.activation_floor = (
+                        support_polish_activation
+                        if support_normal_residual > support_polish_threshold
+                        and support_contact_items
+                        else 0.0
+                    )
+                    # Contact polish integrates the configuration between
+                    # iterations.  Re-linearize both hard limits at that
+                    # updated state; reusing the previous pass's active set
+                    # can push a foot/butt into a newly encountered scene
+                    # facet and make the subsequent collision repair QP
+                    # artificially infeasible.
+                    self.terrain_limit.prepare_active_set(self.configuration, solve_dt)
+                    self.scene_collision.prepare_active_set(self.configuration, solve_dt)
+                    limits = self.task_builder.build_limits(include_velocity=bool(index))
+                    original_radius = self.trust.radius
+                    self.trust.radius = min(
+                        original_radius,
+                        max(float(contact_cfg.get("polish_trust_region", 0.02)), 1e-4),
+                    )
+                    try:
+                        correction = mink.solve_ik(
+                            self.configuration,
+                            [self.contact],
+                            solve_dt,
+                            self.solver,
+                            float(self.config.get("solver", {}).get("damping", .1)),
+                            limits=limits,
+                        )
+                    except Exception as error:
+                        # Contact polish is an optional soft-objective
+                        # refinement.  A conflicting contact/scene geometry
+                        # must not invalidate an otherwise feasible primary
+                        # QP result; retain the frame and expose the event in
+                        # diagnostics instead of treating it as a solver
+                        # failure.
+                        contact_polish_failures.append(
+                            f"{type(error).__name__}: {error}"
+                        )
+                        correction = None
+                    self.trust.radius = original_radius
+                    if correction is None or not np.isfinite(correction).all():
+                        if correction is not None:
+                            contact_polish_failures.append(
+                                "produced non-finite correction"
+                            )
+                        break
+                    polish_qpos = self.configuration.data.qpos.copy()
+                    self.configuration.integrate_inplace(correction, solve_dt)
+                    self._project_limited_qpos()
+                    # The contact objective is soft; it must never leave a
+                    # nonlinear terrain/scene violation for the later hard
+                    # repair pass.  CoACD seams can invalidate a linearized
+                    # collision row after a seemingly feasible integration.
+                    # Roll back only this polish step and keep the last safe
+                    # configuration, so the next output frame can retry from
+                    # a valid state without turning a soft-task conflict into
+                    # a fatal QP failure.
+                    self.terrain_limit.prepare_active_set(self.configuration, solve_dt)
+                    self.scene_collision.prepare_active_set(self.configuration, solve_dt)
+                    candidate_snapshot = self._constraint_snapshot(solve_dt)
+                    terrain_violation = any(
+                        float(item[2].signed_distance) < self.terrain_limit.margin - 1e-6
+                        for item in self.terrain_limit.active
+                    )
+                    collision_violation = any(
+                        float(item["distance"]) < self.scene_collision.margin - 1e-6
+                        for item in self.scene_collision.active_pairs
+                    )
+                    if terrain_violation or collision_violation:
+                        self.configuration.update(polish_qpos)
+                        self.terrain_limit.prepare_active_set(self.configuration, solve_dt)
+                        self.scene_collision.prepare_active_set(self.configuration, solve_dt)
+                        rollback_snapshot = self._constraint_snapshot(solve_dt)
+                        contact_polish_failures.append(
+                            "rolled back soft contact correction that violated "
+                            "terrain/scene non-penetration"
+                        )
+                        combined_attempt = {
+                            "channel": "combined",
+                            "residual_before": float(support_normal_residual),
+                            "accepted": False,
+                            "reason": "combined correction violated nonlinear hard limits",
+                            "constraints": {
+                                "candidate": candidate_snapshot,
+                                "restored": rollback_snapshot,
+                            },
+                        }
+                        contact_polish_attempts.append(combined_attempt)
+                        # A joint correction can be rejected because one
+                        # channel collides with a riser/chair facet even
+                        # though another channel has a locally feasible ankle
+                        # correction.  Retry only after the combined attempt
+                        # has been restored; ordinary frames retain the stable
+                        # joint correction path above.
+                        fallback_enabled = bool(
+                            contact_cfg.get("per_channel_fallback", True)
+                        )
+                        fallback_accepted = False
+                        if fallback_enabled and support_contact_items:
+                            channel_residuals = self._contact_channel_residuals(
+                                contact_frame,
+                                support_channels,
+                                activation_threshold=0.0,
+                            )
+                            candidates = sorted(
+                                (
+                                    (residual, channel)
+                                    for channel, residual in channel_residuals.items()
+                                    if residual > support_polish_threshold
+                                ),
+                                reverse=True,
+                            )
+                            max_probe_attempts = max(
+                                1,
+                                int(contact_cfg.get("per_channel_max_attempts", 1)),
+                            )
+                            for residual, channel in candidates[:max_probe_attempts]:
+                                ok, reason, snapshot = self._try_contact_channel_correction(
+                                    channel,
+                                    support_contact_items[channel],
+                                    contact_frame,
+                                    solve_dt,
+                                    contact_cfg,
+                                    support_polish_activation,
+                                )
+                                contact_polish_attempts.append({
+                                    "channel": channel,
+                                    "residual_before": float(residual),
+                                    "accepted": bool(ok),
+                                    "reason": str(reason),
+                                    "constraints": snapshot,
+                                })
+                                if ok:
+                                    contact_polish_accepted_channels.append(channel)
+                                    fallback_accepted = True
+                                    break
+                                contact_unreachable_channels.append(channel)
+                                contact_polish_failures.append(
+                                    f"{channel}: {reason}"
+                                )
+                        if fallback_accepted:
+                            # Continue the bounded polish loop from the
+                            # accepted single-channel state.  The next pass
+                            # re-evaluates every contact and can still perform
+                            # a combined correction if it becomes feasible.
+                            continue
+                        break
+                self.contact.normal_only = False
+                self.contact.activation_floor = 0.0
+                self.contact.set_contacts(full_contact_items)
             # The final integration can cross a nonlinear mesh/CoACD seam
             # that was not active at the start of the last ordinary pass.
             # Re-query at the actual post-integration configuration and apply
@@ -924,11 +2264,11 @@ class WholeBodyRetargetSolver:
                 self.terrain_limit.prepare_active_set(self.configuration, solve_dt)
                 self.scene_collision.prepare_active_set(self.configuration, solve_dt)
                 terrain_violation = any(
-                    float(item[2].signed_distance) < self.terrain_limit.margin
+                    float(item[2].signed_distance) < self.terrain_limit.margin - 1e-6
                     for item in self.terrain_limit.active
                 )
                 collision_violation = any(
-                    float(item["distance"]) < self.scene_collision.margin
+                    float(item["distance"]) < self.scene_collision.margin - 1e-6
                     for item in self.scene_collision.active_pairs
                 )
                 if not (terrain_violation or collision_violation):
@@ -940,30 +2280,94 @@ class WholeBodyRetargetSolver:
                 )
                 original_radius = self.trust.radius
                 self.trust.radius = min(original_radius, max(polish_radius, 1e-4))
-                try:
-                    correction = mink.solve_ik(
-                        self.configuration,
-                        # A polish step is a feasibility projection, not a
-                        # second retargeting solve.  Reapplying the full
-                        # interaction/contact objective here can trade a
-                        # small collision violation for a large limb jump.
-                        # An empty task list gives the QP a minimum-norm
-                        # correction under the same hard limits.
-                        [],
-                        solve_dt,
-                        self.solver,
-                        float(self.config.get("solver", {}).get("damping", .1)) * 2.0,
-                        limits=limits,
+                # Collision polish is a feasibility projection, not a second
+                # retargeting solve.  A zero-task DAQP solve can nevertheless
+                # be numerically singular when several local contact normals
+                # meet at a convex-decomposition seam.  Retry the *same*
+                # frozen active set with the alternate backend before marking
+                # the frame failed; this does not change task priorities or
+                # relax the collision inequality.
+                correction = None
+                polish_errors = []
+                for backend in (self.solver, "proxqp"):
+                    try:
+                        correction = mink.solve_ik(
+                            self.configuration,
+                            [],
+                            solve_dt,
+                            backend,
+                            float(self.config.get("solver", {}).get("damping", .1)) * 2.0,
+                            limits=limits,
+                        )
+                        if correction is not None and np.isfinite(correction).all():
+                            break
+                        polish_errors.append(f"{backend}: non-finite correction")
+                        correction = None
+                    except Exception as error:
+                        polish_errors.append(
+                            f"{backend} {type(error).__name__}: {error}"
+                        )
+                if correction is None:
+                    # A nonlinear seam can make the local collision repair
+                    # infeasible even though the previous exported frame was
+                    # valid.  Recover by restoring the frame-start state and
+                    # replaying the hard queries at the current scene pose;
+                    # never disable the limit or export the penetrating
+                    # intermediate state.  If the anchor itself is unsafe,
+                    # retain the fatal failure because no local recovery is
+                    # physically justified.
+                    self.configuration.update(frame_anchor_qpos)
+                    self.terrain_limit.prepare_active_set(self.configuration, solve_dt)
+                    self.scene_collision.prepare_active_set(self.configuration, solve_dt)
+                    anchor_terrain_violation = any(
+                        float(item[2].signed_distance) < self.terrain_limit.margin - 1e-6
+                        for item in self.terrain_limit.active
                     )
-                except Exception as error:
-                    failures.append(f"collision_polish {type(error).__name__}: {error}")
+                    anchor_collision_violation = any(
+                        float(item["distance"]) < self.scene_collision.margin - 1e-6
+                        for item in self.scene_collision.active_pairs
+                    )
+                    if not anchor_terrain_violation and not anchor_collision_violation:
+                        collision_polish_failures.append(
+                            "rolled back frame after infeasible collision polish: "
+                            + "; ".join(polish_errors)
+                        )
+                        self.trust.radius = original_radius
+                        break
+                    failures.append("collision_polish " + "; ".join(polish_errors))
                     self.trust.radius = original_radius
                     break
                 self.trust.radius = original_radius
-                if correction is None or not np.isfinite(correction).all():
-                    failures.append("collision_polish produced non-finite correction")
-                    break
                 self.configuration.integrate_inplace(correction, solve_dt)
+                self._project_limited_qpos()
+            # Never export a configuration that remains inside a scene geom
+            # after the bounded nonlinear repair.  CoACD stair seams can make
+            # a local linear projection converge to a different facet while
+            # leaving the original pair slightly penetrating.  Replaying the
+            # frame-start state is the only conservative recovery that keeps
+            # the robot collision-free without teleporting the root or
+            # disabling scene collision for this frame.
+            remaining_terrain_violation, remaining_collision_violation = (
+                self._hard_constraint_violations(solve_dt)
+            )
+            if (remaining_terrain_violation or remaining_collision_violation) and not failures:
+                proposed_qpos = self.configuration.data.qpos.copy()
+                fraction, safe = self._backtrack_to_safe_configuration(
+                    frame_anchor_qpos, proposed_qpos, solve_dt
+                )
+                nonlinear_safe_step_fraction = min(
+                    nonlinear_safe_step_fraction, fraction
+                )
+                if safe:
+                    collision_polish_failures.append(
+                        "clipped nonlinear IK step to collision-free fraction "
+                        f"{fraction:.6f} after bounded collision polish"
+                    )
+                else:
+                    failures.append(
+                        "collision repair left a penetration and the frame-start "
+                        "configuration was also unsafe"
+                    )
             # Diagnostics and the exported frame must describe the same
             # post-polish configuration, not the pre-correction active set.
             self.terrain_limit.prepare_active_set(self.configuration, solve_dt)
@@ -976,13 +2380,23 @@ class WholeBodyRetargetSolver:
                 actual_tangent = 0.0
                 robot_point = None
                 if channel in self.contact.points and str(item.get("state", "NONE")) != "NONE":
-                    robot_point = self.contact.points[channel].value(self.configuration)
+                    state = str(item.get("state", "NONE"))
+                    normal = np.asarray(item.get(
+                        "anchor_normal_solver" if state == "STATIC" else "surface_normal_solver",
+                        [0., 0., 1.],
+                    ), dtype=float)
+                    normal /= max(float(np.linalg.norm(normal)), 1e-12)
+                    if channel in self.contact.support_geom_ids:
+                        robot_point = self.contact.support_value(
+                            self.configuration, channel, normal
+                        )
+                    else:
+                        robot_point = self.contact.points[channel].value(self.configuration)
                     state = str(item.get("state", "NONE"))
                     normal_key = "anchor_normal_solver" if state == "STATIC" and "anchor_normal_solver" in item else "surface_normal_solver"
                     normal = np.asarray(item.get(normal_key, [0., 0., 1.]), dtype=float)
                     normal /= max(float(np.linalg.norm(normal)), 1e-12)
-                    surface_key = "tangent_anchor_solver" if state == "STATIC" and "tangent_anchor_solver" in item else "surface_point_solver"
-                    surface = np.asarray(item.get(surface_key, robot_point), dtype=float)
+                    surface = np.asarray(item.get("surface_point_solver", robot_point), dtype=float)
                     actual_normal = abs(float(normal @ (robot_point - surface) - self.contact.clearance))
                     anchor = np.asarray(item.get("tangent_anchor_solver", surface), dtype=float)
                     tangent = self.contact._tangent_basis(normal)
@@ -1001,7 +2415,18 @@ class WholeBodyRetargetSolver:
                     "robot_point": None if robot_point is None else robot_point.copy(),
                     "target_surface_point": np.asarray(item.get("surface_point_solver", [0., 0., 0.]), dtype=float).copy(),
                 }
-            self.diagnostics.append({"frame":index,"qp_failures":failures,"interaction_error":interaction_error,"interaction_scene_points":int(self.interaction.environment_count),"minimum_terrain_distance":float(min((x[2].signed_distance for x in self.terrain_limit.active),default=np.inf)),"active_terrain_constraints":len(self.terrain_limit.active),"scene_collision_candidate_pairs":int(len(self.scene_collision.robot_geoms)*len(self.scene_collision.scene_geoms)),"scene_collision_exact_query_pairs":int(self.scene_collision.exact_query_pairs),"scene_collision_broadphase_culled_pairs":int(self.scene_collision.broadphase_culled_pairs),"scene_collision_active_pairs":len(self.scene_collision.active_pairs),"scene_collision_polish_iterations":int(polish_count),"scene_collision_active_pair_details":[{"robot_geom":mj.mj_id2name(self.model,mj.mjtObj.mjOBJ_GEOM,int(x["robot_geom"])),"scene_geom":mj.mj_id2name(self.model,mj.mjtObj.mjOBJ_GEOM,int(x["scene_geom"])),"distance":float(x["distance"])} for x in self.scene_collision.active_pairs],"minimum_scene_distance":float(self.scene_collision.minimum_distance),"maximum_scene_penetration":float(self.scene_collision.maximum_penetration),"collision_query_time":float(collision_query_total),"scene_collision_query_runtime_seconds":float(collision_query_total),"qp_solve_time":float(qp_solve_total),"qp_solve_runtime_seconds":float(qp_solve_total),"qp_iterations":int(qp_iterations),"qp_retries":int(qp_retries),"contacts":contact_metrics,"contact_states":contact_metrics})
+            self.diagnostics.append({"frame":index,"qp_failures":failures,"contact_polish_failures":contact_polish_failures,"contact_polish_attempts":contact_polish_attempts,"contact_polish_accepted_channels":contact_polish_accepted_channels,"contact_unreachable_channels":sorted(set(contact_unreachable_channels)),"collision_polish_failures":collision_polish_failures,"nonlinear_safe_step_fraction":float(nonlinear_safe_step_fraction),"interaction_error":interaction_error,"interaction_scene_points":int(self.interaction.environment_count),"minimum_terrain_distance":float(min((x[2].signed_distance for x in self.terrain_limit.active),default=np.inf)),"active_terrain_constraints":len(self.terrain_limit.active),"scene_collision_candidate_pairs":int(len(self.scene_collision.robot_geoms)*len(self.scene_collision.scene_geoms)),"scene_collision_exact_query_pairs":int(self.scene_collision.exact_query_pairs),"scene_collision_broadphase_culled_pairs":int(self.scene_collision.broadphase_culled_pairs),"scene_collision_active_pairs":len(self.scene_collision.active_pairs),"scene_collision_polish_iterations":int(polish_count),"scene_collision_active_pair_details":[{"robot_geom":mj.mj_id2name(self.model,mj.mjtObj.mjOBJ_GEOM,int(x["robot_geom"])),"scene_geom":mj.mj_id2name(self.model,mj.mjtObj.mjOBJ_GEOM,int(x["scene_geom"])),"distance":float(x["distance"])} for x in self.scene_collision.active_pairs],"minimum_scene_distance":float(self.scene_collision.minimum_distance),"maximum_scene_penetration":float(self.scene_collision.maximum_penetration),"collision_query_time":float(collision_query_total),"scene_collision_query_runtime_seconds":float(collision_query_total),"qp_solve_time":float(qp_solve_total),"qp_solve_runtime_seconds":float(qp_solve_total),"qp_iterations":int(qp_iterations),"qp_retries":int(qp_retries),"contacts":contact_metrics,"contact_states":contact_metrics})
+            if progress_interval and (
+                index % progress_interval == 0 or index == len(solver_frames) - 1
+            ):
+                elapsed = max(time.perf_counter() - solve_started, 1e-9)
+                rate = float(index + 1) / elapsed
+                print(
+                    f"[V5] frame {index + 1}/{len(solver_frames)} "
+                    f"elapsed={elapsed:.1f}s rate={rate:.2f} fps "
+                    f"qp_failures={len(failures)}",
+                    flush=True,
+                )
             if failures:
                 fatal_failure = f"Frame {index}: {failures[-1]}"
                 break
@@ -1009,7 +2434,19 @@ class WholeBodyRetargetSolver:
             self.previous=output.copy()
             self.frame_index+=1
         status="VALID" if fatal_failure is None else "INVALID"
-        return RetargetResult(np.asarray(outputs),self.fps,self.diagnostics,status=status, failure=fatal_failure)
+        runtime_plan = ContactPlan(
+            episodes=(),
+            per_frame_states=tuple(runtime_contact_frames),
+            fps=self.fps,
+            metadata={
+                "provenance": "v5_solver_runtime_realization",
+                "source_frame_count": len(contacts),
+            },
+        )
+        return RetargetResult(
+            np.asarray(outputs), self.fps, self.diagnostics,
+            contact_plan=runtime_plan, status=status, failure=fatal_failure
+        )
 
     def forward_kinematics(self, qpos_sequence: np.ndarray) -> dict[str, np.ndarray]:
         """Recompute exported body states from final qpos, never solver caches."""
@@ -1043,7 +2480,7 @@ class WholeBodyRetargetSolver:
         robot_dof_indices = []
         for joint_id in range(self.model.njnt):
             joint_type = self.model.jnt_type[joint_id]
-            if joint_type not in (mj.mjtJoint.mjJNT_HINGE, mj.mjtJoint.mjJNT_SLIDE):
+            if not is_dof_joint_type(joint_type):
                 continue
             robot_joint_names.append(
                 mj.mj_id2name(self.model, mj.mjtObj.mjOBJ_JOINT, joint_id) or str(joint_id)

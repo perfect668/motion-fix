@@ -25,6 +25,7 @@ from general_motion_retargeting.contact import (
     build_contact_plan,
 )
 from general_motion_retargeting.core.schemas import (
+    ContactEpisode,
     ContactPlan,
     FloorPolicy,
     RetargetJob,
@@ -36,12 +37,16 @@ from general_motion_retargeting.core.schemas import (
 )
 from general_motion_retargeting.input import resolver_for_motion
 from general_motion_retargeting.motion_adapters import load_canonical_motion
-from general_motion_retargeting.scene import SceneAssembler, alignment_sanity, load_scene_model, terrain_from_scene
+from general_motion_retargeting.scene import SceneAssembler, alignment_sanity
 from general_motion_retargeting.terrain_geometry import SceneTransform
 from general_motion_retargeting.wholebody_omni_gmr_v5 import WholeBodyRetargetSolver
-from general_motion_retargeting.morphology import build_morphology_targets, map_semantic_frame
+from general_motion_retargeting.v5_pipeline import solve_and_validate
+from general_motion_retargeting.morphology import (
+    build_morphology_targets,
+    map_semantic_frame,
+    measure_robot_chain_lengths,
+)
 from general_motion_retargeting.export import export_result, jsonable
-from general_motion_retargeting.validation import validate_result
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG = ROOT / "general_motion_retargeting/ik_configs/smplx_to_ne01_wholebody_omni_gmr_v5.json"
@@ -95,6 +100,22 @@ def _deep_merge(base, override):
     return merged
 
 
+def _configured_robot_xml(config_path: Path, config: dict) -> Path:
+    """Resolve the base robot model before any temporary scene MJCF exists."""
+    xml = Path(config["robot_xml"]).expanduser()
+    if xml.is_absolute():
+        return xml.resolve()
+    # A user/job may place a small overriding config outside the repository.
+    # Resolve repository-owned robot assets against the project root first,
+    # then retain config-relative lookup for self-contained external configs.
+    for candidate in (ROOT / xml, config_path.parent / xml, config_path.parent.parent.parent / xml):
+        if candidate.is_file():
+            return candidate.resolve()
+    raise FileNotFoundError(
+        f"V5 robot_xml {xml!s} was not found relative to {ROOT} or {config_path.parent}"
+    )
+
+
 def _resolve_scene_transform(config: dict, motion, relation: SceneRelation) -> SceneTransform:
     """Resolve the one source-world -> NE01 solver transform.
 
@@ -134,6 +155,52 @@ def _transform_pose(pose: np.ndarray, transform: SceneTransform) -> np.ndarray:
     return result
 
 
+def _contact_motion_in_query_frame(
+    motion,
+    source_positions: np.ndarray,
+    transform: SceneTransform,
+    relation: SceneRelation,
+):
+    """Return the human timeline in the same world as the contact terrain.
+
+    ``SOURCE_TO_TARGET`` keeps source-world points because the caller passes
+    ``contact_transform`` to the detector.  All other relations query a
+    terrain already assembled in solver/world coordinates and therefore need
+    the shared SceneTransform applied before contact inference.
+    """
+    result = copy.copy(motion)
+    result.positions = (
+        np.asarray(source_positions, dtype=float).copy()
+        if relation == SceneRelation.SOURCE_TO_TARGET
+        else transform.transform_points(source_positions)
+    )
+    return result
+
+
+def _asset_scale_baked(scene_ref: SceneReference, canonical) -> bool:
+    """Resolve one explicit scale policy for visual/query/collision geometry.
+
+    Processed GRAIL ``mesh_data/model.obj`` exports historically contain the
+    reconstruction scale in their vertices, while USD/object-local assets keep
+    that scale in ``obj_scale``.  Prefer an authored declaration and only use
+    the deterministic path convention as a fallback.  The result is copied
+    into ``SceneAsset.metadata`` so every prepared representation consumes the
+    same decision.
+    """
+    scene = getattr(canonical, "scene", {}) or {}
+    obj = scene.get("obj_data", {}) if isinstance(scene, dict) else {}
+    metadata = dict(getattr(scene_ref, "metadata", {}) or {})
+    for value in (
+        scene.get("asset_scale_baked") if isinstance(scene, dict) else None,
+        obj.get("asset_scale_baked") if isinstance(obj, dict) else None,
+        metadata.get("asset_scale_baked"),
+    ):
+        if value is not None:
+            return bool(value)
+    path = str(scene_ref.path).replace("\\", "/") if scene_ref.path is not None else ""
+    return path.endswith("/mesh_data/model.obj")
+
+
 def _estimate_auto_floor(motion, transform: SceneTransform) -> float:
     """Estimate only the analytic floor offset when no floor is declared.
 
@@ -167,10 +234,7 @@ def _estimate_auto_floor(motion, transform: SceneTransform) -> float:
     return float(np.quantile(points[:, 2], 0.05))
 
 
-def _infer_scene_floor(
-    scene_ref: SceneReference | None,
-    config: dict,
-) -> tuple[float | None, dict]:
+def _infer_scene_floor(geometry, config: dict) -> tuple[float | None, dict]:
     """Infer an undeclared floor from the loaded scene geometry.
 
     GRAIL reconstructions commonly contain metric object poses but no floor
@@ -184,53 +248,13 @@ def _infer_scene_floor(
     policy = scene_cfg.get("floor_inference", {})
     if policy is False or (isinstance(policy, dict) and not policy.get("enabled", True)):
         return None, {"method": "disabled"}
-    if scene_ref is None or scene_ref.path is None:
+    if geometry is None or not geometry.scene.assets:
         return None, {"method": "no_scene"}
-    suffix = scene_ref.path.suffix.lower()
-    if suffix not in {".obj", ".usd", ".usda", ".usdc"}:
-        return None, {"method": "unsupported_scene_format"}
     try:
-        from general_motion_retargeting.scene_asset_loader import load_scene_asset
-
-        specs = scene_ref.metadata.get("assets") if isinstance(scene_ref.metadata, dict) else None
-        if not specs:
-            specs = [{
-                "asset_id": scene_ref.asset_id,
-                "path": str(scene_ref.path),
-                "pose": scene_ref.pose if scene_ref.pose is not None else np.eye(4),
-                "unit_scale": scene_ref.unit_scale,
-                **(scene_ref.metadata if isinstance(scene_ref.metadata, dict) else {}),
-            }]
-        values = []
-        assets = []
         quantile = float(policy.get("quantile", 0.005)) if isinstance(policy, dict) else 0.005
-        quantile = float(np.clip(quantile, 0.0, 0.25))
-        for spec in specs:
-            path = Path(spec["path"]).expanduser()
-            if not path.is_absolute():
-                path = scene_ref.path.parent / path
-            loaded = load_scene_asset(path, {
-                "object_id": str(spec.get("asset_id", path.stem)),
-                "unit_scale": 1.0 if spec.get("unit_scale") is None else spec.get("unit_scale"),
-                "asset_scale_baked": bool(spec.get("asset_scale_baked", False)),
-                "asset_space": str(spec.get("asset_space", "asset_local")),
-            })
-            pose = np.asarray(spec.get("pose", np.eye(4)), dtype=float).reshape(4, 4)
-            world = (np.c_[loaded.vertices, np.ones(len(loaded.vertices))] @ pose.T)[:, :3]
-            if len(world):
-                values.append(float(np.quantile(world[:, 2], quantile)))
-                assets.append({
-                    "asset_id": str(spec.get("asset_id", path.stem)),
-                    "path": str(path),
-                    "quantile": float(np.quantile(world[:, 2], quantile)),
-                    "min": float(np.min(world[:, 2])),
-                    "max": float(np.max(world[:, 2])),
-                })
-        if not values:
+        floor, assets = geometry.lower_extent(quantile)
+        if floor is None:
             return None, {"method": "empty_scene"}
-        # Multiple assets are in one world.  The lowest robust support extent
-        # is deterministic and keeps a floor below every static asset.
-        floor = float(min(values))
         return floor, {"method": "scene_geometry_lower_extent", "quantile": quantile, "assets": assets}
     except Exception as error:
         # Scene loading later raises the original, actionable error.  Floor
@@ -360,14 +384,6 @@ def run(args):
     canonical=load_canonical_motion(bundle.motion.path,
         joint_map=map_path, body_models=args.body_models,
         target_fps=args.tgt_fps, motion_format=bundle.motion.format)
-    if args.max_frames is not None:
-        canonical.positions = canonical.positions[:args.max_frames]
-        canonical.timestamps = canonical.timestamps[:args.max_frames]
-        canonical.frame_ids = canonical.frame_ids[:args.max_frames]
-        if canonical.orientations is not None:
-            canonical.orientations = canonical.orientations[:args.max_frames]
-        if canonical.orientation_valid_mask is not None:
-            canonical.orientation_valid_mask = canonical.orientation_valid_mask[:args.max_frames]
     relation = bundle.scene_relation
     floor_policy=FloorPolicy(str(job.get("scene",{}).get("floor_policy","auto") if job else "auto"))
     # A GRAIL bundle may carry an exact obj_R/obj_t/obj_scale record.  The
@@ -382,13 +398,28 @@ def run(args):
             rotation = np.asarray(obj.get("obj_R", np.eye(3)), dtype=float)
             if rotation.ndim == 3: rotation = rotation[0]
             scale = np.asarray(obj.get("obj_scale", 1.0), dtype=float).reshape(-1)
-            pose[:3,:3] = rotation.reshape(3,3) * (float(scale[0]) if len(scale) == 1 else 1.0)
-            if len(scale) == 3: pose[:3,:3] = rotation.reshape(3,3) @ np.diag(scale)
+            asset_scale_baked = _asset_scale_baked(scene_ref, canonical)
+            # ``obj_scale`` belongs either in the object-local vertices or in
+            # the logical pose, never both.  Keep the authored/path-derived
+            # choice explicit in SceneReference metadata for all downstream
+            # geometry consumers.
+            pose_scale = np.ones(3, dtype=float) if asset_scale_baked else (
+                np.repeat(scale, 3) if len(scale) == 1 else scale
+            )
+            if len(pose_scale) != 3 or not np.isfinite(pose_scale).all() or np.any(pose_scale <= 0.0):
+                raise ValueError("GRAIL obj_scale must contain one or three finite positive values")
+            pose[:3,:3] = rotation.reshape(3,3) @ np.diag(pose_scale)
             translation = np.asarray(obj.get("obj_t", np.zeros(3)), dtype=float).reshape(-1)
             if len(translation) >= 3: pose[:3,3] = translation[:3]
             pose = _transform_pose(pose, transform)
             trajectory = _pose_trajectory_from_obj(obj, canonical.fps, transform, canonical.timestamps)
-            scene_ref = SceneReference(path=scene_ref.path, format=scene_ref.format, asset_id=scene_ref.asset_id, pose=pose, pose_trajectory=trajectory, metadata=scene_ref.metadata)
+            metadata = dict(scene_ref.metadata)
+            metadata.update({
+                "asset_scale_baked": bool(asset_scale_baked),
+                "asset_space": metadata.get("asset_space", "object_local"),
+                "obj_scale_source": "vertices" if asset_scale_baked else "pose",
+            })
+            scene_ref = SceneReference(path=scene_ref.path, format=scene_ref.format, asset_id=scene_ref.asset_id, pose=pose, pose_trajectory=trajectory, metadata=metadata)
         elif scene_ref.pose is not None:
             scene_ref = SceneReference(
                 path=scene_ref.path,
@@ -398,6 +429,12 @@ def run(args):
                 pose_trajectory=scene_ref.pose_trajectory,
                 metadata=scene_ref.metadata,
             )
+    scene_sample_count = int(cfg.get("scene_geometry", {}).get("scene_surface_points", 512))
+    scene_assembler = SceneAssembler()
+    # Decode/normalize all object meshes before floor selection.  The final
+    # assembly below reuses this exact object, so visual/query/collision and
+    # lower-extent inference cannot drift through separate scale paths.
+    prepared_scene = scene_assembler.prepare(scene_ref, sample_count=scene_sample_count)
     configured_floor = job.get("scene", {}).get("floor_height") if job else None
     floor_provenance = {"method": "explicit"} if configured_floor is not None else None
     if configured_floor is not None:
@@ -412,7 +449,7 @@ def run(args):
         # For a paired scene, prefer the scene geometry's support baseline.
         # GRAIL's SMPL-X heel markers are body landmarks, not a guaranteed
         # world-floor annotation, and can sit below the generated asset feet.
-        inferred_floor, floor_provenance = _infer_scene_floor(scene_ref, cfg)
+        inferred_floor, floor_provenance = _infer_scene_floor(prepared_scene.geometry, cfg)
         if inferred_floor is None:
             floor_height = _estimate_auto_floor(canonical, transform)
             floor_provenance = {
@@ -427,20 +464,70 @@ def run(args):
         floor_offset = _estimate_auto_floor(canonical, transform)
         canonical.positions[:, :, 2] -= floor_offset
         floor_height = 0.0
-    scene, terrain = SceneAssembler().build(
-        scene_ref, floor_policy=floor_policy, floor_height=floor_height
+    scene_assembly = scene_assembler.with_floor(
+        prepared_scene, floor_policy=floor_policy, floor_height=floor_height,
     )
+    scene, terrain = scene_assembly.model, scene_assembly.terrain
+    # A shared source scene is an input contract: human and assets already
+    # occupy one dataset world.  Moving only the human to make noisy foot
+    # landmarks meet a floor destroys the authored human-object relation.
+    # Landmark-to-surface observation bias is handled by SourceContactDetector
+    # without modifying CanonicalMotion or SceneModel.
+    motion_scene_alignment = {
+        "status": (
+            "NOT_APPLICABLE"
+            if relation == SceneRelation.MOTION_ONLY
+            else "SHARED_SOURCE_WORLD_PRESERVED"
+        ),
+        "translation_source": [0.0, 0.0, 0.0],
+        "translation_solver": [0.0, 0.0, 0.0],
+    }
+    # Keep a complete canonical copy for contact calibration.  A requested
+    # output prefix must not change a source landmark offset model merely
+    # because its minimum sample count occurs after that prefix.
+    contact_motion_full = copy.copy(canonical)
+    contact_motion_full.positions = canonical.positions.copy()
+    contact_motion_full.timestamps = canonical.timestamps.copy()
+    contact_motion_full.frame_ids = canonical.frame_ids.copy()
+    if canonical.orientations is not None:
+        contact_motion_full.orientations = canonical.orientations.copy()
+    if canonical.orientation_valid_mask is not None:
+        contact_motion_full.orientation_valid_mask = canonical.orientation_valid_mask.copy()
+    labels_full = canonical.metadata.get("foot_contact_probs")
+    if labels_full is not None:
+        contact_motion_full.metadata = dict(canonical.metadata)
+        contact_motion_full.metadata["foot_contact_probs"] = np.asarray(labels_full).copy()
+    if args.max_frames is not None:
+        frame_count = max(0, min(int(args.max_frames), canonical.frame_count))
+        canonical.positions = canonical.positions[:frame_count]
+        canonical.timestamps = canonical.timestamps[:frame_count]
+        canonical.frame_ids = canonical.frame_ids[:frame_count]
+        if canonical.orientations is not None:
+            canonical.orientations = canonical.orientations[:frame_count]
+        if canonical.orientation_valid_mask is not None:
+            canonical.orientation_valid_mask = canonical.orientation_valid_mask[:frame_count]
+        labels = canonical.metadata.get("foot_contact_probs")
+        if labels is not None:
+            labels = np.asarray(labels)
+            if labels.ndim >= 1:
+                canonical.metadata["foot_contact_probs"] = labels[:frame_count]
     from general_motion_retargeting.input.solver_frames import build_solver_inputs
     # CanonicalMotion is in source-world coordinates; apply the single scene
     # transform exactly once before constructing solver targets.
-    source_positions_for_contacts = canonical.positions.copy()
+    source_positions_for_contacts = contact_motion_full.positions.copy()
     canonical.positions = transform.transform_points(canonical.positions)
     source_frames,solver_frames,_=build_solver_inputs(canonical)
     morphology_policy = (job.get("morphology", {}) if job else {}) or cfg.get("morphology", {})
+    base_robot_xml = _configured_robot_xml(config, cfg)
+    robot_chain_lengths, robot_provenance = measure_robot_chain_lengths(
+        base_robot_xml, cfg.get("semantic_points", {})
+    )
     morphology = build_morphology_targets(
         canonical,
         float(cfg.get("scene", {}).get("robot_height", 1.316)),
         morphology_policy,
+        robot_chain_lengths=robot_chain_lengths,
+        robot_provenance=robot_provenance,
     )
     source_frames, solver_frames = _apply_morphology_inputs(source_frames, solver_frames, morphology)
     # Positions are already in solver coordinates.  Applying the transform a
@@ -490,56 +577,100 @@ def run(args):
             source_floor_height = floor_height
             if floor_policy == FloorPolicy.AUTO:
                 source_floor_height = _estimate_auto_floor(canonical, SceneTransform(np.eye(3), 1.0, np.zeros(3)))
-            source_scene, contact_terrain = SceneAssembler().build(
-                source_scene_ref, floor_policy=floor_policy, floor_height=source_floor_height
+            source_assembly = SceneAssembler().assemble(
+                source_scene_ref, floor_policy=floor_policy, floor_height=source_floor_height,
+                sample_count=scene_sample_count,
             )
-        contact_motion = canonical
+            source_scene, contact_terrain = source_assembly.model, source_assembly.terrain
+        contact_motion = contact_motion_full
         contact_transform = None
         if relation == SceneRelation.SOURCE_TO_TARGET:
             # Source detection runs in the source scene frame; the detector's
             # explicit transform then produces solver-world anchors.
-            contact_motion = copy.copy(canonical)
-            contact_motion.positions = source_positions_for_contacts.copy()
+            contact_motion = _contact_motion_in_query_frame(
+                contact_motion_full,
+                source_positions_for_contacts,
+                transform,
+                relation,
+            )
             contact_transform = transform
+        else:
+            # Shared-scene and motion-only queries use the terrain already
+            # assembled in solver/world coordinates.  Apply the same single
+            # SceneTransform to the contact detector's human points; using
+            # source-world points here would make a non-unit scene transform
+            # silently produce wrong surface ids and support distances.
+            contact_motion = _contact_motion_in_query_frame(
+                contact_motion_full,
+                source_positions_for_contacts,
+                transform,
+                relation,
+            )
         plan=build_contact_plan(contact_motion,contact_terrain,fps=args.tgt_fps,transform=contact_transform,config=cfg.get("terrain_contact",{}))
+        if args.max_frames is not None:
+            limit = min(int(args.max_frames), len(plan.per_frame_states))
+            plan = ContactPlan(
+                episodes=tuple(
+                    ContactEpisode(
+                        episode.body_channel, episode.phase, episode.start_frame,
+                        min(episode.end_frame, limit - 1), episode.object_id,
+                        episode.surface_id, episode.source_anchor, episode.normal,
+                        triangle_id=episode.triangle_id,
+                        barycentric=episode.barycentric,
+                        asset_local_anchor=episode.asset_local_anchor,
+                        confidence=episode.confidence,
+                        source_provenance=episode.source_provenance,
+                        target_provenance=episode.target_provenance,
+                    )
+                    for episode in plan.episodes
+                    if episode.start_frame < limit
+                ),
+                per_frame_states=plan.per_frame_states[:limit],
+                fps=plan.fps,
+                metadata={
+                    **plan.metadata,
+                    "truncated_from_frame_count": len(plan.per_frame_states),
+                },
+            )
         bound_schedule = ContactBinder().bind(
             plan,
             relation=relation,
             binding=(job or {}).get("contact_binding", {}),
             target_terrain=terrain,
         )
-    xml=Path(cfg["robot_xml"]); xml=(config.parent.parent.parent/xml).resolve() if not xml.is_absolute() else xml.resolve()
+    xml = base_robot_xml
     # Mesh scenes enter the same MuJoCo model used by the V5 solver.  The
     # visual source mesh, cached convex pieces and object pose are generated
     # from this one SceneReference; no motion-only fallback is permitted.
-    effective_config = dict(cfg)
+    effective_config = copy.deepcopy(cfg)
+    # The adapter owns the measured human morphology.  Preserve scene metric
+    # scale, but make the actual source height available to the root policy
+    # instead of silently using the configuration's generic adult default.
+    effective_config.setdefault("morphology", {})["human_height"] = float(
+        morphology.human_height
+        if morphology.human_height is not None
+        else morphology.provenance.get("source_height", cfg.get("scene", {}).get("default_human_height", 1.78))
+    )
+    effective_config["morphology"]["chain_scales"] = dict(morphology.chain_scales)
     scene_alignment = {"status": "NOT_APPLICABLE", "assets": [], "transform_mismatches": []}
     scene_manifest_payload = None
     if scene_ref is not None and scene_ref.path is not None and scene_ref.path.suffix.lower() in {".obj", ".usd", ".usda", ".usdc"}:
-        from general_motion_retargeting.scene_asset_loader import load_scene_asset
         from general_motion_retargeting.scene_mujoco import build_scene_model
-        sample_count = int(cfg.get("scene_geometry", {}).get("scene_surface_points", 512))
-        scene_meshes = []
-        for asset in scene.assets:
-            scene_mesh = load_scene_asset(
-                asset.path,
-                {
-                    "object_id": asset.asset_id,
-                    "sample_count": sample_count,
-                    "unit_scale": 1.0 if asset.unit_scale is None else asset.unit_scale,
-                    "asset_scale_baked": asset.asset_scale_baked,
-                    "asset_space": asset.asset_space,
-                },
-            )
-            scene_mesh.object_pose = asset.pose
-            scene_meshes.append(scene_mesh)
         combined = output.with_name(f".{output.stem}_v5_combined.xml")
         combined_info = build_scene_model(
-            xml, scene_meshes, combined,
+            xml, scene_assembly.geometry.meshes, combined,
             cache_root=ROOT / ".cache" / "scene_collision",
+            # Use the V5-configured decomposition explicitly.  In particular,
+            # a cached coarse hull must not be reused for a stair/chair whose
+            # desired-contact surface is much more precise than the hull.
+            decomposition_config=effective_config.get("scene_collision", {}).get(
+                "decomposition", {}
+            ),
             floor_z=scene.floor_height, return_info=True,
         )
-        scene_alignment = alignment_sanity(scene, combined_info.manifest_path)
+        scene_alignment = alignment_sanity(
+            scene, combined_info.manifest_path, geometry=scene_assembly.geometry
+        )
         scene_manifest_payload = json.loads(combined_info.manifest_path.read_text(encoding="utf-8"))
         effective_config["robot_xml"] = str(combined)
     effective_config_path = output.with_name(f".{output.stem}_v5_config.json")
@@ -557,14 +688,19 @@ def run(args):
         task, terrain, _interaction_anchors(plan, terrain, canonical.positions),
         fps=args.tgt_fps, solver=args.solver, scene_model=scene,
     )
-    result=solver.solve(canonical,solver_frames,list(realized_schedule.per_frame_states),source_frames)
-    result.contact_plan = plan
-    kinematics = solver.forward_kinematics(result.qpos)
-    validation = validate_result(result, solver=solver, contact_plan=realized_schedule)
-    validation["checks"]["scene_alignment"] = scene_alignment.get("status") != "FAIL"
-    if not validation["checks"]["scene_alignment"]:
-        validation["status"] = "INVALID"
-    result.status = validation["status"]
+    artifacts = solve_and_validate(
+        solver,
+        canonical,
+        solver_frames,
+        realized_schedule,
+        source_frames,
+        source_scene_ok=motion_scene_alignment.get("status") != "INCONSISTENT_EVIDENCE",
+        scene_alignment_ok=scene_alignment.get("status") != "FAIL",
+    )
+    result = artifacts.result
+    runtime_schedule = artifacts.runtime_schedule
+    kinematics = artifacts.kinematics
+    validation = artifacts.validation
     # Export names describe robot arrays, never source human landmarks.
     robot_joint_names = list(kinematics["robot_joint_names"])
     payload={
@@ -595,14 +731,16 @@ def run(args):
         "source_joint_names": canonical.joint_names,
         "canonical_capabilities": canonical.capabilities,
         "canonical_provenance": canonical.landmark_provenance,
+        "canonical_metadata": jsonable(canonical.metadata),
         "morphology": jsonable(morphology),
         "scene_relation": bundle.scene_relation.value,
         "scene_alignment": scene_alignment,
         "scene_manifest": scene_manifest_payload,
         "scene_transform": transform.to_dict(),
         "scene_floor_provenance": floor_provenance,
+        "motion_scene_alignment": motion_scene_alignment,
         "frame_graph": {"source_motion": "source_motion", "canonical": "canonical", "solver_world": "solver_world", "mujoco_world": "mujoco_world", "asset_local": "asset_local", "robot_link": "robot_link"},
-        "contact_plan":{"episodes":[jsonable(e.__dict__) for e in plan.episodes],"frames":list(realized_schedule.per_frame_states),"metadata":{**plan.metadata, **realized_schedule.metadata}},
+        "contact_plan":{"episodes":[jsonable(e.__dict__) for e in plan.episodes],"frames":list(runtime_schedule.per_frame_states),"metadata":{**plan.metadata, **realized_schedule.metadata, **runtime_schedule.metadata},"source_frames":list(realized_schedule.per_frame_states)},
         "diagnostics":result.diagnostics,
         "terrain":terrain.to_spec(),
         "robot_xml":str(solver.robot_xml),
@@ -624,7 +762,8 @@ def run(args):
         "scene_transform_json": np.asarray(json.dumps(jsonable(transform.to_dict()), ensure_ascii=False)),
         "scene_floor_provenance_json": np.asarray(json.dumps(jsonable(floor_provenance), ensure_ascii=False)),
         "terrain_spec_json": np.asarray(json.dumps(jsonable(terrain.to_spec()), ensure_ascii=False)),
-        "contact_schedule_json": np.asarray(json.dumps(jsonable(realized_schedule.per_frame_states), ensure_ascii=False)),
+        "contact_schedule_json": np.asarray(json.dumps(jsonable(runtime_schedule.per_frame_states), ensure_ascii=False)),
+        "source_contact_schedule_json": np.asarray(json.dumps(jsonable(realized_schedule.per_frame_states), ensure_ascii=False)),
         "validation_json": np.asarray(json.dumps(jsonable(validation), ensure_ascii=False)),
         "scene_manifest_json": np.asarray(json.dumps(jsonable(scene_manifest_payload), ensure_ascii=False)),
     }

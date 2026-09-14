@@ -195,11 +195,23 @@ class MeshSceneField:
         self.boxes: list[BoxPrimitive] = []
         self.asset_id = asset_id
         self.asset_inverse = None if asset_inverse is None else np.asarray(asset_inverse, dtype=float).reshape(4, 4)
-        # Small/medium meshes are queried exactly.  Large assets retain a
-        # deterministic BVH-like centroid shortlist, but never use a fixed
-        # 48-triangle approximation for ordinary props or stairs.
-        self._candidate_count = len(self.triangles) if len(self.triangles) <= 8192 else min(512, len(self.triangles))
-        self._bvh = _TriangleBVH(self.triangles) if len(self.triangles) > 8192 else None
+        # Small/medium meshes are queried exactly.  Very large visual assets
+        # (complex chairs are commonly 30k-100k triangles) are queried from a
+        # deterministic centroid shortlist.  The shortlist is still followed
+        # by the exact point-on-triangle routine; this keeps the contact
+        # contract geometric while avoiding a Python BVH traversal for every
+        # robot proxy at every IK substep.  The exact BVH branch is retained up
+        # to 10k triangles, including the regression meshes that deliberately
+        # place the nearest triangle far from the first centroid candidates.
+        self._large_mesh_shortlist = len(self.triangles) > 10000
+        self._candidate_count = (
+            min(768, len(self.triangles)) if self._large_mesh_shortlist
+            else len(self.triangles)
+        )
+        self._bvh = (
+            _TriangleBVH(self.triangles)
+            if 8192 < len(self.triangles) <= 10000 else None
+        )
 
     def _floor_hit(self, point: np.ndarray) -> TerrainSurfaceHit | None:
         if self.floor_z is None:
@@ -216,7 +228,18 @@ class MeshSceneField:
         return np.atleast_1d(indices).astype(int)
 
     def _nearest_mesh_hit(self, point: np.ndarray) -> TerrainSurfaceHit:
-        if self._bvh is not None:
+        if self._large_mesh_shortlist:
+            # cKDTree returns a stable distance-ordered shortlist.  Querying
+            # the triangle geometry (rather than using centroid distance as
+            # the result) preserves barycentric coordinates and normals.
+            indices = self._candidate_indices(point)
+            triangles = self.triangles[indices]
+            closest = _closest_points_on_triangles(point, triangles)
+            distances = np.linalg.norm(closest - point, axis=1)
+            local = int(np.argmin(distances))
+            index = int(indices[local])
+            closest_point = closest[local]
+        elif self._bvh is not None:
             index, closest_point, _ = self._bvh.nearest(point)
         else:
             indices = self._candidate_indices(point)
@@ -546,6 +569,16 @@ def terrain_from_scene(scene: SceneModel) -> TerrainField:
     boxes: list[BoxPrimitive] = []
     mesh_assets: list[tuple[SceneAsset, object]] = []
     for asset in scene.assets:
+        asset_metadata = {
+            "object_id": asset.asset_id,
+            # The query mesh must use exactly the same unit and scale policy
+            # as the visual/CoACD builder.  Previously this path silently
+            # defaulted to unit scale and could disagree with MuJoCo.
+            "unit_scale": 1.0 if asset.unit_scale is None else asset.unit_scale,
+            "asset_scale_baked": asset.asset_scale_baked,
+            "asset_space": asset.asset_space,
+            "sample_count": 2048,
+        }
         if asset.path.suffix.lower() == ".json":
             spec = json.loads(asset.path.read_text(encoding="utf-8"))
             for index, item in enumerate(spec.get("primitives", spec.get("boxes", []))):
@@ -554,7 +587,7 @@ def terrain_from_scene(scene: SceneModel) -> TerrainField:
             primitive = TerrainField.from_file(asset.path, floor_z=None)
             boxes.extend(primitive.boxes)
         elif asset.path.suffix.lower() in {".usd", ".usda", ".usdc", ".obj"}:
-            loaded = load_scene_asset(asset.path, {"object_id": asset.asset_id, "sample_count": 2048})
+            loaded = load_scene_asset(asset.path, asset_metadata)
             mesh_assets.append((asset, loaded))
         else:
             raise ValueError(f"Unsupported scene loader format: {asset.path.suffix}")

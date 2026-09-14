@@ -286,24 +286,12 @@ def decompose_cached(
         if not missing and (root / manifest.get("visual_mesh", "source_visual.obj")).is_file():
             manifest["cache_hit"] = True
             return manifest, root
-    # Reuse a valid decomposition made by an older V4 build when it has the
-    # same source mesh hash.  New parameterized caches remain preferred above;
-    # this avoids an expensive duplicate CoACD run after upgrading the loader.
-    cache_root_path = Path(cache_root).expanduser().resolve()
-    for legacy_manifest_path in sorted(cache_root_path.glob("*/collision_manifest.json")):
-        try:
-            legacy = json.loads(legacy_manifest_path.read_text(encoding="utf-8"))
-            if legacy.get("source_sha256") != source_sha:
-                continue
-            legacy_root = legacy_manifest_path.parent
-            pieces = legacy.get("pieces", [])
-            visual = legacy.get("visual_mesh", "source_visual.obj")
-            if pieces and all((legacy_root / p).is_file() for p in pieces) and (legacy_root / visual).is_file():
-                legacy["cache_hit"] = True
-                legacy["reused_for_parameters"] = parameters
-                return legacy, legacy_root
-        except (OSError, ValueError, TypeError):
-            continue
+    # Never reuse a decomposition merely because its source hash matches.
+    # CoACD's conservative hull can move a stair tread/seat by centimetres;
+    # reusing a cache generated with different resolution/threshold silently
+    # makes visual/query and MuJoCo collision surfaces disagree.  The cache
+    # key above already includes every decomposition parameter, so only that
+    # exact key is eligible for reuse.
 
     try:
         import coacd
