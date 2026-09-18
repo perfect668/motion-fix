@@ -6,6 +6,8 @@ import mujoco as mj
 import numpy as np
 from mink.tasks.task import Task
 
+from .terrain_contact_utils import same_contact_plane
+
 
 def tangent_basis(normal: np.ndarray) -> np.ndarray:
     normal = np.asarray(normal, dtype=float)
@@ -68,6 +70,7 @@ class TerrainPointContactTask(Task):
         self.clearance = float(clearance)
         self.targets: dict[str, dict] = {}
         self.anchors: dict[str, np.ndarray] = {}
+        self.anchor_surfaces: dict[str, dict] = {}
         self.previous_state = {name: "NONE" for name in self.channels}
         self.none_hold_steps = 3
         self.none_counts = {name: 0 for name in self.channels}
@@ -80,6 +83,12 @@ class TerrainPointContactTask(Task):
             contact = contacts.get(name, {})
             score = float(np.clip(contact.get("score", 0.0), 0.0, 1.0))
             state = str(contact.get("state", "NONE"))
+            if (state in {"STATIC", "SLIDING"} and name in self.anchor_surfaces
+                    and not same_contact_plane(self.anchor_surfaces[name], contact)):
+                # A new tread is a new episode even when the confidence never
+                # drops to NONE. Coplanar triangle seams keep their anchor.
+                self.anchors.pop(name, None)
+                self.anchor_surfaces.pop(name, None)
             # Keep one anchor for the whole contact episode.  A brief
             # STATIC/SLIDING classification change must not re-anchor after
             # the point has already moved along the surface.
@@ -91,11 +100,13 @@ class TerrainPointContactTask(Task):
                 # rather than freezing whichever robot position happened to
                 # be present when the contact threshold was crossed.
                 self.anchors[name] = surface + self.clearance * normal
+                self.anchor_surfaces[name] = dict(contact)
                 self.none_counts[name] = 0
             elif state == "NONE":
                 self.none_counts[name] += 1
                 if self.none_counts[name] >= self.none_hold_steps:
                     self.anchors.pop(name, None)
+                    self.anchor_surfaces.pop(name, None)
             else:
                 self.none_counts[name] = 0
             targets[name] = {**contact, "score": score, "state": state}
@@ -150,7 +161,7 @@ class TerrainFootOrientationTask(Task):
             heel, toe = contacts.get(f"{side}_heel", {}), contacts.get(f"{side}_toe", {})
             activation = float(flat_foot.get(side, 0.0))
             normal = np.asarray(heel.get("surface_normal_solver", [0, 0, 1]), dtype=float)
-            if activation > 0.0 and heel.get("surface_id") == toe.get("surface_id"):
+            if activation > 0.0 and same_contact_plane(heel, toe):
                 normal = normal + np.asarray(toe.get("surface_normal_solver", normal), dtype=float)
             normal /= max(float(np.linalg.norm(normal)), 1e-12)
             self.targets[side] = {"activation": activation, "normal": normal}
@@ -196,14 +207,16 @@ class FootFrameTask(TerrainFootOrientationTask):
         for side in self.body_ids:
             heel = contacts.get(f"{side}_heel", {})
             toe = contacts.get(f"{side}_toe", {})
-            if str(heel.get("state", "NONE")) == "NONE":
+            airborne = (str(heel.get("state", "NONE")) == "NONE"
+                        and str(toe.get("state", "NONE")) == "NONE")
+            if airborne:
                 self.targets[side]["activation"] = float(heel.get("airborne_activation", 0.15))
                 self.targets[side]["normal"] = np.asarray(heel.get("human_foot_normal_solver", [0, 0, 1]), dtype=float)
                 self.targets[side]["normal"] /= max(float(np.linalg.norm(self.targets[side]["normal"])), 1e-12)
             forward = np.asarray(toe.get("human_point_solver", [1, 0, 0]), dtype=float) - np.asarray(heel.get("human_point_solver", [0, 0, 0]), dtype=float)
             source_forward = np.asarray(heel.get("human_foot_forward_solver", forward), dtype=float)
             normal = self.targets[side]["normal"]
-            if str(heel.get("state", "NONE")) == "NONE":
+            if airborne:
                 forward = source_forward
             forward = forward - normal * float(forward @ normal)
             if np.linalg.norm(forward) > 1e-8:

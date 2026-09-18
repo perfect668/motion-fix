@@ -9,6 +9,41 @@ import numpy as np
 from .terrain_geometry import SceneTransform, TerrainField, TerrainSurfaceHit
 
 
+def same_contact_plane(first: dict, second: dict, *, tolerance: float = 0.005,
+                       max_angle_deg: float = 12.0) -> bool:
+    """Compare physical planes, allowing adjacent triangles on one tread."""
+    if first.get("object_id") != second.get("object_id"):
+        return False
+    n1 = np.asarray(first.get("surface_normal_solver", [0, 0, 1]), dtype=float)
+    n2 = np.asarray(second.get("surface_normal_solver", [0, 0, 1]), dtype=float)
+    n1 = n1 / max(float(np.linalg.norm(n1)), 1e-12)
+    n2 = n2 / max(float(np.linalg.norm(n2)), 1e-12)
+    delta = (np.asarray(first.get("surface_point_solver", [0, 0, 0]), dtype=float)
+             - np.asarray(second.get("surface_point_solver", [0, 0, 0]), dtype=float))
+    return bool(n1 @ n2 >= np.cos(np.deg2rad(max_angle_deg))
+                and abs(n1 @ delta) <= tolerance and abs(n2 @ delta) <= tolerance)
+
+
+def refresh_flat_foot(frame: dict, config: dict) -> None:
+    """Recompute support AFTER mesh contacts have replaced terrain contacts."""
+    contacts = frame.get("contacts", {})
+    flat = frame.setdefault("flat_foot", {})
+    for side in ("left", "right"):
+        heel, toe = contacts.get(f"{side}_heel", {}), contacts.get(f"{side}_toe", {})
+        # Leave unrelated feet unchanged for partial-channel mesh providers.
+        if not (heel.get("object_id") or toe.get("object_id")):
+            continue
+        valid = (heel.get("state", "NONE") != "NONE"
+                 and toe.get("state", "NONE") != "NONE"
+                 and min(heel.get("score", 0.0), toe.get("score", 0.0))
+                 >= float(config.get("flat_foot_min_score", 0.45))
+                 and same_contact_plane(
+                     heel, toe,
+                     tolerance=float(config.get("flat_foot_plane_tolerance", 0.005)),
+                     max_angle_deg=float(config.get("flat_foot_max_normal_angle_deg", 12.0))))
+        flat[side] = float(min(heel["score"], toe["score"])) if valid else 0.0
+
+
 def _closest_point_triangle(point: np.ndarray, triangle: np.ndarray) -> np.ndarray:
     """Closest point on a triangle, used by the generic mesh provider."""
     a, b, c = np.asarray(triangle, dtype=float)
@@ -140,6 +175,7 @@ def augment_mesh_contact_schedule(
             if result is None:
                 continue
             index, surface_point, normal, signed_distance = result
+            distance = float(np.linalg.norm(point - surface_point))
             previous_index = locked_triangles.get(channel)
             if previous_index is not None and previous_index != index:
                 previous_point = _closest_point_triangle(point, triangles[previous_index])
@@ -152,19 +188,25 @@ def augment_mesh_contact_schedule(
                 previous_distance = float(previous_normal @ (point - previous_point))
                 # Keep an established surface while the alternative is only
                 # marginally closer. This prevents stair/chair edge flicker.
-                if abs(previous_distance) <= abs(signed_distance) + switch_hysteresis:
+                previous_euclidean = float(np.linalg.norm(point - previous_point))
+                if (previous_euclidean <= threshold
+                        and previous_euclidean <= distance + switch_hysteresis):
                     index, surface_point, normal, signed_distance = (
                         previous_index, previous_point, previous_normal, previous_distance
                     )
-            if abs(signed_distance) > threshold:
+                    distance = previous_euclidean
+            # A nearby infinite plane is NOT a nearby finite triangle. In
+            # particular, a knee beside a stair must not be pulled to its edge.
+            if distance > threshold:
                 locked_triangles.pop(channel, None)
                 continue
             locked_triangles[channel] = int(index)
-            score = float(np.clip(1.0 - abs(signed_distance) / max(threshold, 1e-9), 0.0, 1.0))
+            score = float(np.clip(1.0 - distance / max(threshold, 1e-9), 0.0, 1.0))
             tangent_speed = float(item.get("tangential_speed", 0.0))
             state = "STATIC" if tangent_speed < static_speed else "SLIDING"
             item.update({
-                "score": max(float(item.get("score", 0.0)), score),
+                # Do not transfer confidence from an unrelated floor contact.
+                "score": score,
                 "state": state, "source_state": state, "object_id": str(object_id),
                 "surface_id": f"{object_id}:face_{index:05d}",
                 "surface_triangle_index": int(index),
@@ -174,7 +216,9 @@ def augment_mesh_contact_schedule(
                 "surface_type": "mesh", "surface_point_solver": surface_point.copy(),
                 "surface_normal_solver": normal.copy(), "signed_distance": signed_distance,
                 "normal_error": abs(signed_distance), "tangent_error": tangent_speed,
+                "surface_distance": distance,
             })
+        refresh_flat_foot(frame_record, config)
     return schedule
 
 
