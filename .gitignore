@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.cache/
+outputs/
+runs/
+work/
+*.partial.pkl
+assets/body_models/
+*.egg-info/
+MUJOCO_LOG.TXT
