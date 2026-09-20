@@ -269,7 +269,7 @@ class TerrainNativeSceneLimit(Limit):
 class NullFootTask(Task):
     def __init__(self, model: mj.MjModel):
         self.model = model
-        super().__init__(cost=np.asarray([1e-12]), gain=0.0, lm_damping=1.0)
+        super().__init__(cost=np.asarray([1e-12]), gain=1.0, lm_damping=1.0)
 
     def set_contacts(self, contacts: dict, flat_foot: dict) -> None:
         del contacts, flat_foot
