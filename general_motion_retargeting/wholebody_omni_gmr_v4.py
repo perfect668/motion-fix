@@ -539,6 +539,10 @@ class WholeBodyOmniGMRV4(WholeBodyOmniGMRV3):
                     name: self._contact_diagnostic(name, item)
                     for name, item in contacts.items()
                 },
+                "foot_orientation": (
+                    self.foot_orientation_task.orientation_diagnostics(self.configuration)
+                    if isinstance(self.foot_orientation_task, FootFrameTask) else {}
+                ),
                 **scene_diagnostics,
             }
         )
