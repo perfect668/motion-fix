@@ -121,3 +121,19 @@ def test_schedule_uses_planned_patch_instead_of_robot_proximity_contact():
     assert item["surface_type"] == "support_patch"
     assert item["surface_id"].startswith("stairs:support_")
     assert schedule[0]["flat_foot"]["left"] == 1.0
+
+
+def test_duplicate_face_vertices_merge_into_one_support_patch():
+    # Same physical square, but each triangle owns independent vertex indices
+    # as frequently happens after USD/OBJ export.
+    vertices = np.array([
+        [0.0, 0.0, 0.4], [1.0, 0.0, 0.4], [1.0, 1.0, 0.4],
+        [0.0, 0.0, 0.4], [1.0, 1.0, 0.4], [0.0, 1.0, 0.4],
+    ])
+    faces = np.array([[0, 1, 2], [3, 4, 5]])
+    patch_map = TerrainPatchMap.from_mesh(
+        vertices, faces, np.eye(4), "stairs",
+        {"support_normal_min_z": 0.65},
+    )
+    assert len(patch_map.patches) == 1
+    assert len(patch_map.patches[0].face_indices) == 2
