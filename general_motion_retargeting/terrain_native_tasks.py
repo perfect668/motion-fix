@@ -161,6 +161,7 @@ class SolePatchConstraintLimit(Limit):
         self.capture_polygon_tolerance = float(cfg.get("capture_polygon_tolerance", 0.01))
         self.plans: dict[str, dict[str, Any]] = {}
         self.captured: dict[str, bool] = {"left": False, "right": False}
+        self._capture_key: dict[str, tuple | None] = {"left": None, "right": None}
         self.active_count = 0
 
     def set_plan(self, plans: dict[str, dict[str, Any]]) -> None:
@@ -180,7 +181,12 @@ class SolePatchConstraintLimit(Limit):
             plan = self.plans.get(side, {})
             if plan.get("mode") != "stance":
                 self.captured[side] = False
+                self._capture_key[side] = None
                 continue
+            capture_key = tuple(plan.get("episode", ())) + (str(plan.get("patch_id", "")),)
+            if self._capture_key.get(side) != capture_key:
+                self.captured[side] = False
+                self._capture_key[side] = capture_key
             if self.captured.get(side, False):
                 continue
             points = sole.points(configuration)
