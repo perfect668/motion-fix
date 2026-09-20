@@ -73,35 +73,90 @@ def _closest_point_triangle(point: np.ndarray, triangle: np.ndarray) -> np.ndarr
     return a + ab * (vb / denominator) + ac * (vc / denominator)
 
 
-def _mesh_contact_hit(point: np.ndarray, triangles: np.ndarray, centers: np.ndarray,
-                      normals: np.ndarray, support: bool, support_normal_min_z: float):
-    """Deterministic nearest/supporting triangle query for any body channel."""
+def _triangle_xy_support(
+    point: np.ndarray,
+    triangle: np.ndarray,
+    normal: np.ndarray,
+    *,
+    tolerance: float = 1e-8,
+):
+    """Return the vertical projection onto a finite upward-facing triangle."""
+    point = np.asarray(point, dtype=float).reshape(3)
+    triangle = np.asarray(triangle, dtype=float).reshape(3, 3)
+    upward = np.asarray(normal, dtype=float).reshape(3).copy()
+    if upward[2] < 0.0:
+        upward = -upward
+    upward /= max(float(np.linalg.norm(upward)), 1e-12)
+    if upward[2] <= 1e-12:
+        return None
+
+    a, b, c = triangle[:, :2]
+    v0, v1, v2 = c - a, b - a, point[:2] - a
+    denominator = float(v0[0] * v1[1] - v1[0] * v0[1])
+    if abs(denominator) < 1e-12:
+        return None
+    u = float((v2[0] * v1[1] - v1[0] * v2[1]) / denominator)
+    v = float((v0[0] * v2[1] - v2[0] * v0[1]) / denominator)
+    if u < -tolerance or v < -tolerance or u + v > 1.0 + tolerance:
+        return None
+
+    anchor = triangle[0]
+    z = float(anchor[2] - (
+        upward[0] * (point[0] - anchor[0])
+        + upward[1] * (point[1] - anchor[1])
+    ) / upward[2])
+    projected = np.array([point[0], point[1], z], dtype=float)
+    signed_distance = float(upward @ (point - projected))
+    return projected, upward, signed_distance
+
+
+def _mesh_contact_hit(
+    point: np.ndarray,
+    triangles: np.ndarray,
+    centers: np.ndarray,
+    normals: np.ndarray,
+    support: bool,
+    support_normal_min_z: float,
+    support_above_tolerance: float = 0.02,
+):
+    """Deterministic nearest/supporting triangle query for any body channel.
+
+    Foot support is a semantic query: an upward tread beneath the heel/toe
+    projection wins over a Euclidean-nearest stair riser. Triangle winding is
+    ignored for support classification and the returned normal is upward.
+    """
     point = np.asarray(point, dtype=float)
-    candidates = np.flatnonzero(normals[:, 2] > support_normal_min_z) if support else np.arange(len(triangles))
+    if support:
+        candidates = np.flatnonzero(np.abs(normals[:, 2]) > support_normal_min_z)
+    else:
+        candidates = np.arange(len(triangles))
     if not len(candidates):
         return None
+
     if support:
-        # Prefer projected triangles containing the point, then the highest
-        # valid surface. This rejects a nearby vertical riser at stair edges.
         containing = []
-        px, py = point[:2]
         for index in candidates:
-            a, b, c = triangles[int(index), :, :2]
-            v0, v1, v2 = c - a, b - a, np.array([px, py]) - a
-            denominator = float(v0[0] * v1[1] - v1[0] * v0[1])
-            if abs(denominator) < 1e-12:
+            projected = _triangle_xy_support(
+                point, triangles[int(index)], normals[int(index)]
+            )
+            if projected is None:
                 continue
-            u = float((v2[0] * v1[1] - v1[0] * v2[1]) / denominator)
-            v = float((v0[0] * v2[1] - v2[0] * v0[1]) / denominator)
-            if u >= -1e-8 and v >= -1e-8 and u + v <= 1.0 + 1e-8:
-                containing.append(int(index))
-        candidates = np.asarray(containing if containing else candidates, dtype=int)
+            surface_point, upward, signed_distance = projected
+            if signed_distance >= -float(support_above_tolerance):
+                containing.append((float(surface_point[2]), int(index), upward))
         if containing:
-            candidates = np.asarray(sorted(candidates.tolist(), key=lambda i: (-float(centers[i, 2]), i)))
-    else:
-        # A bounded nearest-centroid shortlist keeps mesh queries predictable.
-        order = np.argsort(np.sum((centers[candidates] - point[None, :]) ** 2, axis=1), kind="stable")
-        candidates = candidates[order[: min(64, len(order))]]
+            _, index, normal = max(
+                containing, key=lambda item: (item[0], -item[1])
+            )
+            closest = _closest_point_triangle(point, triangles[index])
+            signed_distance = float(normal @ (point - closest))
+            return int(index), closest, normal, signed_distance, True
+
+    order = np.argsort(
+        np.sum((centers[candidates] - point[None, :]) ** 2, axis=1),
+        kind="stable",
+    )
+    candidates = candidates[order[: min(64, len(order))]]
     best = None
     for index in candidates:
         closest = _closest_point_triangle(point, triangles[int(index)])
@@ -115,8 +170,7 @@ def _mesh_contact_hit(point: np.ndarray, triangles: np.ndarray, centers: np.ndar
     elif not support and float(normal @ (point - closest)) < 0.0:
         normal = -normal
     normal /= max(float(np.linalg.norm(normal)), 1e-12)
-    return int(index), closest, normal, float(normal @ (point - closest))
-
+    return int(index), closest, normal, float(normal @ (point - closest)), False
 
 def _triangle_barycentric(point: np.ndarray, triangle: np.ndarray) -> np.ndarray:
     a, b, c = np.asarray(triangle, dtype=float)
@@ -157,6 +211,14 @@ def augment_mesh_contact_schedule(
     normals = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
     normals /= np.maximum(np.linalg.norm(normals, axis=1, keepdims=True), 1e-12)
     threshold = float(config.get("object_contact_distance", 0.05))
+    foot_contact_threshold = float(config.get("foot_support_contact_distance", threshold))
+    foot_approach_distance = max(
+        foot_contact_threshold,
+        float(config.get("foot_support_approach_distance", 0.12)),
+    )
+    foot_edge_margin = float(config.get("foot_support_edge_margin", 0.025))
+    support_above_tolerance = float(config.get("foot_support_above_tolerance", 0.02))
+    foot_approach_activation = float(config.get("foot_support_approach_activation", 0.65))
     static_speed = float(config.get("static_tangent_speed", 0.08))
     support_min = float(config.get("support_normal_min_z", 0.6))
     switch_hysteresis = float(config.get("surface_switch_hysteresis", 0.015))
@@ -170,12 +232,42 @@ def augment_mesh_contact_schedule(
             point = np.asarray(item.get("human_point_solver", [np.nan] * 3), dtype=float)
             if point.shape != (3,) or not np.all(np.isfinite(point)):
                 continue
-            result = _mesh_contact_hit(point, triangles, centers, normals,
-                                       channel.endswith(("heel", "toe")), support_min)
+            is_foot = channel.endswith(("heel", "toe"))
+            result = _mesh_contact_hit(
+                point, triangles, centers, normals, is_foot, support_min,
+                support_above_tolerance=support_above_tolerance,
+            )
             if result is None:
                 continue
-            index, surface_point, normal, signed_distance = result
+            index, surface_point, normal, signed_distance, projected_support = result
             distance = float(np.linalg.norm(point - surface_point))
+            contact_threshold = foot_contact_threshold if is_foot else threshold
+
+            # Collision avoidance becomes active before heel/toe hard contact.
+            # Keep a finite tread candidate during that gap so the orientation
+            # task can keep the sole directed correctly without freezing swing.
+            if is_foot:
+                horizontal_miss = float(np.linalg.norm((point - surface_point)[:2]))
+                support_gap = max(0.0, float(signed_distance))
+                approach_eligible = (
+                    signed_distance >= -support_above_tolerance
+                    and (projected_support or horizontal_miss <= foot_edge_margin)
+                    and support_gap <= foot_approach_distance
+                )
+                if approach_eligible:
+                    approach_score = float(np.clip(
+                        1.0 - support_gap / max(foot_approach_distance, 1e-9),
+                        0.0, 1.0,
+                    ))
+                    item.update({
+                        "support_approach_score": approach_score,
+                        "support_approach_activation": foot_approach_activation,
+                        "support_surface_id": f"{object_id}:face_{index:05d}",
+                        "support_surface_point_solver": surface_point.copy(),
+                        "support_surface_normal_solver": normal.copy(),
+                        "support_signed_distance": float(signed_distance),
+                        "support_horizontal_miss": horizontal_miss,
+                    })
             previous_index = locked_triangles.get(channel)
             if previous_index is not None and previous_index != index:
                 previous_point = _closest_point_triangle(point, triangles[previous_index])
@@ -189,7 +281,7 @@ def augment_mesh_contact_schedule(
                 # Keep an established surface while the alternative is only
                 # marginally closer. This prevents stair/chair edge flicker.
                 previous_euclidean = float(np.linalg.norm(point - previous_point))
-                if (previous_euclidean <= threshold
+                if (previous_euclidean <= contact_threshold
                         and previous_euclidean <= distance + switch_hysteresis):
                     index, surface_point, normal, signed_distance = (
                         previous_index, previous_point, previous_normal, previous_distance
@@ -197,11 +289,13 @@ def augment_mesh_contact_schedule(
                     distance = previous_euclidean
             # A nearby infinite plane is NOT a nearby finite triangle. In
             # particular, a knee beside a stair must not be pulled to its edge.
-            if distance > threshold:
+            if distance > contact_threshold:
                 locked_triangles.pop(channel, None)
                 continue
             locked_triangles[channel] = int(index)
-            score = float(np.clip(1.0 - distance / max(threshold, 1e-9), 0.0, 1.0))
+            score = float(np.clip(
+                1.0 - distance / max(contact_threshold, 1e-9), 0.0, 1.0
+            ))
             tangent_speed = float(item.get("tangential_speed", 0.0))
             state = "STATIC" if tangent_speed < static_speed else "SLIDING"
             item.update({
