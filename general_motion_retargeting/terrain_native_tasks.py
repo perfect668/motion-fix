@@ -156,11 +156,52 @@ class SolePatchConstraintLimit(Limit):
         self.tangent_tolerance = float(cfg.get("tangent_tolerance", 0.010))
         self.swing_margin = float(cfg.get("swing_margin", 0.0))
         self.support_inset = float(cfg.get("support_inset", 0.003))
+        self.capture_normal_distance = float(cfg.get("capture_normal_distance", 0.03))
+        self.capture_normal_spread = float(cfg.get("capture_normal_spread", 0.025))
+        self.capture_polygon_tolerance = float(cfg.get("capture_polygon_tolerance", 0.01))
         self.plans: dict[str, dict[str, Any]] = {}
+        self.captured: dict[str, bool] = {"left": False, "right": False}
         self.active_count = 0
 
     def set_plan(self, plans: dict[str, dict[str, Any]]) -> None:
         self.plans = plans
+
+    def update_capture_state(self, configuration) -> None:
+        """Latch hard XY sticking only after the robot sole actually reaches a planned tread.
+
+        HoloSoMo does not teleport a foot onto source contact geometry.  Its
+        hard sticking constraint is relative to the robot's previous foot
+        position.  We follow the same principle: source/terrain planning picks
+        the intended patch, soft interaction/contact terms guide the foot
+        there, and hard sticking activates only once the robot sole is already
+        geometrically compatible with that patch.
+        """
+        for side, sole in self.soles.items():
+            plan = self.plans.get(side, {})
+            if plan.get("mode") != "stance":
+                self.captured[side] = False
+                continue
+            if self.captured.get(side, False):
+                continue
+            points = sole.points(configuration)
+            normal = _unit(plan["surface_normal"])
+            plane = np.asarray(plan["surface_point"], dtype=float)
+            distances = (points - plane) @ normal
+            normal_error = np.abs(distances - self.clearance)
+            halfspaces = np.asarray(
+                plan.get("patch_xy_halfspaces", np.empty((0, 3))), dtype=float
+            ).reshape((-1, 3))
+            if len(halfspaces):
+                homogeneous = np.c_[points[:, :2], np.ones(len(points))]
+                polygon_violation = float(np.max(homogeneous @ halfspaces.T))
+            else:
+                polygon_violation = 0.0
+            if (
+                float(np.max(normal_error)) <= self.capture_normal_distance
+                and float(np.ptp(distances)) <= self.capture_normal_spread
+                and polygon_violation <= self.capture_polygon_tolerance
+            ):
+                self.captured[side] = True
 
     def compute_qp_inequalities(self, configuration, dt: float) -> Constraint:
         del dt
@@ -172,45 +213,46 @@ class SolePatchConstraintLimit(Limit):
             jacobians = sole.jacobians(configuration)
             mode = plan.get("mode", "free")
             if mode == "stance":
-                normal = _unit(plan["surface_normal"])
-                plane = np.asarray(plan["surface_point"], dtype=float)
-                lower = self.clearance - self.normal_tolerance
-                upper = self.clearance + self.normal_tolerance
-                halfspaces = np.asarray(
-                    plan.get("patch_xy_halfspaces", np.empty((0, 3))),
-                    dtype=float,
-                ).reshape((-1, 3))
-                for point, jac in zip(points, jacobians):
-                    distance = float(normal @ (point - plane))
-                    normal_jac = normal @ jac
-                    rows.extend([-normal_jac, normal_jac])
-                    bounds.extend([distance - lower, upper - distance])
-                    active += 2
-                    # A support plane is not infinite: every sole guard point
-                    # must remain inside the finite tread polygon. Convex-hull
-                    # equations are a*x+b*y+c <= 0 and are already normalized.
-                    for a, b, c in halfspaces:
-                        value = float(a * point[0] + b * point[1] + c)
-                        rows.append(a * jac[0] + b * jac[1])
-                        bounds.append(float(-self.support_inset - value))
-                        active += 1
-                if "hard_anchor" in plan:
-                    center = points.mean(axis=0)
-                    center_jac = jacobians.mean(axis=0)
-                    anchor = np.asarray(plan["hard_anchor"], dtype=float)
-                    tangents = tangent_basis(normal)
-                    for tangent in tangents.T:
-                        error = float(tangent @ (center - anchor))
-                        jac = tangent @ center_jac
-                        rows.extend([jac, -jac])
-                        bounds.extend([self.tangent_tolerance - error, self.tangent_tolerance + error])
-                        active += 2
-            elif mode == "swing" and np.isfinite(plan.get("clearance_floor_z", np.nan)):
-                floor = float(plan["clearance_floor_z"]) + self.swing_margin
-                for point, jac in zip(points, jacobians):
-                    rows.append(-jac[2])
-                    bounds.append(float(point[2] - floor))
-                    active += 1
+                # Before capture, stance geometry is a soft objective only.
+                # Hard constraints here would require one QP step to move a
+                # sole that may still be 10--20 cm away from the source patch,
+                # which is exactly what made the previous implementation
+                # infeasible on stairs_0037.
+                if self.captured.get(side, False):
+                    halfspaces = np.asarray(
+                        plan.get("patch_xy_halfspaces", np.empty((0, 3))),
+                        dtype=float,
+                    ).reshape((-1, 3))
+                    for point, jac in zip(points, jacobians):
+                        for a, b, c in halfspaces:
+                            value = float(a * point[0] + b * point[1] + c)
+                            rows.append(a * jac[0] + b * jac[1])
+                            bounds.append(float(-self.support_inset - value))
+                            active += 1
+                    if "hard_anchor" in plan:
+                        center = points.mean(axis=0)
+                        center_jac = jacobians.mean(axis=0)
+                        anchor = np.asarray(plan["hard_anchor"], dtype=float)
+                        # Match HoloSoMo foot sticking: constrain only XY /
+                        # tangential motion relative to the robot's captured
+                        # stance point. Z/sole leveling remain soft objectives
+                        # while non-penetration provides the hard lower bound.
+                        tangents = tangent_basis(_unit(plan["surface_normal"]))
+                        for tangent in tangents.T:
+                            error = float(tangent @ (center - anchor))
+                            jac = tangent @ center_jac
+                            rows.extend([jac, -jac])
+                            bounds.extend([
+                                self.tangent_tolerance - error,
+                                self.tangent_tolerance + error,
+                            ])
+                            active += 2
+            elif mode == "swing":
+                # Swing clearance is represented by TerrainNativeContactTask's
+                # hinge loss. Scene non-penetration stays hard. Keeping the
+                # look-ahead corridor soft avoids a new infeasible QP when a
+                # frame enters swing below the desired arc.
+                pass
         self.active_count = active
         if not rows:
             return Constraint()
@@ -348,27 +390,31 @@ class TerrainNativeContactTask(Task):
             if plan.get("mode") == "stance":
                 episode = tuple(plan.get("episode", ())) + (str(plan.get("patch_id", "")),)
                 if self._episode_keys.get(side) != episode:
-                    # First landing frame: enforce the finite support patch and
-                    # four-point plane, but do not immediately freeze tangential
-                    # position. This lets the soft source anchor finish the
-                    # landing without creating a large hard jump.
                     self._episode_keys[side] = episode
                     self._hard_anchors.pop(side, None)
-                elif side not in self._hard_anchors:
-                    points = self.soles[side].points(configuration)
-                    normal = _unit(plan["surface_normal"])
-                    plane = np.asarray(plan["surface_point"], dtype=float)
-                    center = points.mean(axis=0)
-                    hard_anchor = center - normal * float(normal @ (center - plane))
-                    self._hard_anchors[side] = hard_anchor
-                if side in self._hard_anchors:
-                    plan["hard_anchor"] = self._hard_anchors[side].copy()
             else:
                 self._episode_keys[side] = None
                 self._hard_anchors.pop(side, None)
             plans[side] = plan
         self.plans = plans
         self.sole_limit.set_plan(plans)
+        self.sole_limit.update_capture_state(configuration)
+
+        # Establish the robot-relative sticking anchor only after geometric
+        # capture. This mirrors HoloSoMo's previous-robot-foot sticking
+        # constraint instead of forcing source-space XY onto the robot.
+        for side in ("left", "right"):
+            plan = self.plans.get(side, {})
+            if plan.get("mode") != "stance" or not self.sole_limit.captured.get(side, False):
+                continue
+            if side not in self._hard_anchors:
+                points = self.soles[side].points(configuration)
+                normal = _unit(plan["surface_normal"])
+                plane = np.asarray(plan["surface_point"], dtype=float)
+                center = points.mean(axis=0)
+                self._hard_anchors[side] = center - normal * float(normal @ (center - plane))
+            plan["hard_anchor"] = self._hard_anchors[side].copy()
+        self.sole_limit.set_plan(self.plans)
 
     def _foot_error(self, configuration, side: str) -> np.ndarray:
         plan = self.plans.get(side, {})
@@ -418,7 +464,11 @@ class TerrainNativeContactTask(Task):
         for side in ("left", "right"):
             plan = self.plans.get(side, {})
             points = self.soles[side].points(configuration)
-            record = {"mode": str(plan.get("mode", "free")), "sole_points": points.tolist()}
+            record = {
+                "mode": str(plan.get("mode", "free")),
+                "sole_points": points.tolist(),
+                "captured": bool(self.sole_limit.captured.get(side, False)),
+            }
             if plan.get("mode") == "stance":
                 normal = _unit(plan["surface_normal"])
                 plane = np.asarray(plan["surface_point"], dtype=float)
