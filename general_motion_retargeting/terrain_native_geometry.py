@@ -156,6 +156,33 @@ class TerrainPatchMap:
             raise ValueError("Terrain-native retargeting found no upward support patches in scene mesh")
         return cls(object_id, world, faces, patches)
 
+    def add_horizontal_patch(
+        self,
+        patch_id: str,
+        z: float,
+        xy_min: np.ndarray,
+        xy_max: np.ndarray,
+    ) -> None:
+        """Add an analytic floor/support plane to the same semantic patch map."""
+        lo = np.asarray(xy_min, dtype=float).reshape(2)
+        hi = np.asarray(xy_max, dtype=float).reshape(2)
+        corners = np.array([
+            [lo[0], lo[1], z], [hi[0], lo[1], z],
+            [hi[0], hi[1], z], [lo[0], hi[1], z],
+        ], dtype=float)
+        triangles = corners[np.array([[0, 1, 2], [0, 2, 3]], dtype=int)]
+        patch = SupportPatch(
+            patch_id=str(patch_id),
+            face_indices=np.empty(0, dtype=int),
+            triangles=triangles,
+            normal=np.array([0.0, 0.0, 1.0]),
+            center=corners.mean(axis=0),
+            xy_min=lo,
+            xy_max=hi,
+        )
+        self.patches.append(patch)
+        self.by_id[patch.patch_id] = patch
+
     def support_at(
         self,
         point: np.ndarray,
