@@ -99,3 +99,96 @@ def test_toe_support_is_not_airborne_and_true_flight_keeps_source_orientation():
     task.set_contacts({"left_heel": heel, "left_toe": {**toe, "state": "NONE"}}, {"left": 0.0})
     np.testing.assert_allclose(task.targets["left"]["normal"], [0, 1, 0])
     assert task.targets["left"]["activation"] == .15
+
+
+def _augment_with_support_config(points, vertices, faces, **overrides):
+    config = {
+        "channels": ["left_heel"],
+        "object_contact_distance": 0.05,
+        "foot_support_contact_distance": 0.06,
+        "foot_support_approach_distance": 0.12,
+        "foot_support_edge_margin": 0.025,
+        "foot_support_above_tolerance": 0.02,
+        "foot_support_approach_activation": 0.65,
+    }
+    config.update(overrides)
+    schedule = _mesh_schedule(points)
+    return augment_mesh_contact_schedule(
+        schedule, [{} for _ in schedule], np.asarray(vertices, dtype=float),
+        np.asarray(faces), "stairs", np.eye(4), config,
+    )
+
+
+def test_foot_support_accepts_reversed_winding_and_returns_upward_normal():
+    result = _augment_with_support_config(
+        [[.2, .2, .52]],
+        [[0, 0, .5], [1, 0, .5], [0, 1, .5]],
+        [[0, 2, 1]],
+    )
+    contact = result[0]["contacts"]["left_heel"]
+    assert contact["state"] != "NONE"
+    assert contact["surface_normal_solver"][2] > .999
+
+
+def test_projected_foot_support_chooses_highest_reachable_tread():
+    vertices = [
+        [0, 0, .5], [1, 0, .5], [0, 1, .5],
+        [0, 0, .7], [1, 0, .7], [0, 1, .7],
+    ]
+    faces = [[0, 1, 2], [3, 4, 5]]
+    high = _augment_with_support_config(
+        [[.2, .2, .72]], vertices, faces,
+        foot_support_contact_distance=.3,
+    )[0]["contacts"]["left_heel"]
+    assert high["surface_triangle_index"] == 1
+
+    low = _augment_with_support_config(
+        [[.2, .2, .56]], vertices, faces,
+        foot_support_contact_distance=.3,
+    )[0]["contacts"]["left_heel"]
+    assert low["surface_triangle_index"] == 0
+
+
+def test_tread_approach_precedes_hard_contact_without_freezing_swing():
+    result = _augment_with_support_config(
+        [[.2, .2, .58]],
+        [[0, 0, .5], [1, 0, .5], [0, 1, .5]],
+        [[0, 1, 2]],
+    )
+    contact = result[0]["contacts"]["left_heel"]
+    assert contact["state"] == "NONE"
+    assert "object_id" not in contact
+    assert .30 < contact["support_approach_score"] < .35
+    assert contact["support_surface_normal_solver"][2] > .999
+
+
+def test_foot_capture_distance_can_start_with_collision_shell():
+    result = _augment_with_support_config(
+        [[.2, .2, .555]],
+        [[0, 0, .5], [1, 0, .5], [0, 1, .5]],
+        [[0, 1, 2]],
+    )
+    contact = result[0]["contacts"]["left_heel"]
+    assert contact["state"] == "STATIC"
+    assert contact["surface_type"] == "mesh"
+
+
+def test_foot_frame_strengthens_near_tread_but_preserves_source_tilt():
+    model, _ = _configuration()
+    task = FootFrameTask(model, {"left": "foot"}, [0, 0, 1], .12)
+    heel = {
+        **_contact("NONE", 0),
+        "human_point_solver": np.array([-.08, 0, 0]),
+        "human_foot_normal_solver": np.array([0., 1., 0.]),
+        "human_foot_forward_solver": np.array([1., 0, 0.]),
+        "support_approach_score": .5,
+        "support_approach_activation": .65,
+    }
+    toe = {
+        **heel,
+        "human_point_solver": np.array([.08, 0, 0]),
+    }
+    task.set_contacts({"left_heel": heel, "left_toe": toe}, {"left": 0.0})
+    assert task.targets["left"]["mode"] == "airborne"
+    np.testing.assert_allclose(task.targets["left"]["activation"], .4)
+    np.testing.assert_allclose(task.targets["left"]["normal"], [0., 1., 0.])
