@@ -303,7 +303,8 @@
       "source_contact_speed": 0.3,
       "minimum_stance_frames": 3,
       "contact_gap_fill_frames": 2,
-      "swing_clearance": 0.055
+      "swing_clearance": 0.055,
+      "require_nonfloor_support": true
     },
     "interaction": {
       "environment_points": 96,
