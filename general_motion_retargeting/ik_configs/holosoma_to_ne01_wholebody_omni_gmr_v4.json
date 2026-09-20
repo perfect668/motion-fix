@@ -1,7 +1,7 @@
 {
   "extends": "holosoma_to_ne01_wholebody_omni_gmr_v3.json",
   "scene": {
-    "scene_scale": 1.0,
+    "scene_scale": 1,
     "asset_interaction_transform": {
       "enabled": false,
       "auto": false,
@@ -9,20 +9,36 @@
       "translation_step": 0.02,
       "yaw_step": 0.05,
       "scale_step": 0.03,
-      "translation": [0.0, 0.0, 0.0],
-      "yaw": 0.0,
-      "scale_axis_1": 1.0,
-      "scale_axis_2": 1.0,
-      "scale_up": 1.0,
+      "translation": [
+        0,
+        0,
+        0
+      ],
+      "yaw": 0,
+      "scale_axis_1": 1,
+      "scale_axis_2": 1,
+      "scale_up": 1,
       "scale_min": 0.85,
       "scale_max": 1.15,
       "max_outer_iterations": 3
     },
-    "floor_calibration": {"enabled": true, "quantile": 0.05, "max_support_speed": 0.12}
+    "floor_calibration": {
+      "enabled": true,
+      "quantile": 0.05,
+      "max_support_speed": 0.12
+    }
   },
   "scene_geometry": {
-    "surface_sampling": {"candidate_points_per_square_meter": 100, "minimum": 128, "maximum": 1024},
-    "interaction_selection": {"points_per_semantic": 4, "minimum": 32, "maximum": 96},
+    "surface_sampling": {
+      "candidate_points_per_square_meter": 100,
+      "minimum": 128,
+      "maximum": 1024
+    },
+    "interaction_selection": {
+      "points_per_semantic": 4,
+      "minimum": 32,
+      "maximum": 96
+    },
     "scene_surface_points": 512
   },
   "scene_collision": {
@@ -31,79 +47,246 @@
     "activate_distance": 0.055,
     "deactivate_distance": 0.085,
     "max_active_per_robot_geom": 5,
-    "prediction_horizon": 2.0,
+    "prediction_horizon": 2,
     "hold_steps": 3,
     "debug_collision_jacobian": false,
     "scene_body_prefix": "scene_"
   },
   "semantic_points": {
-    "pelvis": {"source": "pelvis", "robot": {"body": "base_link", "offsets": [[0.0, 0.0, 0.0]]}}
+    "pelvis": {
+      "source": "pelvis",
+      "robot": {
+        "body": "base_link",
+        "offsets": [
+          [
+            0,
+            0,
+            0
+          ]
+        ]
+      }
+    }
   },
   "global_anchor": {
     "source": "pelvis",
     "robot_body": "base_link",
-    "cost": [4.0, 4.0, 1.5, 2.0]
+    "cost": [
+      4,
+      4,
+      1.5,
+      2
+    ]
   },
   "root_se3": {
     "enabled": true,
-    "cost": [4.0, 4.0, 1.5, 0.8, 0.8, 0.8],
-    "gain": 0.30
+    "cost": [
+      4,
+      4,
+      1.5,
+      0.8,
+      0.8,
+      0.8
+    ],
+    "gain": 0.3
   },
   "joint_position_limits": {
-    "KNEE_PITCH_L_JOINT": [-0.05, 2.3078],
-    "KNEE_PITCH_R_JOINT": [-0.05, 2.3078],
-    "HIP_YAW_L_JOINT": [-0.75, 0.75],
-    "HIP_YAW_R_JOINT": [-0.75, 0.75]
+    "KNEE_PITCH_L_JOINT": [
+      -0.05,
+      2.3078
+    ],
+    "KNEE_PITCH_R_JOINT": [
+      -0.05,
+      2.3078
+    ],
+    "HIP_YAW_L_JOINT": [
+      -0.75,
+      0.75
+    ],
+    "HIP_YAW_R_JOINT": [
+      -0.75,
+      0.75
+    ]
   },
   "retarget_safety": {
     "knee_minimum_rad": -0.05,
     "hip_yaw_limit_rad": 0.75,
     "diagnostics": true
   },
-  "foot_frame": {"enabled": true, "cost": 0.12},
-  "foot_temporal": {"cost": 0.08},
+  "foot_frame": {
+    "enabled": true,
+    "cost": 0.12
+  },
+  "foot_temporal": {
+    "cost": 0.08
+  },
   "bone_direction": {
     "cost": 1.5,
-    "gain": 0.30,
+    "gain": 0.3,
     "edges": [
-      ["pelvis", "left_hip"], ["left_hip", "left_knee"],
-      ["left_knee", "left_foot"], ["left_foot", "left_toe"],
-      ["pelvis", "right_hip"], ["right_hip", "right_knee"],
-      ["right_knee", "right_foot"], ["right_foot", "right_toe"],
-      ["left_shoulder", "left_elbow"], ["left_elbow", "left_hand"],
-      ["right_shoulder", "right_elbow"], ["right_elbow", "right_hand"]
+      [
+        "pelvis",
+        "left_hip"
+      ],
+      [
+        "left_hip",
+        "left_knee"
+      ],
+      [
+        "left_knee",
+        "left_foot"
+      ],
+      [
+        "left_foot",
+        "left_toe"
+      ],
+      [
+        "pelvis",
+        "right_hip"
+      ],
+      [
+        "right_hip",
+        "right_knee"
+      ],
+      [
+        "right_knee",
+        "right_foot"
+      ],
+      [
+        "right_foot",
+        "right_toe"
+      ],
+      [
+        "left_shoulder",
+        "left_elbow"
+      ],
+      [
+        "left_elbow",
+        "left_hand"
+      ],
+      [
+        "right_shoulder",
+        "right_elbow"
+      ],
+      [
+        "right_elbow",
+        "right_hand"
+      ]
     ]
   },
   "limb_plane": {
     "cost": 0.8,
-    "gain": 0.20,
+    "gain": 0.2,
     "triples": [
-      ["left_hip", "left_knee", "left_foot"],
-      ["right_hip", "right_knee", "right_foot"],
-      ["left_shoulder", "left_elbow", "left_hand"],
-      ["right_shoulder", "right_elbow", "right_hand"]
+      [
+        "left_hip",
+        "left_knee",
+        "left_foot"
+      ],
+      [
+        "right_hip",
+        "right_knee",
+        "right_foot"
+      ],
+      [
+        "left_shoulder",
+        "left_elbow",
+        "left_hand"
+      ],
+      [
+        "right_shoulder",
+        "right_elbow",
+        "right_hand"
+      ]
     ]
   },
   "contact_channels": {
-    "left_butt": {"query_type": "support", "provenance": "pelvis_surface_proxy"},
-    "right_butt": {"query_type": "support", "provenance": "pelvis_surface_proxy"},
-    "lower_back": {"query_type": "nearest", "provenance": "spine_surface_proxy"},
-    "upper_back": {"query_type": "nearest", "provenance": "spine_surface_proxy"}
+    "left_butt": {
+      "query_type": "support",
+      "provenance": "pelvis_surface_proxy"
+    },
+    "right_butt": {
+      "query_type": "support",
+      "provenance": "pelvis_surface_proxy"
+    },
+    "lower_back": {
+      "query_type": "nearest",
+      "provenance": "spine_surface_proxy"
+    },
+    "upper_back": {
+      "query_type": "nearest",
+      "provenance": "spine_surface_proxy"
+    }
   },
   "terrain_contact": {
     "butt_surface_vertical_offset": 0.21,
-    "back_surface_offset": 0.10,
+    "back_surface_offset": 0.1,
     "lower_back_vertical_offset": 0.08,
     "upper_back_vertical_offset": 0.06,
     "object_contact_distance": 0.05,
-    "channels": ["left_heel", "right_heel", "left_toe", "right_toe", "left_palm", "right_palm", "left_knee", "right_knee", "left_shin", "right_shin", "left_butt", "right_butt", "lower_back", "upper_back"]
+    "channels": [
+      "left_heel",
+      "right_heel",
+      "left_toe",
+      "right_toe",
+      "left_palm",
+      "right_palm",
+      "left_knee",
+      "right_knee",
+      "left_shin",
+      "right_shin",
+      "left_butt",
+      "right_butt",
+      "lower_back",
+      "upper_back"
+    ],
+    "foot_support_contact_distance": 0.06,
+    "foot_support_approach_distance": 0.12,
+    "foot_support_edge_margin": 0.025,
+    "foot_support_above_tolerance": 0.02,
+    "foot_support_approach_activation": 0.65
   },
   "contact_tasks": {
     "robot_points": {
-      "left_butt": {"body": "base_link", "offsets": [[-0.075, 0.045, -0.15]]},
-      "right_butt": {"body": "base_link", "offsets": [[-0.075, -0.045, -0.15]]},
-      "lower_back": {"body": "TORSO_LINK", "offsets": [[-0.080, 0.0, 0.055]]},
-      "upper_back": {"body": "TORSO_LINK", "offsets": [[-0.070, 0.0, 0.16]]}
+      "left_butt": {
+        "body": "base_link",
+        "offsets": [
+          [
+            -0.075,
+            0.045,
+            -0.15
+          ]
+        ]
+      },
+      "right_butt": {
+        "body": "base_link",
+        "offsets": [
+          [
+            -0.075,
+            -0.045,
+            -0.15
+          ]
+        ]
+      },
+      "lower_back": {
+        "body": "TORSO_LINK",
+        "offsets": [
+          [
+            -0.08,
+            0,
+            0.055
+          ]
+        ]
+      },
+      "upper_back": {
+        "body": "TORSO_LINK",
+        "offsets": [
+          [
+            -0.07,
+            0,
+            0.16
+          ]
+        ]
+      }
     }
   }
 }
