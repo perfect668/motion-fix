@@ -320,12 +320,15 @@
       "normal_tolerance": 0.003,
       "tangent_tolerance": 0.015,
       "swing_margin": 0,
-      "support_inset": 0.003
+      "support_inset": 0.003,
+      "capture_normal_distance": 0.03,
+      "capture_normal_spread": 0.025,
+      "capture_polygon_tolerance": 0.01
     },
     "contact_task": {
-      "sole_normal_cost": 70,
-      "sole_tangent_cost": 18,
-      "swing_clearance_cost": 45
+      "sole_normal_cost": 12,
+      "sole_tangent_cost": 4,
+      "swing_clearance_cost": 12
     }
   }
 }
