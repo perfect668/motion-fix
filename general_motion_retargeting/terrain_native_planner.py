@@ -58,7 +58,10 @@ def build_support_plan(
         centers = np.asarray([item["center"] for item in soles])
         speeds = np.zeros(count)
         if count > 1:
-            delta = np.linalg.norm(np.diff(centers, axis=0), axis=1) / dt
+            # Match HoloSoMo's foot-sticking semantics: tangential/XY speed
+            # decides sticking; vertical motion is already gated by support
+            # distance and must not create false sliding on a landing.
+            delta = np.linalg.norm(np.diff(centers[:, :2], axis=0), axis=1) / dt
             speeds[1:] = delta
             speeds[0] = delta[0]
         raw_patch: list[str | None] = [None] * count
