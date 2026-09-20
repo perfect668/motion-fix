@@ -319,7 +319,8 @@
       "clearance": 0.004,
       "normal_tolerance": 0.003,
       "tangent_tolerance": 0.015,
-      "swing_margin": 0
+      "swing_margin": 0,
+      "support_inset": 0.003
     },
     "contact_task": {
       "sole_normal_cost": 70,
