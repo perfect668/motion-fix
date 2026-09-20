@@ -145,3 +145,62 @@ airborne、激活仅 0.15；实际足底法向和目标法向相差 84.25 度。
 本轮修改仍需在原 GRAIL/SMPL-X 运行环境完整重跑。actual PKL 足够定位
 故障相位，但不包含完整源资产和人体模型依赖，不能在当前工具环境重算
 401 帧并据此宣称视觉效果已经通过。
+
+
+## 第四轮：terrain-native 重构（2026-09-20）
+
+第三轮继续证明：只在 V4 的 heel/toe 最近表面查询、FootFrameTask 权重和
+碰撞激活阈值上做局部修复，不能从结构上排除“脚侧顶住台阶立面”的局部解。
+本轮不再让机器人当前姿态决定“它正在踩哪个面”，而是把 HoloSoMo /
+OmniRetarget 的 climbing 思路放到主干：
+
+1. 从最终对齐后的真实楼梯 mesh 提取连通、近似共面的向上 support patch，
+   并把解析 floor 放进同一个 patch map。三角面绕序不影响支撑面语义。
+2. 在机器人优化开始前，用整段 source human + source terrain 推断左右脚的
+   stance / swing / free 序列。每个 stance episode 固定一个 support patch；
+   swing episode 提前知道下一次 landing patch，并生成脚底 clearance corridor。
+3. 场景 interaction pool 不再只是全局最近点。约 75% 的楼梯场景采样预算
+   优先给可支撑的上表面，同时保留一部分普通 mesh 点描述 riser / edge。
+   Interaction Laplacian 使用按边长衰减的稀疏权重，减少远处环境边稀释。
+4. NE01 每只脚使用 4 个现有 sole guard site 作为一个刚性脚底 patch。
+   stance 时四点共同受同一支撑平面约束，并在 episode 开始后做 robot-relative
+   tangential sticking；不再依赖单独的 FootFrameTask 去猜脚底方向。
+5. swing 时四个 sole 点都受到未来 landing patch 的高度走廊约束。MuJoCo
+   scene collision 仍保留，但只作为不可穿透的可行性边界，不再承担接触规划。
+6. 如果整段 source/scene 分析完全没有得到非 floor 的 stance episode，
+   入口直接报错，不允许静默退回旧的“碰撞先顶住脚、随后再补接触”路径。
+
+新增核心文件：
+
+- `general_motion_retargeting/terrain_native_geometry.py`
+- `general_motion_retargeting/terrain_native_planner.py`
+- `general_motion_retargeting/terrain_native_tasks.py`
+- `general_motion_retargeting/wholebody_terrain_native.py`
+
+GRAIL V4 入口 `scripts/grail_to_robot_wholebody_v4.py` 已直接切换到
+`TerrainNativeRetargeter`。原 V4 的多格式适配、场景资产、MuJoCo 组合模型、
+CoACD、输出格式与诊断外壳继续复用；旧 reactive foot contact 不再控制
+GRAIL 楼梯脚部。
+
+新增 `tests/test_terrain_native_planner.py` 覆盖：反向 triangle winding、
+floor -> swing -> stair 的整段支撑规划，以及 contact schedule 必须来自预先
+规划的 support patch 而不是机器人侧最近表面。
+
+当前可在无 MuJoCo/Mink 完整环境下验证的纯几何/规划逻辑已用合成一级台阶
+检查通过。完整仓库测试和 `grail_stairs_0037` 的 401 帧重新求解仍必须在
+原 gmr + SMPL-X + 场景资产环境执行；在得到新的 PKL 前，不把视觉效果宣称
+为已通过。
+
+### 本轮验收重点
+
+新输出应重点检查：
+
+- `terrain_diagnostics[i]["terrain_native"][side]["mode"]`
+- stance: `patch_id`, `normal_spread`, `anchor_error`
+- swing: `landing_patch_id`, `minimum_clearance`
+- `terrain_native_hard_rows`
+- `minimum_scene_distance` / `maximum_penetration`
+
+楼梯验收不再以“某个 heel/toe 最近三角形是否正确”为主，而以三条结构性
+条件为准：stance 四个 sole 点必须属于同一 support patch；swing sole 不得
+被 riser 截获；support transition 前后 q/root 不得发生异常跳变。
