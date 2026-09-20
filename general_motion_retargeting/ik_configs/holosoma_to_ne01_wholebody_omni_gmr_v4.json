@@ -316,7 +316,7 @@
     "sole_patch": {
       "clearance": 0.004,
       "normal_tolerance": 0.003,
-      "tangent_tolerance": 0.01,
+      "tangent_tolerance": 0.015,
       "swing_margin": 0
     },
     "contact_task": {
