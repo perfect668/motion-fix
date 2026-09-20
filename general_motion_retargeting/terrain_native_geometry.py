@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
+from scipy.spatial import ConvexHull, QhullError
 
 
 def _unit(value: np.ndarray, fallback=(0.0, 0.0, 1.0)) -> np.ndarray:
@@ -26,6 +27,24 @@ def _point_in_triangle_xy(point_xy: np.ndarray, triangle: np.ndarray, tolerance:
     return u >= -tolerance and v >= -tolerance and u + v <= 1.0 + tolerance
 
 
+def _xy_halfspaces(points: np.ndarray) -> np.ndarray:
+    """Convex support polygon as rows [a, b, c] with a*x+b*y+c <= 0."""
+    xy = np.unique(np.round(np.asarray(points, dtype=float).reshape((-1, 2)), 10), axis=0)
+    if len(xy) >= 3:
+        try:
+            hull = ConvexHull(xy)
+            return np.asarray(hull.equations, dtype=float).copy()
+        except QhullError:
+            pass
+    lo, hi = xy.min(axis=0), xy.max(axis=0)
+    return np.array([
+        [-1.0, 0.0, lo[0]],
+        [1.0, 0.0, -hi[0]],
+        [0.0, -1.0, lo[1]],
+        [0.0, 1.0, -hi[1]],
+    ], dtype=float)
+
+
 @dataclass(frozen=True)
 class SupportPatch:
     patch_id: str
@@ -35,6 +54,7 @@ class SupportPatch:
     center: np.ndarray
     xy_min: np.ndarray
     xy_max: np.ndarray
+    xy_halfspaces: np.ndarray
 
     def plane_point(self, xy: np.ndarray) -> np.ndarray:
         xy = np.asarray(xy, dtype=float).reshape(2)
@@ -162,6 +182,7 @@ class TerrainPatchMap:
                 center=center,
                 xy_min=xy.min(axis=0),
                 xy_max=xy.max(axis=0),
+                xy_halfspaces=_xy_halfspaces(xy),
             ))
         if not patches:
             raise ValueError("Terrain-native retargeting found no upward support patches in scene mesh")
@@ -190,6 +211,7 @@ class TerrainPatchMap:
             center=corners.mean(axis=0),
             xy_min=lo,
             xy_max=hi,
+            xy_halfspaces=_xy_halfspaces(corners[:, :2]),
         )
         self.patches.append(patch)
         self.by_id[patch.patch_id] = patch
@@ -261,6 +283,7 @@ class TerrainPatchMap:
                     "center": patch.center.tolist(),
                     "xy_min": patch.xy_min.tolist(),
                     "xy_max": patch.xy_max.tolist(),
+                    "xy_halfspaces": patch.xy_halfspaces.tolist(),
                 }
                 for patch in self.patches
             ],
