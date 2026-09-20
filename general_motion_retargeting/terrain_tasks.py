@@ -231,11 +231,28 @@ class FootFrameTask(TerrainFootOrientationTask):
                         and str(toe.get("state", "NONE")) == "NONE")
             flat = float(self.targets[side]["activation"]) > 0.0
             self.targets[side]["mode"] = "flat" if flat else ("airborne" if airborne else "partial")
+            approach_score = float(np.clip(max(
+                heel.get("support_approach_score", 0.0),
+                toe.get("support_approach_score", 0.0),
+            ), 0.0, 1.0))
+            approach_activation = float(max(
+                heel.get("support_approach_activation", 0.65),
+                toe.get("support_approach_activation", 0.65),
+            ))
+            self.targets[side]["support_approach_score"] = approach_score
             if not flat:
-                # Toe-off/heel-only contacts must retain the measured tilt.
-                # They are not flat support, but must not lose orientation.
+                # Toe-off/heel-only contacts and true flight keep the measured
+                # source tilt. Near a finite stair tread, collision avoidance
+                # is already active, so ramp the directed SO(3) target before
+                # hard position contact can start.
                 key = "airborne_activation" if airborne else "partial_activation"
-                self.targets[side]["activation"] = float(heel.get(key, 0.15))
+                base_activation = float(max(
+                    heel.get(key, 0.15), toe.get(key, 0.15)
+                ))
+                self.targets[side]["activation"] = (
+                    base_activation
+                    + (approach_activation - base_activation) * approach_score
+                )
                 self.targets[side]["normal"] = np.asarray(heel.get("human_foot_normal_solver", [0, 0, 1]), dtype=float)
                 self.targets[side]["normal"] /= max(float(np.linalg.norm(self.targets[side]["normal"])), 1e-12)
             forward = np.asarray(toe.get("human_point_solver", [1, 0, 0]), dtype=float) - np.asarray(heel.get("human_point_solver", [0, 0, 0]), dtype=float)
@@ -264,6 +281,7 @@ class FootFrameTask(TerrainFootOrientationTask):
             result[side] = {
                 "mode": target.get("mode", "unset"),
                 "activation": float(target["activation"]),
+                "support_approach_score": float(target.get("support_approach_score", 0.0)),
                 "sole_normal_world": axis.tolist(),
                 "target_normal_world": target["normal"].tolist(),
                 "sole_target_angle_deg": float(np.rad2deg(np.arccos(np.clip(axis @ target["normal"], -1, 1)))),
