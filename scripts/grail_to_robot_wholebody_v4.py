@@ -413,12 +413,26 @@ def main() -> None:
     )
 
     floor_z = float(scene_transform.transform_points(np.array([0.0, 0.0, 0.0]))[2])
-    floor_margin = 2.0
+    floor_refs = [patch_map.vertices]
+    if human_fk_frames:
+        tracked = []
+        for frame in human_fk_frames:
+            for name in ("pelvis", "left_heel", "right_heel", "left_toe", "right_toe"):
+                if name in frame:
+                    tracked.append(
+                        scene_transform.transform_points(
+                            np.asarray(frame[name][0], dtype=float)
+                        )
+                    )
+        if tracked:
+            floor_refs.append(np.asarray(tracked, dtype=float))
+    floor_extent_points = np.vstack(floor_refs)
+    floor_margin = 1.0
     patch_map.add_horizontal_patch(
         "floor",
         floor_z,
-        patch_map.vertices[:, :2].min(axis=0) - floor_margin,
-        patch_map.vertices[:, :2].max(axis=0) + floor_margin,
+        floor_extent_points[:, :2].min(axis=0) - floor_margin,
+        floor_extent_points[:, :2].max(axis=0) + floor_margin,
     )
 
     # Feed visual scene samples into the Omni interaction pool as well as the
