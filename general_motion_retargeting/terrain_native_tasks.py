@@ -155,6 +155,7 @@ class SolePatchConstraintLimit(Limit):
         self.normal_tolerance = float(cfg.get("normal_tolerance", 0.003))
         self.tangent_tolerance = float(cfg.get("tangent_tolerance", 0.010))
         self.swing_margin = float(cfg.get("swing_margin", 0.0))
+        self.support_inset = float(cfg.get("support_inset", 0.003))
         self.plans: dict[str, dict[str, Any]] = {}
         self.active_count = 0
 
@@ -175,22 +176,35 @@ class SolePatchConstraintLimit(Limit):
                 plane = np.asarray(plan["surface_point"], dtype=float)
                 lower = self.clearance - self.normal_tolerance
                 upper = self.clearance + self.normal_tolerance
+                halfspaces = np.asarray(
+                    plan.get("patch_xy_halfspaces", np.empty((0, 3))),
+                    dtype=float,
+                ).reshape((-1, 3))
                 for point, jac in zip(points, jacobians):
                     distance = float(normal @ (point - plane))
                     normal_jac = normal @ jac
                     rows.extend([-normal_jac, normal_jac])
                     bounds.extend([distance - lower, upper - distance])
                     active += 2
-                center = points.mean(axis=0)
-                center_jac = jacobians.mean(axis=0)
-                anchor = np.asarray(plan.get("hard_anchor", plan["anchor"]), dtype=float)
-                tangents = tangent_basis(normal)
-                for tangent in tangents.T:
-                    error = float(tangent @ (center - anchor))
-                    jac = tangent @ center_jac
-                    rows.extend([jac, -jac])
-                    bounds.extend([self.tangent_tolerance - error, self.tangent_tolerance + error])
-                    active += 2
+                    # A support plane is not infinite: every sole guard point
+                    # must remain inside the finite tread polygon. Convex-hull
+                    # equations are a*x+b*y+c <= 0 and are already normalized.
+                    for a, b, c in halfspaces:
+                        value = float(a * point[0] + b * point[1] + c)
+                        rows.append(a * jac[0] + b * jac[1])
+                        bounds.append(float(-self.support_inset - value))
+                        active += 1
+                if "hard_anchor" in plan:
+                    center = points.mean(axis=0)
+                    center_jac = jacobians.mean(axis=0)
+                    anchor = np.asarray(plan["hard_anchor"], dtype=float)
+                    tangents = tangent_basis(normal)
+                    for tangent in tangents.T:
+                        error = float(tangent @ (center - anchor))
+                        jac = tangent @ center_jac
+                        rows.extend([jac, -jac])
+                        bounds.extend([self.tangent_tolerance - error, self.tangent_tolerance + error])
+                        active += 2
             elif mode == "swing" and np.isfinite(plan.get("clearance_floor_z", np.nan)):
                 floor = float(plan["clearance_floor_z"]) + self.swing_margin
                 for point, jac in zip(points, jacobians):
@@ -334,17 +348,21 @@ class TerrainNativeContactTask(Task):
             if plan.get("mode") == "stance":
                 episode = tuple(plan.get("episode", ())) + (str(plan.get("patch_id", "")),)
                 if self._episode_keys.get(side) != episode:
+                    # First landing frame: enforce the finite support patch and
+                    # four-point plane, but do not immediately freeze tangential
+                    # position. This lets the soft source anchor finish the
+                    # landing without creating a large hard jump.
+                    self._episode_keys[side] = episode
+                    self._hard_anchors.pop(side, None)
+                elif side not in self._hard_anchors:
                     points = self.soles[side].points(configuration)
                     normal = _unit(plan["surface_normal"])
                     plane = np.asarray(plan["surface_point"], dtype=float)
                     center = points.mean(axis=0)
-                    # HoloSoMo-style sticking is robot-relative once contact
-                    # starts. Source terrain chooses the patch; the current
-                    # robot contact point becomes the hard tangential anchor.
                     hard_anchor = center - normal * float(normal @ (center - plane))
                     self._hard_anchors[side] = hard_anchor
-                    self._episode_keys[side] = episode
-                plan["hard_anchor"] = self._hard_anchors[side].copy()
+                if side in self._hard_anchors:
+                    plan["hard_anchor"] = self._hard_anchors[side].copy()
             else:
                 self._episode_keys[side] = None
                 self._hard_anchors.pop(side, None)
