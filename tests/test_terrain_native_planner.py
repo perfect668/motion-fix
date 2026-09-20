@@ -137,3 +137,15 @@ def test_duplicate_face_vertices_merge_into_one_support_patch():
     )
     assert len(patch_map.patches) == 1
     assert len(patch_map.patches[0].face_indices) == 2
+
+
+def test_support_patch_halfspaces_reject_infinite_plane_extension():
+    patch_map = _step_patch_map()
+    patch = next(item for item in patch_map.patches if item.patch_id != "floor")
+    inside = np.r_[patch.center[:2], 1.0]
+    inside_values = patch.xy_halfspaces @ inside
+    assert np.all(inside_values <= 1e-9)
+
+    outside = np.array([patch.xy_min[0] - 0.2, patch.center[1], 1.0])
+    outside_values = patch.xy_halfspaces @ outside
+    assert np.max(outside_values) > 0.1
