@@ -49,6 +49,7 @@ def build_support_plan(
     min_stance_frames = max(2, int(cfg.get("minimum_stance_frames", 3)))
     gap_fill_frames = max(0, int(cfg.get("contact_gap_fill_frames", 2)))
     swing_clearance = float(cfg.get("swing_clearance", 0.055))
+    require_full_sole = bool(cfg.get("source_require_full_sole_support", True))
     dt = 1.0 / max(float(fps), 1e-9)
     count = len(source_frames)
     result = [{"left": {}, "right": {}} for _ in range(count)]
@@ -68,13 +69,26 @@ def build_support_plan(
         raw_hit: list[tuple[SupportPatch, np.ndarray, float] | None] = [None] * count
         cos_limit = float(np.cos(np.deg2rad(normal_angle)))
         for index, sole in enumerate(soles):
-            hit = patch_map.support_at(
+            center_hit = patch_map.support_at(
                 sole["center"], edge_margin=edge_margin,
                 above_tolerance=contact_distance, max_gap=contact_distance,
             )
-            if hit is None:
+            if center_hit is None:
                 continue
-            patch, surface, gap = hit
+            patch, surface, gap = center_hit
+            if require_full_sole:
+                heel_hit = patch_map.support_at(
+                    sole["heel"], edge_margin=edge_margin,
+                    above_tolerance=contact_distance, max_gap=contact_distance,
+                )
+                toe_hit = patch_map.support_at(
+                    sole["toe"], edge_margin=edge_margin,
+                    above_tolerance=contact_distance, max_gap=contact_distance,
+                )
+                if heel_hit is None or toe_hit is None:
+                    continue
+                if heel_hit[0].patch_id != patch.patch_id or toe_hit[0].patch_id != patch.patch_id:
+                    continue
             if float(sole["normal"] @ patch.normal) < cos_limit:
                 continue
             if speeds[index] > max_speed:
