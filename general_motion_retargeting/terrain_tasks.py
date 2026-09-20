@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import mujoco as mj
 import numpy as np
+from mink import SO3
 from mink.tasks.task import Task
 
 from .terrain_contact_utils import same_contact_plane
@@ -17,6 +18,19 @@ def tangent_basis(normal: np.ndarray) -> np.ndarray:
     first /= max(float(np.linalg.norm(first)), 1e-12)
     second = np.cross(normal, first)
     return np.column_stack((first, second))
+
+
+def _rotation_log_left_jacobian_inverse(error: np.ndarray) -> np.ndarray:
+    """Stable at zero and pi, including older Mink versions' tiny-angle gap."""
+    x, y, z = error
+    skew = np.array([[0.0, -z, y], [z, 0.0, -x], [-y, x, 0.0]])
+    theta2 = float(error @ error)
+    if theta2 < 1e-6:
+        coefficient = 1.0 / 12.0 + theta2 / 720.0
+    else:
+        theta = np.sqrt(theta2)
+        coefficient = (1.0 - 0.5 * theta / np.tan(0.5 * theta)) / theta2
+    return np.eye(3) - 0.5 * skew + coefficient * (skew @ skew)
 
 
 class RobotPointGroup:
@@ -189,18 +203,24 @@ class TerrainFootOrientationTask(Task):
 
 
 class FootFrameTask(TerrainFootOrientationTask):
-    """Foot-frame orientation using measured heel-to-toe forward direction."""
+    """Directed SO(3) foot orientation, including partial-support phases."""
 
     def __init__(self, model, foot_bodies: dict[str, str], local_normal: np.ndarray, cost: float) -> None:
-        # TerrainFootOrientationTask has two residuals per foot; this task
-        # adds two forward-direction residuals, so allocate the matching cost
-        # vector before Mink validates task dimensions.
+        # A projected normal cannot distinguish sole-up from sole-down and
+        # has zero roll gradient at 90 degrees. Use a directed rotation error.
         self.model = model
         self.body_ids = {side: model.body(name).id for side, name in foot_bodies.items()}
         self.local_normal = np.asarray(local_normal, dtype=float)
         self.local_normal /= max(float(np.linalg.norm(self.local_normal)), 1e-12)
         self.targets = {side: {"activation": 0.0, "normal": np.array([0, 0, 1.0]), "forward": np.array([1.0, 0.0, 0.0])} for side in foot_bodies}
-        super(TerrainFootOrientationTask, self).__init__(cost=np.full(4 * len(foot_bodies), float(cost)), gain=0.45, lm_damping=1.0)
+        local_forward = np.array([1.0, 0.0, 0.0])
+        local_forward -= self.local_normal * float(local_forward @ self.local_normal)
+        if np.linalg.norm(local_forward) < 1e-8:
+            raise ValueError("Foot local normal must not be parallel to local +X")
+        local_forward /= np.linalg.norm(local_forward)
+        self.local_frame = np.column_stack((local_forward,
+            np.cross(self.local_normal, local_forward), self.local_normal))
+        super(TerrainFootOrientationTask, self).__init__(cost=np.full(3 * len(foot_bodies), float(cost)), gain=0.45, lm_damping=1.0)
 
     def set_contacts(self, contacts: dict, flat_foot: dict) -> None:
         super().set_contacts(contacts, flat_foot)
@@ -209,20 +229,47 @@ class FootFrameTask(TerrainFootOrientationTask):
             toe = contacts.get(f"{side}_toe", {})
             airborne = (str(heel.get("state", "NONE")) == "NONE"
                         and str(toe.get("state", "NONE")) == "NONE")
-            if airborne:
-                self.targets[side]["activation"] = float(heel.get("airborne_activation", 0.15))
+            flat = float(self.targets[side]["activation"]) > 0.0
+            self.targets[side]["mode"] = "flat" if flat else ("airborne" if airborne else "partial")
+            if not flat:
+                # Toe-off/heel-only contacts must retain the measured tilt.
+                # They are not flat support, but must not lose orientation.
+                key = "airborne_activation" if airborne else "partial_activation"
+                self.targets[side]["activation"] = float(heel.get(key, 0.15))
                 self.targets[side]["normal"] = np.asarray(heel.get("human_foot_normal_solver", [0, 0, 1]), dtype=float)
                 self.targets[side]["normal"] /= max(float(np.linalg.norm(self.targets[side]["normal"])), 1e-12)
             forward = np.asarray(toe.get("human_point_solver", [1, 0, 0]), dtype=float) - np.asarray(heel.get("human_point_solver", [0, 0, 0]), dtype=float)
             source_forward = np.asarray(heel.get("human_foot_forward_solver", forward), dtype=float)
             normal = self.targets[side]["normal"]
-            if airborne:
+            if not flat:
                 forward = source_forward
             forward = forward - normal * float(forward @ normal)
             if np.linalg.norm(forward) > 1e-8:
                 self.targets[side]["forward"] = forward / np.linalg.norm(forward)
             else:
-                self.targets[side]["forward"] = np.array([1.0, 0.0, 0.0])
+                self.targets[side]["forward"] = tangent_basis(normal)[:, 0]
+
+    def _target_rotation(self, side: str) -> np.ndarray:
+        target = self.targets[side]
+        normal, forward = target["normal"], target["forward"]
+        return np.column_stack((forward, np.cross(normal, forward), normal)) @ self.local_frame.T
+
+    def orientation_diagnostics(self, configuration) -> dict:
+        result = {}
+        for side, body_id in self.body_ids.items():
+            rotation = configuration.data.xmat[body_id].reshape(3, 3)
+            target = self.targets[side]
+            axis = rotation @ self.local_normal
+            error = SO3.from_matrix(self._target_rotation(side).T @ rotation).log()
+            result[side] = {
+                "mode": target.get("mode", "unset"),
+                "activation": float(target["activation"]),
+                "sole_normal_world": axis.tolist(),
+                "target_normal_world": target["normal"].tolist(),
+                "sole_target_angle_deg": float(np.rad2deg(np.arccos(np.clip(axis @ target["normal"], -1, 1)))),
+                "frame_error_deg": float(np.rad2deg(np.linalg.norm(error))),
+            }
+        return result
 
     def compute_error(self, configuration) -> np.ndarray:
         residual = []
@@ -230,26 +277,21 @@ class FootFrameTask(TerrainFootOrientationTask):
             target = self.targets[side]
             activation = float(target["activation"])
             rotation = configuration.data.xmat[body_id].reshape(3, 3)
-            axis = rotation @ self.local_normal
-            tangent = tangent_basis(target["normal"])
-            actual_forward = rotation[:, 0]
-            residual.extend(activation * np.r_[tangent.T @ axis, tangent.T @ (actual_forward - target["forward"])])
+            relative = self._target_rotation(side).T @ rotation
+            residual.extend(activation * SO3.from_matrix(relative).log())
         return np.asarray(residual)
 
     def compute_jacobian(self, configuration) -> np.ndarray:
-        jacobian = np.zeros((4 * len(self.body_ids), self.model.nv))
+        jacobian = np.zeros((3 * len(self.body_ids), self.model.nv))
         for index, (side, body_id) in enumerate(self.body_ids.items()):
             target = self.targets[side]
             jacp = np.zeros((3, self.model.nv)); jacr = np.zeros((3, self.model.nv))
             mj.mj_jacBody(self.model, configuration.data, jacp, jacr, body_id)
             rotation = configuration.data.xmat[body_id].reshape(3, 3)
-            tangent = tangent_basis(target["normal"])
-            axis = rotation @ self.local_normal
-            skew_axis = np.array([[0, -axis[2], axis[1]], [axis[2], 0, -axis[0]], [-axis[1], axis[0], 0]])
-            actual_forward = rotation[:, 0]
-            skew_forward = np.array([[0, -actual_forward[2], actual_forward[1]], [actual_forward[2], 0, -actual_forward[0]], [-actual_forward[1], actual_forward[0], 0]])
-            rows = np.vstack((tangent.T @ (-skew_axis @ jacr), tangent.T @ (-skew_forward @ jacr)))
-            jacobian[4 * index:4 * index + 4] = target["activation"] * rows
+            desired = self._target_rotation(side)
+            error = SO3.from_matrix(desired.T @ rotation).log()
+            rows = _rotation_log_left_jacobian_inverse(error) @ desired.T @ jacr
+            jacobian[3 * index:3 * index + 3] = target["activation"] * rows
         return jacobian
 
 

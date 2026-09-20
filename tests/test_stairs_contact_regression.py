@@ -93,7 +93,9 @@ def test_toe_support_is_not_airborne_and_true_flight_keeps_source_orientation():
     heel = {**_contact("NONE", 0), "human_foot_normal_solver": np.array([0, 1., 0])}
     toe = {**_contact(), "human_point_solver": np.array([.2, 0, 0])}
     task.set_contacts({"left_heel": heel, "left_toe": toe}, {"left": 0.0})
-    assert task.targets["left"]["activation"] == 0.0
+    assert task.targets["left"]["mode"] == "partial"
+    assert task.targets["left"]["activation"] == .15
+    np.testing.assert_allclose(task.targets["left"]["normal"], [0, 1, 0])
     task.set_contacts({"left_heel": heel, "left_toe": {**toe, "state": "NONE"}}, {"left": 0.0})
     np.testing.assert_allclose(task.targets["left"]["normal"], [0, 1, 0])
     assert task.targets["left"]["activation"] == .15
