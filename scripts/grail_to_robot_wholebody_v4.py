@@ -412,6 +412,15 @@ def main() -> None:
         native_cfg.get("support_patches", {}),
     )
 
+    floor_z = float(scene_transform.transform_points(np.array([0.0, 0.0, 0.0]))[2])
+    floor_margin = 2.0
+    patch_map.add_horizontal_patch(
+        "floor",
+        floor_z,
+        patch_map.vertices[:, :2].min(axis=0) - floor_margin,
+        patch_map.vertices[:, :2].max(axis=0) + floor_margin,
+    )
+
     # Feed visual scene samples into the Omni interaction pool as well as the
     # collision model.  The adapter's terrain sampler remains the source of
     # floor samples.  Only object samples in the tracked human-proximity
