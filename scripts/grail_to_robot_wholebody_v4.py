@@ -189,7 +189,6 @@ def main() -> None:
     import grail_to_robot_wholebody_v3 as impl
     from general_motion_retargeting.scene_asset_loader import decompose_cached, load_scene_asset
     from general_motion_retargeting.scene_mujoco import build_scene_model
-    from general_motion_retargeting.wholebody_omni_gmr_v4 import WholeBodyOmniGMRV4
     from general_motion_retargeting.asset_interaction_transform import AssetInteractionTransform
 
     # Parse only enough metadata to construct the combined MuJoCo model.  The
