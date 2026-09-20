@@ -518,13 +518,30 @@ def main() -> None:
             schedule, source_frames, scene_mesh.vertices, scene_mesh.faces,
             scene.objects[0].object_id, scene_mesh.object_pose, mesh_cfg,
         )
-        return apply_terrain_native_plan(
+        planner_cfg = config.get("terrain_native", {}).get("planner", {})
+        schedule = apply_terrain_native_plan(
             schedule,
             source_frames,
             patch_map,
             float(known.tgt_fps),
-            config.get("terrain_native", {}).get("planner", {}),
+            planner_cfg,
         )
+        if bool(planner_cfg.get("require_nonfloor_support", False)):
+            support_ids = {
+                str(frame.get("terrain_native", {}).get(side, {}).get("patch_id", ""))
+                for frame in schedule
+                for side in ("left", "right")
+                if frame.get("terrain_native", {}).get(side, {}).get("mode") == "stance"
+            }
+            support_ids.discard("")
+            support_ids.discard("floor")
+            if not support_ids:
+                raise RuntimeError(
+                    "Terrain-native planner found no non-floor foot support episode. "
+                    "Check source/scene alignment instead of falling back to reactive "
+                    "robot-side stair contact."
+                )
+        return schedule
     impl.CONTACT_SURFACE_PROVIDER = _mesh_contact_provider
     try:
         # The shared adapter intentionally knows only its stable public CLI.
