@@ -172,7 +172,11 @@ def build_support_plan(
                     "previous_patch_id": prev_id,
                     "landing_patch_id": next_id,
                     "swing_phase": float(phase),
-                    "clearance_floor_z": float(max(source_center[2], top + arc)),
+                    # This is only a geometric obstacle-clearance lower bound.
+                    # Do not hard-copy the taller source human's absolute foot
+                    # height into the robot constraint; the interaction mesh
+                    # remains responsible for motion/shape preservation.
+                    "clearance_floor_z": float(top + arc),
                     "source_center": source_center.copy(),
                     "source_forward": sole["forward"].copy(),
                     "source_normal": sole["normal"].copy(),
