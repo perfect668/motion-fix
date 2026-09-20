@@ -216,6 +216,8 @@ class TerrainPatchMap:
         refs = np.asarray(references, dtype=float).reshape((-1, 3))
         support_candidates = []
         for patch in self.patches:
+            if patch.patch_id == "floor":
+                continue
             support_candidates.append(patch.center)
             support_candidates.extend(patch.triangles.reshape(-1, 3))
         support = np.unique(np.round(np.asarray(support_candidates), 9), axis=0)
