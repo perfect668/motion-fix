@@ -300,7 +300,7 @@
       "source_contact_distance": 0.055,
       "source_edge_margin": 0.025,
       "source_normal_angle_deg": 40,
-      "source_contact_speed": 0.3,
+      "source_contact_speed": 0.5,
       "minimum_stance_frames": 3,
       "contact_gap_fill_frames": 2,
       "swing_clearance": 0.055,
