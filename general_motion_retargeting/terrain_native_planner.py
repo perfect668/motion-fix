@@ -142,6 +142,7 @@ def build_support_plan(
                     "patch_id": patch_id,
                     "surface_point": patch.plane_point(sole["center"][:2]),
                     "surface_normal": patch.normal.copy(),
+                    "patch_xy_halfspaces": patch.xy_halfspaces.copy(),
                     "anchor": anchor.copy(),
                     "source_center": sole["center"].copy(),
                     "source_forward": sole["forward"].copy(),
