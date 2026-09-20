@@ -163,8 +163,9 @@ OmniRetarget 的 climbing 思路放到主干：
    优先给可支撑的上表面，同时保留一部分普通 mesh 点描述 riser / edge。
    Interaction Laplacian 使用按边长衰减的稀疏权重，减少远处环境边稀释。
 4. NE01 每只脚使用 4 个现有 sole guard site 作为一个刚性脚底 patch。
-   stance 时四点共同受同一支撑平面约束，并在 episode 开始后做 robot-relative
-   tangential sticking；不再依赖单独的 FootFrameTask 去猜脚底方向。
+   stance 时四点共同受同一支撑平面约束，而且四点必须落在该 tread 的有限
+   convex support polygon 内（不是无限平面的延长线）；episode 落地后再做
+   robot-relative tangential sticking。不再依赖单独的 FootFrameTask 去猜脚底方向。
 5. swing 时四个 sole 点都受到未来 landing patch 的高度走廊约束。MuJoCo
    scene collision 仍保留，但只作为不可穿透的可行性边界，不再承担接触规划。
 6. 如果整段 source/scene 分析完全没有得到非 floor 的 stance episode，
