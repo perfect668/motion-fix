@@ -183,7 +183,7 @@ class SolePatchConstraintLimit(Limit):
                     active += 2
                 center = points.mean(axis=0)
                 center_jac = jacobians.mean(axis=0)
-                anchor = np.asarray(plan["anchor"], dtype=float)
+                anchor = np.asarray(plan.get("hard_anchor", plan["anchor"]), dtype=float)
                 tangents = tangent_basis(normal)
                 for tangent in tangents.T:
                     error = float(tangent @ (center - anchor))
@@ -308,6 +308,8 @@ class TerrainNativeContactTask(Task):
         ) if nonfoot else None
         self.points = {} if self.legacy is None else self.legacy.points
         self.plans: dict[str, dict[str, Any]] = {}
+        self._episode_keys: dict[str, tuple | None] = {"left": None, "right": None}
+        self._hard_anchors: dict[str, np.ndarray] = {}
         self.sole_normal_cost = float(config.get("sole_normal_cost", 70.0))
         self.sole_tangent_cost = float(config.get("sole_tangent_cost", 18.0))
         self.swing_cost = float(config.get("swing_clearance_cost", 45.0))
@@ -328,7 +330,25 @@ class TerrainNativeContactTask(Task):
             self.legacy.set_contacts(configuration, {k: v for k, v in contacts.items() if k in self.points})
         plans = {}
         for side in ("left", "right"):
-            plans[side] = dict(contacts.get(f"{side}_heel", {}).get("terrain_native", {}))
+            plan = dict(contacts.get(f"{side}_heel", {}).get("terrain_native", {}))
+            if plan.get("mode") == "stance":
+                episode = tuple(plan.get("episode", ())) + (str(plan.get("patch_id", "")),)
+                if self._episode_keys.get(side) != episode:
+                    points = self.soles[side].points(configuration)
+                    normal = _unit(plan["surface_normal"])
+                    plane = np.asarray(plan["surface_point"], dtype=float)
+                    center = points.mean(axis=0)
+                    # HoloSoMo-style sticking is robot-relative once contact
+                    # starts. Source terrain chooses the patch; the current
+                    # robot contact point becomes the hard tangential anchor.
+                    hard_anchor = center - normal * float(normal @ (center - plane))
+                    self._hard_anchors[side] = hard_anchor
+                    self._episode_keys[side] = episode
+                plan["hard_anchor"] = self._hard_anchors[side].copy()
+            else:
+                self._episode_keys[side] = None
+                self._hard_anchors.pop(side, None)
+            plans[side] = plan
         self.plans = plans
         self.sole_limit.set_plan(plans)
 
