@@ -202,6 +202,7 @@ def main() -> None:
     parser.add_argument("--scene_cache", type=Path, default=ROOT / ".cache" / "scene_collision")
     parser.add_argument("--object_asset", type=Path, default=None,
                         help="Optional resolved USD/OBJ asset when metadata object_path is dataset-relative")
+    parser.add_argument("--tgt_fps", type=float, default=50.0)
     known, _ = parser.parse_known_args()
     with known.motion.open("rb") as stream:
         record = pickle.load(stream)
@@ -398,6 +399,19 @@ def main() -> None:
     effective_path = work / f".{known.save_path.stem}_v4_config.json"
     effective_path.write_text(json.dumps(effective, indent=2))
 
+    from general_motion_retargeting.terrain_native_geometry import TerrainPatchMap
+    from general_motion_retargeting.terrain_native_planner import apply_terrain_native_plan
+    from general_motion_retargeting.wholebody_terrain_native import TerrainNativeRetargeter
+
+    native_cfg = effective.get("terrain_native", {})
+    patch_map = TerrainPatchMap.from_mesh(
+        scene_mesh.vertices,
+        scene_mesh.faces,
+        scene_mesh.object_pose,
+        scene.objects[0].object_id,
+        native_cfg.get("support_patches", {}),
+    )
+
     # Feed visual scene samples into the Omni interaction pool as well as the
     # collision model.  The adapter's terrain sampler remains the source of
     # floor samples.  Only object samples in the tracked human-proximity
@@ -414,18 +428,27 @@ def main() -> None:
     )
 
     def _near_human_scene_samples(references: np.ndarray) -> np.ndarray:
-        if scene_sample_limit == 0 or len(object_samples) == 0:
+        if scene_sample_limit == 0:
             return np.empty((0, 3), dtype=float)
         references = np.asarray(references, dtype=float).reshape((-1, 3))
         if len(references) == 0:
             return np.empty((0, 3), dtype=float)
+
+        # Climbing is support-surface dominated. Reserve most scene samples
+        # for connected upward patches, as HoloSoMo does for climbing, then
+        # keep generic nearby samples so risers and edges remain represented.
+        support_count = max(1, int(round(scene_sample_limit * 0.75)))
+        support_pool = patch_map.interaction_samples(references, support_count)
+        remaining = max(0, scene_sample_limit - len(support_pool))
+        if remaining == 0 or len(object_samples) == 0:
+            return support_pool
         nearest = np.min(
             np.sum((object_samples[:, None, :] - references[None, :, :]) ** 2, axis=-1),
             axis=1,
         )
-        count = min(scene_sample_limit, len(object_samples))
-        selected = np.argsort(nearest, kind="stable")[:count]
-        return object_samples[selected].copy()
+        selected = np.argsort(nearest, kind="stable")[: min(remaining, len(object_samples))]
+        general_pool = object_samples[selected].copy()
+        return np.vstack((support_pool, general_pool))
 
     def _interaction_pool(terrain, references, **kwargs):
         terrain_pool = np.asarray(
@@ -440,15 +463,28 @@ def main() -> None:
     # The pool now contains terrain samples plus a bounded, human-proximal
     # subset of the object surface.  Remote object geometry is excluded so it
     # cannot pull unrelated limbs through the Laplacian task.
-    class _GrailV4Diagnostics(WholeBodyOmniGMRV4):
-        """V4 solver with scene-sample provenance in per-frame diagnostics."""
+    class _GrailTerrainNativeRetargeter(TerrainNativeRetargeter):
+        """Terrain-native solver with scene interaction provenance."""
+
+        def __init__(self, config_path, terrain, environment_pool, fps=50.0, solver="daqp"):
+            super().__init__(
+                config_path, terrain, environment_pool,
+                patch_map=patch_map, fps=fps, solver=solver,
+            )
 
         def retarget(self, *args, **kwargs):
             output = super().retarget(*args, **kwargs)
             selected = np.asarray(self.interaction_task.environment, dtype=float).reshape((-1, 3))
-            if len(selected) and len(object_samples):
+            patch_centers = np.asarray(
+                [patch.center for patch in patch_map.patches], dtype=float
+            ).reshape((-1, 3))
+            catalogs = [patch_map.vertices, patch_centers]
+            if len(object_samples):
+                catalogs.append(object_samples)
+            patch_catalog = np.vstack(catalogs)
+            if len(selected) and len(patch_catalog):
                 distances = np.min(
-                    np.sum((selected[:, None, :] - object_samples[None, :, :]) ** 2, axis=-1),
+                    np.sum((selected[:, None, :] - patch_catalog[None, :, :]) ** 2, axis=-1),
                     axis=1,
                 )
                 scene_count = int(np.count_nonzero(distances <= 1e-14))
@@ -458,14 +494,27 @@ def main() -> None:
             self.diagnostics[-1]["interaction_terrain_selected_points"] = int(len(selected) - scene_count)
             return output
 
-    impl.RETARGETER_CLASS = _GrailV4Diagnostics
+    impl.RETARGETER_CLASS = _GrailTerrainNativeRetargeter
     impl.DEFAULT_CONFIG = effective_path
     from general_motion_retargeting.terrain_contact_utils import augment_mesh_contact_schedule
     def _mesh_contact_provider(schedule, source_frames, config):
-        return augment_mesh_contact_schedule(
+        # Generic non-foot scene contacts remain available, but feet are owned
+        # exclusively by the sequence-level terrain-native planner.
+        mesh_cfg = copy.deepcopy(config.get("terrain_contact", {}))
+        mesh_cfg["channels"] = [
+            name for name in mesh_cfg.get("channels", ())
+            if not name.endswith(("heel", "toe"))
+        ]
+        schedule = augment_mesh_contact_schedule(
             schedule, source_frames, scene_mesh.vertices, scene_mesh.faces,
-            scene.objects[0].object_id, scene_mesh.object_pose,
-            config.get("terrain_contact", {}),
+            scene.objects[0].object_id, scene_mesh.object_pose, mesh_cfg,
+        )
+        return apply_terrain_native_plan(
+            schedule,
+            source_frames,
+            patch_map,
+            float(known.tgt_fps),
+            config.get("terrain_native", {}).get("planner", {}),
         )
     impl.CONTACT_SURFACE_PROVIDER = _mesh_contact_provider
     try:
@@ -511,6 +560,8 @@ def main() -> None:
             summary["coacd_piece_count"] = int(len(manifest.get("pieces", [])))
             summary["collision_geoms"] = summary["mujoco_scene_geom_count"]
             summary["convex_pieces"] = summary["coacd_piece_count"]
+            summary["terrain_native_patch_map"] = patch_map.summary()
+            summary["terrain_native_enabled"] = True
             summary["scene_scale"] = float(scene_transform.scale)
             summary["human_height"] = float(human_height)
             summary["reference_height"] = float(reference_height)
