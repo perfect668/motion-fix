@@ -112,12 +112,23 @@ class TerrainPatchMap:
             if ra != rb:
                 parent[max(ra, rb)] = min(ra, rb)
 
-        edge_to_faces: dict[tuple[int, int], list[int]] = {}
+        # Group by geometric edges rather than raw vertex indices. USD/OBJ
+        # exporters often duplicate vertices per face; index-only adjacency
+        # would split one physical tread into many tiny support patches.
+        edge_quantization = float(cfg.get("patch_edge_quantization", 1e-6))
+        quant = max(edge_quantization, 1e-10)
+
+        def vertex_key(value: np.ndarray) -> tuple[int, int, int]:
+            return tuple(np.rint(np.asarray(value, dtype=float) / quant).astype(np.int64).tolist())
+
+        edge_to_faces: dict[tuple[tuple[int, int, int], tuple[int, int, int]], list[int]] = {}
         support_set = set(int(i) for i in support)
         for face_index in support:
-            face = faces[int(face_index)]
-            for u, v in zip(face, np.roll(face, -1)):
-                edge_to_faces.setdefault(tuple(sorted((int(u), int(v)))), []).append(int(face_index))
+            tri = triangles[int(face_index)]
+            for u, v in zip(tri, np.roll(tri, -1, axis=0)):
+                ku, kv = vertex_key(u), vertex_key(v)
+                edge = tuple(sorted((ku, kv)))
+                edge_to_faces.setdefault(edge, []).append(int(face_index))
 
         cos_limit = float(np.cos(np.deg2rad(normal_angle_deg)))
         centers = triangles.mean(axis=1)
